@@ -546,6 +546,21 @@ export default function CompanyConversations() {
     if (!msgText.trim() && !audio && !attachedFile) return
     setSending(true)
     try {
+      // Auto-assume se ainda não está atribuído a ninguém
+      if (!attendancesMap[selected.session_id] && !closedMap[selected.session_id]) {
+        const name = session?.user?.name || 'Atendente'
+        const newAtt = {
+          numero: selected.session_id, instancia: instance,
+          sector_id: userSector?.id || null,
+          sector_name: userSector?.name || null,
+          sector_color: userSector?.color || '#6B7280',
+          attendant_name: name, attendant_email: session?.user?.email,
+          assumed_at: new Date().toISOString(),
+        }
+        await supabase.from('attendances').upsert(newAtt, { onConflict: 'numero,instancia' })
+        setAttendancesMap(prev => ({ ...prev, [selected.session_id]: newAtt }))
+        setTab('meu-setor')
+      }
       const text = msgText.trim()
       const file = attachedFile
       setMsgText('')
