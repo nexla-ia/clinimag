@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2 } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon } from 'lucide-react'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -117,10 +117,12 @@ export default function CompanyConversations() {
   const [recording, setRecording]     = useState(false)
   const [recordedAudio, setRecordedAudio] = useState(null) // { base64, mime, duration }
   const [recordTime, setRecordTime]   = useState(0)
+  const [attachedFile, setAttachedFile] = useState(null) // { base64, mime, name, size, kind: 'image'|'pdf'|'file' }
   const mediaRecorderRef = useRef(null)
   const audioChunksRef   = useRef([])
   const recordTimerRef   = useRef(null)
   const recordStartRef   = useRef(0)
+  const fileInputRef     = useRef(null)
   const bottomRef    = useRef(null)
   const selectedRef  = useRef(null)
   const autoCloseDone = useRef(false)
@@ -405,17 +407,51 @@ export default function CompanyConversations() {
     setRecordTime(0)
   }
 
+  async function handlePickFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const MAX = 15 * 1024 * 1024 // 15 MB
+    if (file.size > MAX) {
+      setToast({ message: 'Arquivo muito grande (máx 15 MB)', color: '#DC2626' })
+      setTimeout(() => setToast(null), 3000)
+      return
+    }
+    const buf = await file.arrayBuffer()
+    const bytes = new Uint8Array(buf)
+    let bin = ''
+    const chunk = 0x8000
+    for (let i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+    }
+    const base64 = btoa(bin)
+    const kind = file.type.startsWith('image/') ? 'image'
+      : file.type === 'application/pdf' ? 'pdf'
+      : 'file'
+    setAttachedFile({ base64, mime: file.type || 'application/octet-stream', name: file.name, size: file.size, kind })
+  }
+
+  function discardFile() {
+    setAttachedFile(null)
+  }
+
   async function handleSend() {
-    if ((!msgText.trim() && !recordedAudio) || !selected || sending) return
+    if ((!msgText.trim() && !recordedAudio && !attachedFile) || !selected || sending) return
     setSending(true)
     try {
       const text = msgText.trim()
       const audio = recordedAudio
+      const file = attachedFile
       setMsgText('')
       setRecordedAudio(null)
       setRecordTime(0)
+      setAttachedFile(null)
 
-      const mensagemPayload = audio ? (text || '🎤 Áudio') : text
+      const mensagemPayload = audio
+        ? (text || '🎤 Áudio')
+        : file
+          ? (text || (file.kind === 'image' ? '🖼️ ' + file.name : file.kind === 'pdf' ? '📄 ' + file.name : '📎 ' + file.name))
+          : text
       const { error: insErr } = await supabase.rpc('send_mensagem_geral', {
         p_instancia: instance,
         p_numero: selected.session_id,
@@ -433,6 +469,10 @@ export default function CompanyConversations() {
           audio_base64: audio?.base64 || null,
           audio_mime: audio?.mime || null,
           audio_duration: audio?.duration || null,
+          file_base64: file?.base64 || null,
+          file_mime: file?.mime || null,
+          file_name: file?.name || null,
+          file_kind: file?.kind || null,
           session_id: selected.session_id,
           phone: selected.phone,
           instancia: instance,
@@ -744,6 +784,45 @@ export default function CompanyConversations() {
 
             {!isClosed && (
               <div style={{ padding: '12px 18px', borderTop: '0.5px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0 }}>
+                {attachedFile && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: '#EFF6FF', border: '1px solid #BFDBFE',
+                    borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+                  }}>
+                    {attachedFile.kind === 'image' ? (
+                      <img src={`data:${attachedFile.mime};base64,${attachedFile.base64}`}
+                        alt={attachedFile.name}
+                        style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                    ) : (
+                      <div style={{
+                        width: 44, height: 44, borderRadius: 6,
+                        background: attachedFile.kind === 'pdf' ? '#FEE2E2' : '#E5E7EB',
+                        color: attachedFile.kind === 'pdf' ? '#DC2626' : '#6B7280',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}>
+                        <FileText size={20} />
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {attachedFile.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {(attachedFile.size / 1024).toFixed(0)} KB · {attachedFile.kind === 'pdf' ? 'PDF' : attachedFile.kind === 'image' ? 'Imagem' : 'Arquivo'}
+                      </div>
+                    </div>
+                    <button onClick={discardFile} title="Remover arquivo"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        background: '#FEF2F2', border: '1px solid #FECACA',
+                        color: '#DC2626', borderRadius: 6, padding: '5px 10px',
+                        fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+                      }}>
+                      <Trash2 size={11} /> Remover
+                    </button>
+                  </div>
+                )}
                 {recordedAudio && (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 10,
@@ -785,31 +864,56 @@ export default function CompanyConversations() {
                   <input
                     className="nx-input"
                     style={{ flex: 1, fontSize: 13 }}
-                    placeholder={recordedAudio ? "Mensagem opcional para acompanhar o áudio..." : "Digite uma mensagem..."}
+                    placeholder={
+                      recordedAudio ? "Mensagem opcional para acompanhar o áudio..."
+                      : attachedFile ? "Mensagem opcional para acompanhar o arquivo..."
+                      : "Digite uma mensagem..."
+                    }
                     value={msgText}
                     onChange={e => setMsgText(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
                     disabled={sending || recording}
                   />
-                  {!recording && !recordedAudio && (
-                    <button
-                      onClick={startRecording}
-                      title="Gravar áudio"
-                      style={{
-                        padding: '0 14px', flexShrink: 0,
-                        background: '#fff', border: '1px solid var(--border)',
-                        borderRadius: 8, color: '#6B7280', cursor: 'pointer',
-                        display: 'inline-flex', alignItems: 'center',
-                      }}
-                    >
-                      <Mic size={15} />
-                    </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={handlePickFile}
+                  />
+                  {!recording && !recordedAudio && !attachedFile && (
+                    <>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Anexar imagem ou PDF"
+                        style={{
+                          padding: '0 14px', flexShrink: 0,
+                          background: '#fff', border: '1px solid var(--border)',
+                          borderRadius: 8, color: '#6B7280', cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center',
+                        }}
+                      >
+                        <Paperclip size={15} />
+                      </button>
+                      <button
+                        onClick={startRecording}
+                        title="Gravar áudio"
+                        style={{
+                          padding: '0 14px', flexShrink: 0,
+                          background: '#fff', border: '1px solid var(--border)',
+                          borderRadius: 8, color: '#6B7280', cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center',
+                        }}
+                      >
+                        <Mic size={15} />
+                      </button>
+                    </>
                   )}
                   <button
                     className="nx-btn-primary"
                     style={{ padding: '0 16px', flexShrink: 0 }}
                     onClick={handleSend}
-                    disabled={(!msgText.trim() && !recordedAudio) || sending || recording}
+                    disabled={(!msgText.trim() && !recordedAudio && !attachedFile) || sending || recording}
                   >
                     <Send size={14} />
                   </button>
