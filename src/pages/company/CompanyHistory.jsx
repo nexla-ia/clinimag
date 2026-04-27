@@ -459,6 +459,30 @@ export default function CompanyHistory() {
                                 <img src={src} alt="mídia" style={{ maxWidth: 280, width: '100%', borderRadius: 8, display: 'block', marginBottom: hasOnlyMedia ? 0 : 6, cursor: 'zoom-in' }}
                                   onClick={() => setLightbox(src)} />
                               )
+                              if (media.type === 'pdf') {
+                                const fileName = (msg.content || '').replace(/^📄\s*/, '').trim() || 'documento.pdf'
+                                return (
+                                  <a href={src} download={fileName} target="_blank" rel="noreferrer"
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 10,
+                                      background: '#FEF2F2', border: '1px solid #FECACA',
+                                      borderRadius: 8, padding: '10px 14px', textDecoration: 'none',
+                                      minWidth: 220, marginBottom: hasOnlyMedia ? 0 : 6,
+                                    }}>
+                                    <div style={{
+                                      width: 36, height: 36, borderRadius: 6, background: '#FEE2E2',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      color: '#DC2626', fontWeight: 700, fontSize: 11, flexShrink: 0,
+                                    }}>PDF</div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {fileName}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#6B7280' }}>Clique para baixar/abrir</div>
+                                    </div>
+                                  </a>
+                                )
+                              }
                               return null
                             })()}
                             {isImage && !msg.base64 && (
