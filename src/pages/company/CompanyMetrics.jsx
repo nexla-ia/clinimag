@@ -68,8 +68,9 @@ export default function CompanyMetrics() {
     setLoading(true)
     const { data, error } = await supabase
       .from(contactsTable)
-      .select('id, nome, created_at, primeiro_contato, ultima_mensagem, data_ultimaMensagem, classificacao_lead, origem')
+      .select('*')
       .eq('instancia', instance)
+    if (error) console.error('CompanyMetrics load:', error)
     if (!error && data) setLeads(data)
     setLoading(false)
     setLastRefresh(new Date())
@@ -81,7 +82,9 @@ export default function CompanyMetrics() {
     const { from, to } = getPeriodRange(period)
     if (!from && !to) return leads
     return leads.filter(l => {
+      if (!l.created_at) return false
       const d = new Date(l.created_at)
+      if (isNaN(d.getTime())) return false
       if (from && d < from) return false
       if (to && d > to) return false
       return true
