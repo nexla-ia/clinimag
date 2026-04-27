@@ -95,6 +95,7 @@ export default function AdmCompanyDetail() {
       maxUsers: company.max_users ?? 5,
       digisacUrl: company.digisac_url || '',
       aiEnabled: company.ai_enabled !== false,
+      evolutionUrl: company.evolution_url || '',
     })
     setCompanyErr('')
     setCompanyModal(true)
@@ -115,6 +116,7 @@ export default function AdmCompanyDetail() {
       max_users: parseInt(companyForm.maxUsers) || 5,
       digisac_url: companyForm.digisacUrl?.trim() || null,
       ai_enabled: !!companyForm.aiEnabled,
+      evolution_url: companyForm.evolutionUrl?.trim().replace(/\/+$/, '') || null,
     }).eq('id', company.id)
     setSaving(false)
     if (error) { setCompanyErr('Erro ao salvar: ' + error.message); return }
@@ -566,6 +568,11 @@ export default function AdmCompanyDetail() {
                 <label style={labelStyle}>URL Digisac <span style={{ fontWeight: 400, textTransform: 'none' }}>(deixe vazio se não usa)</span></label>
                 <input className="nx-input" placeholder="Ex: https://suaempresa.digisac.com.br" value={companyForm.digisacUrl}
                   onChange={e => setCompanyForm(p => ({ ...p, digisacUrl: e.target.value }))} />
+              </div>
+              <div>
+                <label style={labelStyle}>URL Evolution API <span style={{ fontWeight: 400, textTransform: 'none' }}>(servidor onde está a instância)</span></label>
+                <input className="nx-input" placeholder="Ex: https://evo.medicinamkt.com.br" value={companyForm.evolutionUrl}
+                  onChange={e => setCompanyForm(p => ({ ...p, evolutionUrl: e.target.value }))} />
               </div>
               <div>
                 <label style={labelStyle}>Atendimento por IA</label>

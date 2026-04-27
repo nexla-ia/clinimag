@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil } from 'lucide-react'
+import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil, QrCode, Wifi, WifiOff, LogOut } from 'lucide-react'
 import './Company.css'
 
 const SECTOR_COLORS = ['#2563EB', '#16A34A', '#7C3AED', '#DC2626', '#D97706', '#0891B2']
@@ -45,6 +45,83 @@ export default function CompanyAdmin() {
   const [editUserModal, setEditUserModal] = useState(null) // user being edited
   const [editUserForm, setEditUserForm] = useState({ name: '', email: '', password: '', role: 'viewer' })
   const [editUserErr, setEditUserErr]   = useState('')
+
+  const evolutionUrl = session?.company?.evolution_url
+  const apiKey       = session?.company?.api_instancia
+  const [connState, setConnState]   = useState('unknown') // 'open' | 'connecting' | 'close' | 'unknown'
+  const [qrBase64, setQrBase64]     = useState(null)
+  const [qrLoading, setQrLoading]   = useState(false)
+  const [qrErr, setQrErr]           = useState('')
+
+  async function fetchState() {
+    if (!evolutionUrl || !instance || !apiKey) return null
+    try {
+      const res = await fetch(`${evolutionUrl}/instance/connectionState/${instance}`, {
+        headers: { apikey: apiKey },
+      })
+      const data = await res.json()
+      const state = data?.instance?.state || data?.state || 'unknown'
+      setConnState(state)
+      return state
+    } catch (e) {
+      setConnState('unknown')
+      return null
+    }
+  }
+
+  useEffect(() => {
+    if (!evolutionUrl || !instance || !apiKey) return
+    fetchState()
+    const t = setInterval(fetchState, 8000)
+    return () => clearInterval(t)
+  }, [evolutionUrl, instance, apiKey])
+
+  async function handleGenerateQR() {
+    if (!evolutionUrl || !instance || !apiKey) {
+      setQrErr('Configuração de Evolution incompleta. Contate o administrador.'); return
+    }
+    setQrLoading(true)
+    setQrErr('')
+    setQrBase64(null)
+    try {
+      const res = await fetch(`${evolutionUrl}/instance/connect/${instance}`, {
+        headers: { apikey: apiKey },
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const b64 = data?.base64 || data?.qrcode?.base64 || data?.qrcode || null
+      if (!b64) throw new Error('QR Code não retornado pela Evolution')
+      setQrBase64(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`)
+      // Polling rápido enquanto aguarda escaneamento
+      let attempts = 0
+      const fast = setInterval(async () => {
+        attempts++
+        const s = await fetchState()
+        if (s === 'open' || attempts > 40) {
+          clearInterval(fast)
+          if (s === 'open') setQrBase64(null)
+        }
+      }, 3000)
+    } catch (e) {
+      setQrErr('Erro ao gerar QR Code: ' + e.message)
+    } finally {
+      setQrLoading(false)
+    }
+  }
+
+  async function handleLogout() {
+    if (!evolutionUrl || !instance || !apiKey) return
+    if (!confirm('Desconectar a instância do WhatsApp? Será necessário escanear o QR novamente para reconectar.')) return
+    try {
+      await fetch(`${evolutionUrl}/instance/logout/${instance}`, {
+        method: 'DELETE', headers: { apikey: apiKey },
+      })
+      setQrBase64(null)
+      fetchState()
+    } catch (e) {
+      setQrErr('Erro ao desconectar: ' + e.message)
+    }
+  }
 
   useEffect(() => {
     if (!companyId) return
@@ -161,6 +238,91 @@ export default function CompanyAdmin() {
 
   return (
     <div className="page-enter">
+      {/* Conexão WhatsApp */}
+      <div className="page-body">
+        <div className="section-header">
+          <div className="section-title">Conexão WhatsApp</div>
+        </div>
+        <div className="nx-card" style={{ padding: '1.25rem 1.5rem' }}>
+          {!evolutionUrl || !instance || !apiKey ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              Configuração de Evolution não cadastrada. Solicite ao administrador para preencher os campos
+              <strong> URL Evolution API</strong>, <strong>Instância</strong> e <strong>API Instância</strong>.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {connState === 'open' ? (
+                    <>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#F0FDF4', border: '1px solid #BBF7D0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Wifi size={16} style={{ color: '#16A34A' }} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#16A34A' }}>Conectado</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Instância <strong>{instance}</strong> ativa e pronta para receber mensagens.</div>
+                      </div>
+                    </>
+                  ) : connState === 'connecting' ? (
+                    <>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FEF3C7', border: '1px solid #FDE68A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <RefreshCw size={16} style={{ color: '#D97706' }} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#D97706' }}>Aguardando leitura</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Escaneie o QR Code abaixo no WhatsApp.</div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FEF2F2', border: '1px solid #FECACA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <WifiOff size={16} style={{ color: '#DC2626' }} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#DC2626' }}>Desconectado</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Gere o QR Code para conectar a instância <strong>{instance}</strong>.</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {connState === 'open' ? (
+                    <button onClick={handleLogout}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      <LogOut size={13} /> Desconectar
+                    </button>
+                  ) : (
+                    <button onClick={handleGenerateQR} disabled={qrLoading}
+                      className="nx-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '8px 14px' }}>
+                      <QrCode size={13} /> {qrLoading ? 'Gerando...' : (qrBase64 ? 'Atualizar QR' : 'Gerar QR Code')}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {qrErr && (
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626' }}>
+                  {qrErr}
+                </div>
+              )}
+
+              {qrBase64 && connState !== 'open' && (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                  padding: '16px', background: '#F8FAFC', border: '1px solid var(--border)', borderRadius: 10,
+                }}>
+                  <img src={qrBase64} alt="QR Code WhatsApp"
+                    style={{ width: 240, height: 240, borderRadius: 8, background: '#fff', padding: 8 }} />
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', maxWidth: 380, lineHeight: 1.5 }}>
+                    Abra o <strong>WhatsApp</strong> no celular → <strong>Aparelhos conectados</strong> → <strong>Conectar um aparelho</strong> e escaneie o código.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Setores */}
       <div className="page-body">
         <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
