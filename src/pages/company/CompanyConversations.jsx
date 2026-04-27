@@ -120,6 +120,10 @@ export default function CompanyConversations() {
   const [recordedAudio, setRecordedAudio] = useState(null) // { base64, mime, duration }
   const [recordTime, setRecordTime]   = useState(0)
   const [attachedFile, setAttachedFile] = useState(null) // { base64, mime, name, size, kind: 'image'|'pdf'|'file' }
+  const [savedContacts, setSavedContacts] = useState({}) // numero (só dígitos) → { id, nome, notes }
+  const [contextMenu, setContextMenu] = useState(null) // { x, y, contact }
+  const [saveContactModal, setSaveContactModal] = useState(null) // { numero, nome, notes }
+  const [savingContact, setSavingContact] = useState(false)
   const mediaRecorderRef = useRef(null)
   const audioChunksRef   = useRef([])
   const recordTimerRef   = useRef(null)
@@ -130,6 +134,70 @@ export default function CompanyConversations() {
   const autoCloseDone = useRef(false)
 
   useEffect(() => { selectedRef.current = selected }, [selected])
+
+  // Carrega contatos salvos
+  useEffect(() => {
+    if (!instance) return
+    supabase.from('saved_contacts').select('*').eq('instancia', instance)
+      .then(({ data }) => {
+        if (data) {
+          const map = {}
+          data.forEach(c => { map[c.numero] = c })
+          setSavedContacts(map)
+        }
+      })
+    const ch = supabase.channel(`convs-saved-contacts-${instance}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'saved_contacts', filter: `instancia=eq.${instance}` },
+        (p) => {
+          if (p.eventType === 'DELETE') {
+            setSavedContacts(prev => { const n = { ...prev }; delete n[p.old.numero]; return n })
+          } else if (p.new) {
+            setSavedContacts(prev => ({ ...prev, [p.new.numero]: p.new }))
+          }
+        })
+      .subscribe()
+    return () => supabase.removeChannel(ch)
+  }, [instance])
+
+  // Fecha menu de contexto ao clicar fora
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [contextMenu])
+
+  function openSaveContact(contact) {
+    const numero = contact.phone.replace(/\D/g, '')
+    const existing = savedContacts[numero]
+    setSaveContactModal({
+      id: existing?.id || null,
+      numero,
+      nome: existing?.nome || '',
+      notes: existing?.notes || '',
+    })
+    setContextMenu(null)
+  }
+
+  async function handleSaveContact() {
+    if (!saveContactModal?.nome.trim()) return
+    setSavingContact(true)
+    const { id, numero, nome, notes } = saveContactModal
+    const { error } = id
+      ? await supabase.from('saved_contacts').update({ nome: nome.trim(), notes: notes?.trim() || null }).eq('id', id)
+      : await supabase.from('saved_contacts').insert({
+          numero, instancia: instance,
+          nome: nome.trim(), notes: notes?.trim() || null,
+          created_by_email: session?.user?.email,
+        })
+    setSavingContact(false)
+    if (!error) setSaveContactModal(null)
+    else setToast({ message: 'Erro ao salvar: ' + error.message, color: '#DC2626' })
+  }
 
   // Carrega atendimentos ativos (quem está em qual setor + atendente)
   useEffect(() => {
@@ -600,16 +668,27 @@ export default function CompanyConversations() {
             const isAssuming = assuming === c.session_id
             const closedReason = closedMap[c.session_id]
             const rs = closedReason ? REASONS.find(r => r.value === closedReason) : null
+            const cleanNum = c.phone.replace(/\D/g, '')
+            const saved = savedContacts[cleanNum]
             return (
               <div
                 key={c.session_id}
                 className={`contact-item ${selected?.session_id === c.session_id ? 'selected' : ''}`}
                 onClick={() => setSelected(c)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setContextMenu({ x: e.clientX, y: e.clientY, contact: c })
+                }}
               >
                 <div className="contact-avatar"><User size={14} style={{ opacity: 0.4 }} /></div>
                 <div className="contact-info" style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                    <div className="contact-name">{c.phone}</div>
+                    <div className="contact-name" style={saved ? { fontWeight: 600 } : {}}>
+                      {saved ? saved.nome : c.phone}
+                    </div>
+                    {saved && (
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.phone}</span>
+                    )}
                     {tab === 'recepcao' && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', lineHeight: '16px' }}>
                         <Sparkles size={9} /> IA
@@ -663,12 +742,21 @@ export default function CompanyConversations() {
               <div className="contact-avatar" style={{ width: 38, height: 38 }}>
                 <User size={14} style={{ opacity: 0.4 }} />
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 500, fontSize: 14, color: 'var(--text-primary)' }}>{selected.phone}</div>
-                {!loadingMsgs && (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{messages.length} mensagem(ns)</div>
-                )}
-              </div>
+              {(() => {
+                const cleanNum = selected.phone.replace(/\D/g, '')
+                const saved = savedContacts[cleanNum]
+                return (
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500, fontSize: 14, color: 'var(--text-primary)' }}>
+                      {saved ? saved.nome : selected.phone}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {saved && <span style={{ fontFamily: 'monospace' }}>{selected.phone}</span>}
+                      {!loadingMsgs && <span>{messages.length} mensagem(ns)</span>}
+                    </div>
+                  </div>
+                )
+              })()}
               {!isClosed && (
                 <button
                   className="nx-btn-ghost"
@@ -964,6 +1052,85 @@ export default function CompanyConversations() {
           </>
         )}
       </div>
+
+      {contextMenu && createPortal(
+        <div style={{
+          position: 'fixed', left: contextMenu.x, top: contextMenu.y, zIndex: 99998,
+          background: '#fff', border: '1px solid var(--border)',
+          borderRadius: 8, boxShadow: '0 6px 24px rgba(0,0,0,0.12)',
+          padding: 4, minWidth: 180,
+        }}
+        onClick={e => e.stopPropagation()}
+        >
+          {(() => {
+            const cleanNum = contextMenu.contact.phone.replace(/\D/g, '')
+            const saved = savedContacts[cleanNum]
+            return (
+              <button
+                onClick={() => openSaveContact(contextMenu.contact)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  padding: '8px 12px', border: 'none', background: 'transparent',
+                  fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer',
+                  borderRadius: 6, textAlign: 'left',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <User size={13} />
+                {saved ? 'Editar contato' : 'Salvar contato'}
+              </button>
+            )
+          })()}
+        </div>
+      , document.body)}
+
+      {saveContactModal && createPortal(
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+          backdropFilter: 'blur(4px)', padding: '1.5rem',
+        }}>
+          <div className="nx-card" style={{ width: '100%', maxWidth: 420 }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+                  {saveContactModal.id ? 'Editar contato' : 'Salvar contato'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
+                  {saveContactModal.numero}
+                </div>
+              </div>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => setSaveContactModal(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nome</label>
+                <input className="nx-input" autoFocus placeholder="Ex: João Silva"
+                  value={saveContactModal.nome}
+                  onChange={e => setSaveContactModal(p => ({ ...p, nome: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveContact()} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notas (opcional)</label>
+                <textarea className="nx-input" rows={3} placeholder="Anotações sobre este contato..."
+                  value={saveContactModal.notes || ''}
+                  onChange={e => setSaveContactModal(p => ({ ...p, notes: e.target.value }))} />
+              </div>
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', display: 'flex', gap: 10 }}>
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setSaveContactModal(null)}>Cancelar</button>
+              <button className="nx-btn-primary" style={{ flex: 1, justifyContent: 'center' }}
+                onClick={handleSaveContact}
+                disabled={!saveContactModal.nome.trim() || savingContact}>
+                {savingContact ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
 
       {lightbox && createPortal(
         <div

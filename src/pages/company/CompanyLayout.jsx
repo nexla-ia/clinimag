@@ -2,7 +2,7 @@ import React from 'react'
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Sidebar from '../../components/Sidebar'
-import { MessageSquare, History, BellRing, BarChart2, Settings2 } from 'lucide-react'
+import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import './Company.css'
@@ -66,6 +66,7 @@ export default function CompanyLayout() {
     { to: '/painel/conversas', icon: MessageSquare, label: 'Conversas',
       badge: activeCount > 0 ? activeCount : null, badgeColor: 'cyan' },
     { to: '/painel/historico', icon: History,       label: 'Conversas IA' },
+    { to: '/painel/contatos',  icon: Contact2,      label: 'Contatos' },
     { to: '/painel/alertas',   icon: BellRing,      label: 'Alertas',
       badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' },
     ...(isAdmin ? [
