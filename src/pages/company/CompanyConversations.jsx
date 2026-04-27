@@ -874,30 +874,44 @@ export default function CompanyConversations() {
                           : <><Bot size={10} /> IA</>}
                     </div>
                     <div className={`msg-row ${isLeft ? 'ai' : 'client'}`}>
-                      <div className="msg-bubble" style={isAtendente ? { background: '#16A34A', color: '#fff', borderBottomRightRadius: 4 } : {}}>
-                        {(() => {
-                          const media = detectMedia(msg.base64)
-                          if (!media) return null
-                          const src = `data:${media.mime};base64,${msg.base64}`
-                          if (media.type === 'audio') return (
-                            <audio controls src={src} style={{ width: '100%', maxWidth: 260, display: 'block', marginBottom: 6 }} />
-                          )
-                          if (media.type === 'image') return (
-                            <img src={src} alt="mídia" style={{ maxWidth: 280, width: '100%', borderRadius: 8, display: 'block', marginBottom: 6, cursor: 'zoom-in' }}
-                              onClick={() => setLightbox(src)} />
-                          )
-                          return null
-                        })()}
-                        {isImage && !msg.base64 && (
-                          <div style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                            fontSize: 11, fontWeight: 600, color: '#6B7280',
-                            background: '#F3F4F6', border: '1px solid #E5E7EB',
-                            borderRadius: 6, padding: '2px 8px', marginBottom: 6,
-                          }}>🖼️ Imagem enviada</div>
-                        )}
-                        {msg.content && <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>}
-                      </div>
+                      {(() => {
+                        const media = detectMedia(msg.base64)
+                        const isPlaceholder = media && /^(🎤 Áudio|🖼️ |📄 |📎 )/.test(msg.content || '')
+                        const hasOnlyMedia = media && (!msg.content || isPlaceholder)
+                        const bubbleStyle = isAtendente
+                          ? hasOnlyMedia
+                            ? { background: 'transparent', padding: 0, boxShadow: 'none', border: 'none' }
+                            : { background: '#16A34A', color: '#fff', borderBottomRightRadius: 4 }
+                          : hasOnlyMedia
+                            ? { background: 'transparent', padding: 0, boxShadow: 'none', border: 'none' }
+                            : {}
+                        return (
+                          <div className="msg-bubble" style={bubbleStyle}>
+                            {media && (() => {
+                              const src = `data:${media.mime};base64,${msg.base64}`
+                              if (media.type === 'audio') return (
+                                <audio controls src={src} style={{ width: 280, maxWidth: '100%', display: 'block', marginBottom: hasOnlyMedia ? 0 : 6 }} />
+                              )
+                              if (media.type === 'image') return (
+                                <img src={src} alt="mídia" style={{ maxWidth: 280, width: '100%', borderRadius: 8, display: 'block', marginBottom: hasOnlyMedia ? 0 : 6, cursor: 'zoom-in' }}
+                                  onClick={() => setLightbox(src)} />
+                              )
+                              return null
+                            })()}
+                            {isImage && !msg.base64 && (
+                              <div style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 5,
+                                fontSize: 11, fontWeight: 600, color: '#6B7280',
+                                background: '#F3F4F6', border: '1px solid #E5E7EB',
+                                borderRadius: 6, padding: '2px 8px', marginBottom: 6,
+                              }}>🖼️ Imagem enviada</div>
+                            )}
+                            {msg.content && !isPlaceholder && (
+                              <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     {msg.ts && (
                       <div className="msg-time" style={{ textAlign: isLeft ? 'left' : 'right' }}>
