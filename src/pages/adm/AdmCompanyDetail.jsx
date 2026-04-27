@@ -570,8 +570,8 @@ export default function AdmCompanyDetail() {
                   onChange={e => setCompanyForm(p => ({ ...p, digisacUrl: e.target.value }))} />
               </div>
               <div>
-                <label style={labelStyle}>URL Evolution API <span style={{ fontWeight: 400, textTransform: 'none' }}>(servidor onde está a instância)</span></label>
-                <input className="nx-input" placeholder="Ex: https://evo.medicinamkt.com.br" value={companyForm.evolutionUrl}
+                <label style={labelStyle}>URL Evolution API <span style={{ fontWeight: 400, textTransform: 'none' }}>(opcional — padrão: evolutionapi.nexladesenvolvimento.com.br)</span></label>
+                <input className="nx-input" placeholder="Padrão: https://evolutionapi.nexladesenvolvimento.com.br" value={companyForm.evolutionUrl}
                   onChange={e => setCompanyForm(p => ({ ...p, evolutionUrl: e.target.value }))} />
               </div>
               <div>

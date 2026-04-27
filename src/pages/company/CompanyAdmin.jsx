@@ -46,7 +46,8 @@ export default function CompanyAdmin() {
   const [editUserForm, setEditUserForm] = useState({ name: '', email: '', password: '', role: 'viewer' })
   const [editUserErr, setEditUserErr]   = useState('')
 
-  const evolutionUrl = session?.company?.evolution_url
+  const DEFAULT_EVOLUTION_URL = 'https://evolutionapi.nexladesenvolvimento.com.br'
+  const evolutionUrl = (session?.company?.evolution_url || DEFAULT_EVOLUTION_URL).replace(/\/+$/, '')
   const apiKey       = session?.company?.api_instancia
   const [connState, setConnState]   = useState('unknown') // 'open' | 'connecting' | 'close' | 'unknown'
   const [qrBase64, setQrBase64]     = useState(null)
@@ -244,10 +245,10 @@ export default function CompanyAdmin() {
           <div className="section-title">Conexão WhatsApp</div>
         </div>
         <div className="nx-card" style={{ padding: '1.25rem 1.5rem' }}>
-          {!evolutionUrl || !instance || !apiKey ? (
+          {!instance || !apiKey ? (
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              Configuração de Evolution não cadastrada. Solicite ao administrador para preencher os campos
-              <strong> URL Evolution API</strong>, <strong>Instância</strong> e <strong>API Instância</strong>.
+              Instância não configurada. Solicite ao administrador para cadastrar
+              <strong> Instância</strong> e <strong>API Instância</strong>.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
