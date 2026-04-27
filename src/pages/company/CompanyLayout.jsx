@@ -61,11 +61,12 @@ export default function CompanyLayout() {
   }, [instance])
 
   const isAdmin = session?.user?.role === 'admin'
+  const aiEnabled = session?.company?.ai_enabled !== false
 
   const links = [
     { to: '/painel/conversas', icon: MessageSquare, label: 'Conversas',
       badge: activeCount > 0 ? activeCount : null, badgeColor: 'cyan' },
-    { to: '/painel/historico', icon: History,       label: 'Conversas IA' },
+    ...(aiEnabled ? [{ to: '/painel/historico', icon: History, label: 'Conversas IA' }] : []),
     { to: '/painel/contatos',  icon: Contact2,      label: 'Contatos' },
     { to: '/painel/alertas',   icon: BellRing,      label: 'Alertas',
       badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' },
