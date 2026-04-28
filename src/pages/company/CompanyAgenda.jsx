@@ -289,8 +289,49 @@ export default function CompanyAgenda() {
   async function handleSaveAppt() {
     if (!apptModal.contact_nome?.trim()) { setApptErr('Nome do paciente é obrigatório'); return }
     if (!apptModal.date || !apptModal.time) { setApptErr('Data e hora são obrigatórios'); return }
-    setSavingAppt(true)
     const startsAt = new Date(`${apptModal.date}T${apptModal.time}:00`)
+    const duration = parseInt(apptModal.duration_minutes) || 30
+    const endsAt = new Date(startsAt.getTime() + duration * 60000)
+
+    // Validação: dia/horário do profissional
+    if (apptModal.professional_id) {
+      const pro = professionals.find(p => p.id === apptModal.professional_id)
+      if (pro) {
+        const dayOfWeek = startsAt.getDay()
+        const workingDays = pro.working_days || [1, 2, 3, 4, 5]
+        if (!workingDays.includes(dayOfWeek)) {
+          const dayLabel = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][dayOfWeek]
+          setApptErr(`${pro.name} não atende ${dayLabel.toLowerCase()}. Dias disponíveis: ${workingDays.map(d => ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d]).join(', ')}`)
+          return
+        }
+        const apptStart = startsAt.getHours() * 60 + startsAt.getMinutes()
+        const apptEnd = apptStart + duration
+        const proStart = parseInt(pro.start_time?.split(':')[0] || 8) * 60 + parseInt(pro.start_time?.split(':')[1] || 0)
+        const proEnd = parseInt(pro.end_time?.split(':')[0] || 18) * 60 + parseInt(pro.end_time?.split(':')[1] || 0)
+        if (apptStart < proStart || apptEnd > proEnd) {
+          setApptErr(`${pro.name} atende das ${pro.start_time?.slice(0,5)} às ${pro.end_time?.slice(0,5)}. Horário fora do expediente.`)
+          return
+        }
+      }
+
+      // Validação: conflito com outro agendamento do mesmo profissional
+      const conflict = appointments.find(a => {
+        if (a.id === apptModal.id) return false
+        if (a.professional_id !== apptModal.professional_id) return false
+        if (a.status === 'cancelado') return false
+        const aStart = new Date(a.starts_at).getTime()
+        const aEnd = aStart + (a.duration_minutes || 30) * 60000
+        return startsAt.getTime() < aEnd && aStart < endsAt.getTime()
+      })
+      if (conflict) {
+        const cStart = new Date(conflict.starts_at)
+        const cTime = cStart.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        setApptErr(`Conflito de horário: ${conflict.contact_nome} já está marcado às ${cTime} com este profissional.`)
+        return
+      }
+    }
+
+    setSavingAppt(true)
     const numero = apptModal.contact_numero?.replace(/\D/g, '') || null
     const payload = {
       agenda_id: apptModal.agenda_id,

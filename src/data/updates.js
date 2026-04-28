@@ -5,6 +5,20 @@
 export const UPDATES = [
   {
     date: '2026-04-28',
+    title: 'Validação de horários e conflitos no agendamento',
+    type: 'improvement',
+    tags: ['Catálogo', 'Agenda'],
+    items: [
+      'Cadastro do profissional ganhou dias e horários de atendimento',
+      'Ao criar um agendamento, o sistema valida se o dia da semana faz parte da rotina do profissional',
+      'Validação de horário: agendamento precisa estar dentro do expediente do profissional',
+      'Bloqueio de conflito: o mesmo profissional não pode ter dois pacientes no mesmo horário',
+      'Profissionais diferentes podem atender no mesmo horário sem problema',
+      'Mensagens de erro claras explicando exatamente qual restrição foi violada',
+    ],
+  },
+  {
+    date: '2026-04-28',
     title: 'Catálogo Clínico — gestão completa de profissionais, procedimentos e convênios',
     type: 'feature',
     tags: ['Catálogo', 'Agenda', 'Financeiro', 'Novo'],

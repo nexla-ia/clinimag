@@ -10,6 +10,15 @@ import {
 import './Company.css'
 
 const COLORS = ['#2563EB', '#16A34A', '#7C3AED', '#DC2626', '#D97706', '#0891B2', '#DB2777', '#059669']
+const DAYS_OF_WEEK = [
+  { num: 0, label: 'Dom' },
+  { num: 1, label: 'Seg' },
+  { num: 2, label: 'Ter' },
+  { num: 3, label: 'Qua' },
+  { num: 4, label: 'Qui' },
+  { num: 5, label: 'Sex' },
+  { num: 6, label: 'Sáb' },
+]
 const PROC_TYPES = [
   { value: 'consulta',     label: 'Consulta',     color: '#2563EB' },
   { value: 'exame',        label: 'Exame',        color: '#7C3AED' },
@@ -71,7 +80,12 @@ export default function CompanyCatalog() {
 
   // ─── Profissionais ─────────────────────────────────────────────────────────
   function openNewPro() {
-    setProModal({ name: '', specialty: '', registration: '', color: COLORS[0], active: true })
+    setProModal({
+      name: '', specialty: '', registration: '', color: COLORS[0], active: true,
+      working_days: [1, 2, 3, 4, 5],
+      start_time: '08:00',
+      end_time: '18:00',
+    })
     setErr('')
   }
   function openEditPro(p) { setProModal({ ...p }); setErr('') }
@@ -84,6 +98,9 @@ export default function CompanyCatalog() {
       registration: proModal.registration?.trim() || null,
       color: proModal.color,
       active: proModal.active !== false,
+      working_days: proModal.working_days || [1, 2, 3, 4, 5],
+      start_time: proModal.start_time || '08:00',
+      end_time: proModal.end_time || '18:00',
       instancia: instance,
     }
     const { data, error } = proModal.id
@@ -228,21 +245,34 @@ export default function CompanyCatalog() {
             <div className="nx-card" style={{ padding: 0, overflow: 'hidden' }}>
               <table className="data-table" style={{ width: '100%' }}>
                 <thead>
-                  <tr><th>Nome</th><th>Especialidade</th><th>Registro</th><th>Status</th><th style={{ textAlign: 'right' }}>Ação</th></tr>
+                  <tr><th>Nome</th><th>Especialidade</th><th>Atendimento</th><th>Status</th><th style={{ textAlign: 'right' }}>Ação</th></tr>
                 </thead>
                 <tbody>
-                  {pros.map(p => (
+                  {pros.map(p => {
+                    const days = (p.working_days || [])
+                    const dayLabels = days.map(d => DAYS_OF_WEEK.find(x => x.num === d)?.label).filter(Boolean).join('/')
+                    return (
                     <tr key={p.id}>
                       <td className="td-name">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color + '22', border: `1px solid ${p.color}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: p.color }}>
                             {p.name.charAt(0).toUpperCase()}
                           </div>
-                          <span style={{ fontWeight: 500 }}>{p.name}</span>
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{p.name}</div>
+                            {p.registration && <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{p.registration}</div>}
+                          </div>
                         </div>
                       </td>
                       <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.specialty || '—'}</td>
-                      <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.registration || '—'}</td>
+                      <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {days.length ? (
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{dayLabels}</div>
+                            <div>{p.start_time?.slice(0, 5) || '08:00'} – {p.end_time?.slice(0, 5) || '18:00'}</div>
+                          </div>
+                        ) : '—'}
+                      </td>
                       <td>
                         <span className={`nx-badge ${p.active !== false ? 'nx-badge-green' : 'nx-badge-red'}`}>
                           {p.active !== false ? 'Ativo' : 'Inativo'}
@@ -255,7 +285,7 @@ export default function CompanyCatalog() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -375,6 +405,43 @@ export default function CompanyCatalog() {
                 ))}
               </div>
             </Field>
+            <Field label="Dias de atendimento">
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {DAYS_OF_WEEK.map(d => {
+                  const active = (proModal.working_days || []).includes(d.num)
+                  return (
+                    <button key={d.num}
+                      onClick={() => setProModal(p => ({
+                        ...p,
+                        working_days: active
+                          ? (p.working_days || []).filter(n => n !== d.num)
+                          : [...(p.working_days || []), d.num].sort()
+                      }))}
+                      style={{
+                        padding: '6px 12px', borderRadius: 20,
+                        border: `1.5px solid ${active ? proModal.color : 'var(--border)'}`,
+                        background: active ? proModal.color : 'transparent',
+                        color: active ? '#fff' : 'var(--text-secondary)',
+                        fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      }}>
+                      {d.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <Field label="Horário de início">
+                <input className="nx-input" type="time"
+                  value={proModal.start_time?.slice(0, 5) || '08:00'}
+                  onChange={e => setProModal(p => ({ ...p, start_time: e.target.value }))} />
+              </Field>
+              <Field label="Horário de fim">
+                <input className="nx-input" type="time"
+                  value={proModal.end_time?.slice(0, 5) || '18:00'}
+                  onChange={e => setProModal(p => ({ ...p, end_time: e.target.value }))} />
+              </Field>
+            </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
               <input type="checkbox" checked={proModal.active !== false} onChange={e => setProModal(p => ({ ...p, active: e.target.checked }))} style={{ width: 16, height: 16 }} />
               Profissional ativo
