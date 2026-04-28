@@ -409,13 +409,18 @@ export default function CompanyAgenda() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
               {agendas.map(a => (
-                <div key={a.id} className="nx-card" style={{ padding: '1.1rem 1.25rem' }}>
+                <div key={a.id} className="nx-card"
+                  style={{ padding: '1.1rem 1.25rem', cursor: 'pointer', transition: 'all 0.15s' }}
+                  onClick={() => { setSelectedAgendaId(a.id); setTab('calendario') }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = a.color; e.currentTarget.style.boxShadow = `0 4px 12px ${a.color}22` }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = '' }}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ width: 12, height: 12, borderRadius: '50%', background: a.color }} />
                       <span style={{ fontWeight: 700, fontSize: 14 }}>{a.name}</span>
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                       <button className="table-action" onClick={() => openEditAgenda(a)}>
                         <Pencil size={11} /> Editar
                       </button>
@@ -424,7 +429,7 @@ export default function CompanyAgenda() {
                       </button>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Clock size={12} /> {a.start_time?.slice(0, 5)} – {a.end_time?.slice(0, 5)} (slots de {a.slot_minutes} min)
                     </div>
@@ -440,6 +445,17 @@ export default function CompanyAgenda() {
                         </span>
                       ))}
                     </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); setSelectedAgendaId(a.id); setTab('calendario') }}
+                      style={{
+                        marginTop: 4,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        background: a.color, color: '#fff', border: 'none',
+                        borderRadius: 6, padding: '7px 12px',
+                        fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      }}>
+                      <Calendar size={12} /> Abrir agenda
+                    </button>
                   </div>
                 </div>
               ))}
