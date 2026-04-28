@@ -12,6 +12,7 @@ import CompanyAlerts from './pages/company/CompanyAlerts'
 import CompanyConversations from './pages/company/CompanyConversations'
 import CompanyContacts from './pages/company/CompanyContacts'
 import CompanyAgenda from './pages/company/CompanyAgenda'
+import CompanyKanban from './pages/company/CompanyKanban'
 import CompanyNews from './pages/company/CompanyNews'
 import CompanyMetrics from './pages/company/CompanyMetrics'
 import CompanyAdmin from './pages/company/CompanyAdmin'
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="historico" element={<CompanyHistory />} />
             <Route path="contatos" element={<CompanyContacts />} />
             <Route path="agenda" element={<CompanyAgenda />} />
+            <Route path="atividades" element={<CompanyKanban />} />
             <Route path="novidades" element={<CompanyNews />} />
             <Route path="alertas" element={<CompanyAlerts />} />
             <Route path="metricas" element={<CompanyMetrics />} />

@@ -5,6 +5,24 @@
 export const UPDATES = [
   {
     date: '2026-04-28',
+    title: 'Quadro de Atividades (Kanban)',
+    type: 'feature',
+    tags: ['Atividades', 'Novo'],
+    items: [
+      'Nova aba "Atividades" no menu lateral com quadro Kanban',
+      'Crie colunas customizadas (A Fazer, Em Andamento, Concluído ou o que preferir)',
+      'Atalho para criar as 3 colunas padrão automaticamente',
+      'Cards com título, descrição, prioridade (Baixa/Normal/Alta/Urgente) e data de vencimento',
+      'Atribua cards a qualquer atendente da empresa',
+      'Arraste e solte cards entre colunas para mudar status',
+      'Filtros: por atendente (incluindo "Meus cards" e "Sem atribuição") e prioridade',
+      'Indicadores visuais para vencimento (Atrasado, Hoje, Amanhã, etc.)',
+      'Apenas administradores podem criar/excluir colunas; todos podem mexer nos cards',
+      'Sincronização em tempo real entre todos os usuários',
+    ],
+  },
+  {
+    date: '2026-04-28',
     title: 'Empresas sem IA — interface adaptada',
     type: 'improvement',
     tags: ['Conversas', 'Alertas'],

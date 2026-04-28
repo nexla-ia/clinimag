@@ -2,7 +2,7 @@ import React from 'react'
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Sidebar from '../../components/Sidebar'
-import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles } from 'lucide-react'
+import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { latestUpdateDate } from '../../data/updates'
@@ -74,6 +74,7 @@ export default function CompanyLayout() {
     ...(aiEnabled ? [{ to: '/painel/historico', icon: History, label: 'Conversas IA' }] : []),
     { to: '/painel/contatos',  icon: Contact2,      label: 'Contatos' },
     { to: '/painel/agenda',    icon: Calendar,      label: 'Agenda' },
+    { to: '/painel/atividades', icon: Kanban,       label: 'Atividades' },
     { to: '/painel/alertas',   icon: BellRing,      label: 'Alertas',
       badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' },
     { to: '/painel/novidades', icon: Sparkles,      label: 'Novidades',
