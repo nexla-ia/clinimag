@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import {
   Calendar, Plus, X, Pencil, Trash2, ChevronLeft, ChevronRight,
-  Clock, User as UserIcon, Phone, ListChecks, CheckCircle2, XCircle, AlertCircle, Settings
+  Clock, User as UserIcon, Phone, ListChecks, CheckCircle2, XCircle, AlertCircle, Settings,
+  MessageSquare, History
 } from 'lucide-react'
 import './Company.css'
 
@@ -71,7 +73,10 @@ function minutesToTime(min) {
 
 export default function CompanyAgenda() {
   const { session } = useAuth()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const instance = session?.company?.instance
+  const apiInstancia = session?.company?.api_instancia
 
   const [tab, setTab]                 = useState('calendario')
   const [agendas, setAgendas]         = useState([])
@@ -88,6 +93,8 @@ export default function CompanyAgenda() {
   const [apptModal, setApptModal]     = useState(null)
   const [apptErr, setApptErr]         = useState('')
   const [savingAppt, setSavingAppt]   = useState(false)
+  const [patientHistory, setPatientHistory] = useState([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
 
   // Carrega agendas + agendamentos + contatos
   useEffect(() => {
@@ -191,12 +198,13 @@ export default function CompanyAgenda() {
     if (selectedAgendaId === id) setSelectedAgendaId(agendas.find(a => a.id !== id)?.id || null)
   }
 
-  function openNewAppt(date, hhmm) {
+  function openNewAppt(date, hhmm, prefill = {}) {
     if (!selectedAgendaId) return
     const ag = agendas.find(a => a.id === selectedAgendaId)
     setApptModal({
       agenda_id: selectedAgendaId,
-      contact_nome: '', contact_numero: '',
+      contact_nome: prefill.nome || '',
+      contact_numero: prefill.numero || '',
       date: fmtDateInput(date),
       time: hhmm,
       duration_minutes: ag?.slot_minutes || 30,
@@ -204,7 +212,37 @@ export default function CompanyAgenda() {
       notes: '',
     })
     setApptErr('')
+    setPatientHistory([])
   }
+
+  // Pré-preenche pelo query param (vindo do botão "Agendar" no chat)
+  useEffect(() => {
+    const numero = searchParams.get('numero')
+    const nome = searchParams.get('nome')
+    if (numero && agendas.length && selectedAgendaId) {
+      const now = new Date()
+      const slot = now.getHours().toString().padStart(2, '0') + ':00'
+      openNewAppt(now, slot, { numero, nome: nome || '' })
+      setTab('calendario')
+      searchParams.delete('numero'); searchParams.delete('nome')
+      setSearchParams(searchParams, { replace: true })
+    }
+  }, [searchParams, agendas, selectedAgendaId])
+
+  // Carrega últimas mensagens do paciente quando o modal abre com número
+  useEffect(() => {
+    const num = apptModal?.contact_numero?.replace(/\D/g, '')
+    if (!num || !instance) { setPatientHistory([]); return }
+    setLoadingHistory(true)
+    supabase.from('mensagens_geral').select('id, mensagem, type, "horaLastMessage", created_at')
+      .eq('instancia', instance)
+      .like('numero', `${num}%`)
+      .order('id', { ascending: false }).limit(5)
+      .then(({ data }) => {
+        if (data) setPatientHistory(data.reverse())
+        setLoadingHistory(false)
+      })
+  }, [apptModal?.contact_numero, instance])
 
   function openEditAppt(a) {
     const d = new Date(a.starts_at)
@@ -212,8 +250,10 @@ export default function CompanyAgenda() {
       ...a,
       date: fmtDateInput(d),
       time: fmtTimeInput(d),
+      _prevStatus: a.status,
     })
     setApptErr('')
+    setPatientHistory([])
   }
 
   async function handleSaveAppt() {
@@ -221,22 +261,78 @@ export default function CompanyAgenda() {
     if (!apptModal.date || !apptModal.time) { setApptErr('Data e hora são obrigatórios'); return }
     setSavingAppt(true)
     const startsAt = new Date(`${apptModal.date}T${apptModal.time}:00`)
+    const numero = apptModal.contact_numero?.replace(/\D/g, '') || null
     const payload = {
       agenda_id: apptModal.agenda_id,
       instancia: instance,
       contact_nome: apptModal.contact_nome.trim(),
-      contact_numero: apptModal.contact_numero?.replace(/\D/g, '') || null,
+      contact_numero: numero,
       starts_at: startsAt.toISOString(),
       duration_minutes: parseInt(apptModal.duration_minutes) || 30,
       status: apptModal.status,
       notes: apptModal.notes?.trim() || null,
       created_by_email: session?.user?.email,
     }
-    const { error } = apptModal.id
-      ? await supabase.from('appointments').update(payload).eq('id', apptModal.id)
-      : await supabase.from('appointments').insert(payload)
+    const isNew = !apptModal.id
+    const prevStatus = apptModal._prevStatus
+    const { error } = isNew
+      ? await supabase.from('appointments').insert(payload)
+      : await supabase.from('appointments').update(payload).eq('id', apptModal.id)
     setSavingAppt(false)
     if (error) { setApptErr('Erro: ' + error.message); return }
+
+    // Registra evento na conversa do paciente (se tem número)
+    if (numero) {
+      const sessionId = `${numero}@s.whatsapp.net`
+      const dateStr = startsAt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      const ag = agendas.find(a => a.id === payload.agenda_id)
+      let msg = null
+      if (isNew) {
+        msg = `📅 Agendamento criado para ${dateStr}${ag ? ` — ${ag.name}` : ''}`
+      } else if (prevStatus && prevStatus !== payload.status) {
+        const labels = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', faltou: 'Faltou', cancelado: 'Cancelado' }
+        msg = `📅 Agendamento de ${dateStr} alterado para: ${labels[payload.status] || payload.status}`
+      } else {
+        msg = `✏️ Agendamento atualizado para ${dateStr}`
+      }
+      if (msg) {
+        await supabase.rpc('send_mensagem_geral', {
+          p_instancia: instance,
+          p_numero: sessionId,
+          p_mensagem: msg,
+          p_type: 'atendente',
+          p_hora: new Date().toISOString(),
+          p_base64: null,
+        })
+      }
+
+      // Cancelamento: envia mensagem WhatsApp via webhook avisando o paciente
+      if (!isNew && prevStatus !== 'cancelado' && payload.status === 'cancelado') {
+        const aviso = `Olá ${payload.contact_nome.split(' ')[0]}, infelizmente seu agendamento de ${dateStr} foi cancelado. Em caso de dúvidas, entre em contato.`
+        await supabase.rpc('send_mensagem_geral', {
+          p_instancia: instance,
+          p_numero: sessionId,
+          p_mensagem: aviso,
+          p_type: 'atendente',
+          p_hora: new Date().toISOString(),
+          p_base64: null,
+        })
+        fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: aviso,
+            session_id: sessionId,
+            phone: numero,
+            instancia: instance,
+            api_instancia: apiInstancia,
+            company: session?.company?.name,
+            sender_name: session?.user?.name,
+            sender_email: session?.user?.email,
+          }),
+        }).catch(e => console.warn('webhook cancelamento:', e))
+      }
+    }
     setApptModal(null)
   }
 
@@ -615,6 +711,52 @@ export default function CompanyAgenda() {
                   value={apptModal.notes || ''}
                   onChange={e => setApptModal(p => ({ ...p, notes: e.target.value }))} />
               </div>
+
+              {apptModal.contact_numero && (
+                <div style={{
+                  background: '#F8FAFC', border: '1px solid var(--border)',
+                  borderRadius: 8, padding: '10px 12px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <History size={11} /> Últimas mensagens
+                    </div>
+                    <button onClick={() => navigate(`/painel/conversas?contact=${apptModal.contact_numero.replace(/\D/g, '')}`)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        background: '#16A34A', color: '#fff', border: 'none',
+                        borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      }}>
+                      <MessageSquare size={11} /> Abrir conversa
+                    </button>
+                  </div>
+                  {loadingHistory ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '6px 0' }}>Carregando histórico...</div>
+                  ) : patientHistory.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '6px 0' }}>Sem mensagens anteriores deste número.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {patientHistory.map(m => {
+                        const t = (m.type || '').toLowerCase()
+                        const isAt = t === 'atendente'
+                        const isCli = t === 'cliente'
+                        const txt = (m.mensagem || '').replace(/^\*[^*]+\*:\n/, '').trim().slice(0, 90)
+                        return (
+                          <div key={m.id} style={{
+                            fontSize: 11, lineHeight: 1.4,
+                            color: 'var(--text-secondary)',
+                            paddingLeft: 6, borderLeft: `2px solid ${isAt ? '#16A34A' : isCli ? '#94A3B8' : '#2563EB'}`,
+                          }}>
+                            <strong style={{ color: isAt ? '#16A34A' : isCli ? '#475569' : '#2563EB' }}>
+                              {isAt ? 'Atendente' : isCli ? 'Cliente' : 'IA'}:
+                            </strong> {txt}{txt.length >= 90 ? '...' : ''}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
               {apptErr && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{apptErr}</div>}

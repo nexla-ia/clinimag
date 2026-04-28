@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar } from 'lucide-react'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -66,6 +66,18 @@ function formatMsgTime(ts) {
   return `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${hhmm}`
 }
 
+function formatApptShort(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1)
+  const hh = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  if (d >= today && d < new Date(today.getTime() + 86400000)) return `hoje ${hh}`
+  if (d >= tomorrow && d < new Date(tomorrow.getTime() + 86400000)) return `amanhã ${hh}`
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${hh}`
+}
+
 function formatContactTime(ts) {
   if (!ts) return ''
   const date = new Date(ts)
@@ -93,6 +105,7 @@ const MANUAL_REASONS = REASONS.filter(r => r.value !== 'auto_encerrado')
 
 export default function CompanyConversations() {
   const { session } = useAuth()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const instance     = session?.company?.instance
   const apiInstancia = session?.company?.api_instancia
@@ -123,6 +136,7 @@ export default function CompanyConversations() {
   const [recordTime, setRecordTime]   = useState(0)
   const [attachedFile, setAttachedFile] = useState(null) // { base64, mime, name, size, kind: 'image'|'pdf'|'file' }
   const [savedContacts, setSavedContacts] = useState({}) // numero (só dígitos) → { id, nome, notes }
+  const [futureAppts, setFutureAppts]     = useState({}) // numero (só dígitos) → { starts_at, status, agenda_name }
   const [contextMenu, setContextMenu] = useState(null) // { x, y, contact }
   const [saveContactModal, setSaveContactModal] = useState(null) // { numero, nome, notes }
   const [savingContact, setSavingContact] = useState(false)
@@ -136,6 +150,60 @@ export default function CompanyConversations() {
   const autoCloseDone = useRef(false)
 
   useEffect(() => { selectedRef.current = selected }, [selected])
+
+  // Carrega agendamentos futuros (próximo por contato)
+  useEffect(() => {
+    if (!instance) return
+    const now = new Date().toISOString()
+    supabase.from('appointments')
+      .select('contact_numero, starts_at, status, agenda_id, agendas(name)')
+      .eq('instancia', instance)
+      .gte('starts_at', now)
+      .neq('status', 'cancelado')
+      .neq('status', 'concluido')
+      .order('starts_at', { ascending: true })
+      .then(({ data }) => {
+        if (data) {
+          const map = {}
+          data.forEach(a => {
+            if (!a.contact_numero) return
+            if (!map[a.contact_numero]) map[a.contact_numero] = {
+              starts_at: a.starts_at, status: a.status,
+              agenda_name: a.agendas?.name || '',
+            }
+          })
+          setFutureAppts(map)
+        }
+      })
+
+    const ch = supabase.channel(`convs-appts-${instance}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: `instancia=eq.${instance}` },
+        () => {
+          const ts = new Date().toISOString()
+          supabase.from('appointments')
+            .select('contact_numero, starts_at, status, agendas(name)')
+            .eq('instancia', instance)
+            .gte('starts_at', ts)
+            .neq('status', 'cancelado')
+            .neq('status', 'concluido')
+            .order('starts_at', { ascending: true })
+            .then(({ data }) => {
+              if (data) {
+                const map = {}
+                data.forEach(a => {
+                  if (!a.contact_numero) return
+                  if (!map[a.contact_numero]) map[a.contact_numero] = {
+                    starts_at: a.starts_at, status: a.status,
+                    agenda_name: a.agendas?.name || '',
+                  }
+                })
+                setFutureAppts(map)
+              }
+            })
+        })
+      .subscribe()
+    return () => supabase.removeChannel(ch)
+  }, [instance])
 
   // Carrega contatos salvos
   useEffect(() => {
@@ -725,6 +793,7 @@ export default function CompanyConversations() {
             const rs = closedReason ? REASONS.find(r => r.value === closedReason) : null
             const cleanNum = c.phone.replace(/\D/g, '')
             const saved = savedContacts[cleanNum]
+            const nextAppt = futureAppts[cleanNum]
             return (
               <div
                 key={c.session_id}
@@ -743,6 +812,16 @@ export default function CompanyConversations() {
                     </div>
                     {saved && (
                       <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.phone}</span>
+                    )}
+                    {nextAppt && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 3,
+                        fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20,
+                        color: '#7C3AED', background: '#F5F3FF', border: '1px solid #DDD6FE',
+                        lineHeight: '16px',
+                      }}>
+                        <Calendar size={9} /> {formatApptShort(nextAppt.starts_at)}
+                      </span>
                     )}
                     {tab === 'recepcao' && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', lineHeight: '16px' }}>
@@ -812,15 +891,29 @@ export default function CompanyConversations() {
                   </div>
                 )
               })()}
-              {!isClosed && (
-                <button
-                  className="nx-btn-ghost"
-                  style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
-                  onClick={() => { setCloseModal(selected); setReason('') }}
-                >
-                  <CheckCircle2 size={14} /> Finalizar conversa
-                </button>
-              )}
+              {!isClosed && (() => {
+                const cleanNum = selected.phone.replace(/\D/g, '')
+                const saved = savedContacts[cleanNum]
+                const nome = saved?.nome || ''
+                return (
+                  <>
+                    <button
+                      className="nx-btn-ghost"
+                      style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#7C3AED' }}
+                      onClick={() => navigate(`/painel/agenda?numero=${cleanNum}${nome ? `&nome=${encodeURIComponent(nome)}` : ''}`)}
+                    >
+                      <Calendar size={14} /> Agendar
+                    </button>
+                    <button
+                      className="nx-btn-ghost"
+                      style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+                      onClick={() => { setCloseModal(selected); setReason('') }}
+                    >
+                      <CheckCircle2 size={14} /> Finalizar conversa
+                    </button>
+                  </>
+                )
+              })()}
               {isClosed && (() => {
                 const rs = REASONS.find(r => r.value === closedMap[selected.session_id])
                 return rs ? (
