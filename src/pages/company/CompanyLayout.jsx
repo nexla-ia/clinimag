@@ -2,9 +2,10 @@ import React from 'react'
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Sidebar from '../../components/Sidebar'
-import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar } from 'lucide-react'
+import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { latestUpdateDate } from '../../data/updates'
 import './Company.css'
 
 export default function CompanyLayout() {
@@ -62,6 +63,8 @@ export default function CompanyLayout() {
 
   const isAdmin = session?.user?.role === 'admin'
   const aiEnabled = session?.company?.ai_enabled !== false
+  const lastSeen = typeof window !== 'undefined' ? localStorage.getItem('nx_news_seen') : null
+  const hasNewUpdate = !lastSeen || lastSeen < latestUpdateDate()
 
   const links = [
     { to: '/painel/conversas', icon: MessageSquare, label: 'Conversas',
@@ -71,6 +74,8 @@ export default function CompanyLayout() {
     { to: '/painel/agenda',    icon: Calendar,      label: 'Agenda' },
     { to: '/painel/alertas',   icon: BellRing,      label: 'Alertas',
       badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' },
+    { to: '/painel/novidades', icon: Sparkles,      label: 'Novidades',
+      badge: hasNewUpdate ? 'Novo' : null, badgeColor: 'violet' },
     ...(isAdmin ? [
       { to: '/painel/metricas', icon: BarChart2, label: 'Métricas' },
       { to: '/painel/admin',    icon: Settings2, label: 'Administração' },
