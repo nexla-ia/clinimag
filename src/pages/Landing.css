@@ -245,22 +245,41 @@
   color: transparent;
   font-weight: 700;
 }
+/* Item 1 — Highlight inline-block + clip vertical para não invadir linha de baixo */
+.lp-h1-em {
+  position: relative;
+  font-style: normal;
+  font-weight: 700;
+  display: inline-block;
+  z-index: 1;
+  background: var(--lp-grad-warm);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  padding: 0 0.05em;
+}
 .lp-h1-accent {
   display: inline-block;
   position: relative;
   font-style: normal;
   font-weight: 700;
   z-index: 1;
+  isolation: isolate;
+  line-height: 1;
+  padding: 0.04em 0.06em;
 }
 .lp-h1-accent::after {
   content: '';
   position: absolute;
-  left: -6px; right: -6px; bottom: 4px;
-  height: 18px;
+  left: 0;
+  right: 0;
+  top: 22%;
+  bottom: 18%;
   background: var(--lp-grad);
   z-index: -1;
   transform: skew(-3deg);
   border-radius: 4px;
+  pointer-events: none;
 }
 
 .lp-hero-sub {
@@ -283,6 +302,15 @@
   margin-bottom: 32px;
   flex-wrap: wrap;
   animation: fadeUp 0.8s 0.3s ease both;
+}
+
+.lp-microcopy {
+  font-size: 12px;
+  color: var(--lp-text-mute);
+  margin: 14px 0 28px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  animation: fadeUp 0.8s 0.35s ease both;
 }
 
 .lp-hero-trust {
@@ -1008,6 +1036,244 @@
   font-weight: 500;
   line-height: 1.5;
 }
+.lp-stats-note {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--lp-text-mute);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* ─── VERSATILITY (Funciona para qualquer operação) ───────────────────────── */
+.lp-versatility {
+  padding: 80px 0 100px;
+  background: white;
+}
+.lp-versatility-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.lp-versatility-card {
+  padding: 28px 26px;
+  border-radius: 20px;
+  border: 1px solid rgba(15, 14, 27, 0.05);
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lp-versatility-card:hover {
+  transform: translateY(-4px) rotate(-0.5deg);
+  box-shadow: 0 18px 40px -12px rgba(15, 14, 27, 0.14);
+}
+.lp-versatility-card:nth-child(2n):hover { transform: translateY(-4px) rotate(0.5deg); }
+
+.lp-tone-amber  { background: #FEF3C7; }
+.lp-tone-amber  .lp-versatility-icon  { background: #FCD34D; color: #78350F; }
+.lp-tone-green  { background: #DCFCE7; }
+.lp-tone-green  .lp-versatility-icon  { background: #4ADE80; color: #14532D; }
+.lp-tone-blue   { background: #DBEAFE; }
+.lp-tone-blue   .lp-versatility-icon  { background: #60A5FA; color: #1E3A8A; }
+.lp-tone-pink   { background: #FCE7F3; }
+.lp-tone-pink   .lp-versatility-icon  { background: #F472B6; color: #831843; }
+
+.lp-versatility-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  box-shadow: 0 4px 10px -4px rgba(15, 14, 27, 0.15);
+}
+.lp-versatility-title {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0;
+  color: var(--lp-text);
+  line-height: 1.15;
+}
+.lp-versatility-desc {
+  font-size: 13.5px;
+  color: rgba(15, 14, 27, 0.72);
+  line-height: 1.55;
+  margin: 0;
+  font-weight: 500;
+}
+
+/* ─── SECURITY ────────────────────────────────────────────────────────────── */
+.lp-security {
+  padding: 100px 0;
+  background: var(--lp-bg);
+  border-top: 1px solid var(--lp-line);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-security-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.lp-security-item {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 22px;
+  background: white;
+  border: 1px solid var(--lp-line);
+  border-radius: 16px;
+  transition: all 0.25s ease;
+}
+.lp-security-item:hover {
+  border-color: rgba(74, 222, 128, 0.4);
+  transform: translateY(-3px);
+  box-shadow: 0 14px 32px -10px rgba(15, 14, 27, 0.12);
+}
+.lp-security-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #ECFDF5, #DCFCE7);
+  border: 1px solid #BBF7D0;
+  color: #047857;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+.lp-security-flag { font-size: 20px; line-height: 1; }
+.lp-security-title {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--lp-text);
+  margin: 0 0 4px;
+}
+.lp-security-desc {
+  font-size: 13px;
+  color: var(--lp-text-mute);
+  line-height: 1.55;
+  margin: 0;
+  font-weight: 500;
+}
+.lp-security-cta {
+  text-align: center;
+}
+.lp-security-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--lp-text);
+  text-decoration: none;
+  border-bottom: 1.5px solid var(--lp-text);
+  padding-bottom: 2px;
+  transition: gap 0.18s ease;
+}
+.lp-security-link:hover { gap: 10px; }
+
+/* ─── PRICING ANCHOR ──────────────────────────────────────────────────────── */
+.lp-pricing-anchor {
+  text-align: center;
+  font-size: 14px;
+  color: var(--lp-text-mute);
+  font-weight: 500;
+  margin: 0 0 28px;
+  line-height: 1.6;
+  max-width: 580px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.lp-pricing-anchor strong {
+  color: var(--lp-text);
+  font-weight: 700;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 16px;
+}
+.lp-pricing-anchor strong:last-of-type {
+  background: var(--lp-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+}
+
+.lp-plan-microcopy {
+  font-size: 11px;
+  color: var(--lp-text-mute);
+  text-align: center;
+  margin: 8px 0 0;
+  font-weight: 500;
+}
+.lp-plan.featured .lp-plan-microcopy { color: rgba(255,255,255,0.65); }
+
+/* ─── CTA microcopy ───────────────────────────────────────────────────────── */
+.lp-cta-microcopy {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: rgba(15, 14, 27, 0.55);
+  text-align: center;
+}
+
+/* ─── TESTIMONIAL NAV ─────────────────────────────────────────────────────── */
+.lp-testimonial-card { animation: testimonialFade 0.4s ease-out; }
+@keyframes testimonialFade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.lp-testimonial-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 32px;
+}
+.lp-testimonial-arrow {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: white;
+  border: 1px solid var(--lp-line);
+  color: var(--lp-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s ease;
+}
+.lp-testimonial-arrow:hover {
+  background: var(--lp-text);
+  color: white;
+  border-color: var(--lp-text);
+  transform: translateY(-1px);
+}
+.lp-testimonial-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.lp-testimonial-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(15, 14, 27, 0.2);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+.lp-testimonial-dot.active {
+  width: 24px;
+  border-radius: 999px;
+  background: var(--lp-text);
+}
 
 /* ─── SECTION HEADER ──────────────────────────────────────────────────────── */
 .lp-section-header {
@@ -1609,6 +1875,8 @@
   .lp-features-grid, .lp-pricing-grid, .lp-steps { grid-template-columns: 1fr; gap: 16px; }
   .lp-feature.primary { grid-column: span 1; }
   .lp-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .lp-versatility-grid { grid-template-columns: repeat(2, 1fr); }
+  .lp-security-grid { grid-template-columns: repeat(2, 1fr); }
   .lp-cta-card { grid-template-columns: 1fr; padding: 50px 30px; }
   .lp-footer-grid { grid-template-columns: 1fr 1fr; }
   .lp-nav-links { display: none; }
@@ -1618,6 +1886,8 @@
   .lp-container, .lp-nav-inner { padding: 0 20px; }
   .lp-hero { padding: 130px 0 60px; }
   .lp-stats-grid { grid-template-columns: 1fr; }
+  .lp-versatility-grid { grid-template-columns: 1fr; }
+  .lp-security-grid { grid-template-columns: 1fr; }
   .lp-footer-grid { grid-template-columns: 1fr; }
   .lp-mock-floating, .lp-mock-floating-2 { display: none; }
   .lp-mock-window { transform: none; }

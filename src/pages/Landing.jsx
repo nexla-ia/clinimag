@@ -2,10 +2,22 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight, ArrowUpRight, Sparkles, MessageSquare, Calendar, BarChart3,
-  Users, Bot, Stethoscope, Headset, Check, ChevronRight, Star, Zap, ShieldCheck,
-  Phone, Mail, Activity, Clock, TrendingUp,
+  Users, Bot, Stethoscope, Headset, Check, ChevronRight, ChevronLeft, Star, Zap, ShieldCheck,
+  Phone, Mail, Activity, Clock, TrendingUp, Lock, FileText, Trash2, Server, Quote,
+  Building2, Network, Wallet, Bot as BotIcon,
 } from 'lucide-react'
 import './Landing.css'
+
+const TESTIMONIALS = [
+  {
+    quote: 'Antes a gente perdia 3 ou 4 pacientes por dia só porque a secretária não dava conta do WhatsApp. Hoje a IA filtra, agenda e me chama só quando é caso especial. Mudou o jogo.',
+    highlight: '3 ou 4 pacientes por dia',
+    strong: 'Mudou o jogo.',
+    authorName: 'Dra. Camila Vieira',
+    authorRole: 'Clínica de Olhos · Brasília',
+    initials: 'CV',
+  },
+]
 
 export default function Landing() {
   const [scrolled, setScrolled] = useState(false)
@@ -66,7 +78,7 @@ export default function Landing() {
               </div>
 
               <h1 className="lp-h1">
-                A central de <em>atendimento</em>,
+                A central de <span className="lp-h1-em">atendimento</span>,
                 <br />
                 <span className="lp-h1-accent">agenda e gestão</span>
                 <br />
@@ -84,10 +96,15 @@ export default function Landing() {
                   Experimentar grátis
                   <ArrowRight size={16} />
                 </a>
-                <Link to="/login" className="lp-btn-ghost">
-                  Acessar conta
-                </Link>
+                <a href="#como-funciona" className="lp-btn-ghost">
+                  Como funciona
+                  <ArrowRight size={16} />
+                </a>
               </div>
+
+              <p className="lp-microcopy">
+                Sem cartão de crédito · Setup guiado em 24h · Cancele quando quiser
+              </p>
 
               <div className="lp-hero-trust">
                 <div className="lp-trust-item">
@@ -113,23 +130,6 @@ export default function Landing() {
           </div>
         </div>
 
-        <div className="lp-marquee">
-          <div className="lp-marquee-track">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div className="lp-marquee-content" key={i}>
-                <span>Clínica de Olhos</span><DotSep />
-                <span>Odontologia Estética</span><DotSep />
-                <span>Cardiologia</span><DotSep />
-                <span>Dermatologia</span><DotSep />
-                <span>Estética Avançada</span><DotSep />
-                <span>Fisioterapia</span><DotSep />
-                <span>Psicologia</span><DotSep />
-                <span>Pediatria</span><DotSep />
-                <span>Ginecologia</span><DotSep />
-              </div>
-            ))}
-          </div>
-        </div>
       </header>
 
       {/* STATS */}
@@ -139,7 +139,46 @@ export default function Landing() {
             <Stat number="3.2x" label="Mais agendamentos confirmados" />
             <Stat number="68%" label="Redução no tempo de atendimento" />
             <Stat number="24/7" label="IA atendendo seus pacientes" />
-            <Stat number="0" label="Conversas perdidas no WhatsApp" />
+            <Stat number="<2%" label="Taxa de mensagens não respondidas" />
+          </div>
+          <p className="lp-stats-note">
+            Média dos clientes MedicinaMKT nos últimos 6 meses · Atualizado mensalmente
+          </p>
+        </div>
+      </section>
+
+      {/* QUALQUER OPERAÇÃO */}
+      <section className="lp-versatility">
+        <div className="lp-container">
+          <SectionHeader
+            kicker="Para qualquer operação de saúde"
+            title={<>Funciona do consultório solo<br /><em>à rede com várias unidades</em></>}
+          />
+          <div className="lp-versatility-grid">
+            <VersatilityCard
+              tone="amber"
+              icon={<Users size={20} />}
+              title="1 a 50+ profissionais"
+              description="Do consultório solo à clínica com várias salas atendendo em paralelo. A plataforma escala com você sem trocar de sistema."
+            />
+            <VersatilityCard
+              tone="green"
+              icon={<Network size={20} />}
+              title="Várias unidades, uma operação"
+              description="Filiais sincronizadas em tempo real. Recepção de qualquer unidade vê a conversa, agenda no profissional certo e o paciente nem percebe."
+            />
+            <VersatilityCard
+              tone="blue"
+              icon={<Wallet size={20} />}
+              title="Convênio e particular no mesmo fluxo"
+              description="Cadastre valores por convênio, por procedimento e por médico. O agendamento puxa o preço certo automaticamente — sem planilha paralela."
+            />
+            <VersatilityCard
+              tone="pink"
+              icon={<BotIcon size={20} />}
+              title="Atendimento humano + IA sob demanda"
+              description="Comece com a equipe atendendo no inbox unificado. Ative a IA quando quiser — em horários específicos, fins de semana, ou pra qualificar antes de passar pra recepção."
+            />
           </div>
         </div>
       </section>
@@ -219,22 +258,43 @@ export default function Landing() {
       </section>
 
       {/* TESTIMONIAL */}
-      <section className="lp-testimonial">
+      <TestimonialsSection items={TESTIMONIALS} />
+
+      {/* SEGURANÇA & LGPD */}
+      <section className="lp-security" id="seguranca">
         <div className="lp-container">
-          <div className="lp-testimonial-card">
-            <div className="lp-quote-mark">&ldquo;</div>
-            <p className="lp-quote">
-              Antes a gente perdia <em>3 ou 4 pacientes por dia</em> só porque a secretária
-              não dava conta do WhatsApp. Hoje a IA filtra, agenda e me chama
-              só quando é caso especial. <strong>Mudou o jogo.</strong>
-            </p>
-            <div className="lp-quote-author">
-              <div className="lp-avatar">CV</div>
-              <div>
-                <div className="lp-author-name">Dra. Camila Vieira</div>
-                <div className="lp-author-role">Clínica de Olhos &middot; Brasília</div>
-              </div>
-            </div>
+          <SectionHeader
+            kicker="Segurança em primeiro lugar"
+            title={<>Conformidade que <em>clínica de verdade</em><br />exige</>}
+          />
+          <div className="lp-security-grid">
+            <SecurityItem
+              icon={<Server size={18} />}
+              title="Dados em servidor brasileiro"
+              description="Infraestrutura hospedada no Brasil, em conformidade com LGPD."
+              flag="🇧🇷"
+            />
+            <SecurityItem
+              icon={<Lock size={18} />}
+              title="Criptografia ponta a ponta"
+              description="Mensagens e dados de pacientes criptografados em trânsito e em repouso."
+            />
+            <SecurityItem
+              icon={<FileText size={18} />}
+              title="Cláusula de tratamento de dados"
+              description="DPO designado e termo de tratamento de dados de pacientes incluído no contrato."
+            />
+            <SecurityItem
+              icon={<Trash2 size={18} />}
+              title="Política de retenção e exclusão"
+              description="Você controla por quanto tempo os dados ficam armazenados e pode solicitar exclusão a qualquer momento."
+            />
+          </div>
+          <div className="lp-security-cta">
+            <a href="/seguranca" className="lp-security-link">
+              Ver política de privacidade completa
+              <ArrowRight size={14} />
+            </a>
           </div>
         </div>
       </section>
@@ -242,6 +302,10 @@ export default function Landing() {
       {/* PLANOS */}
       <section className="lp-pricing" id="planos">
         <div className="lp-container">
+          <p className="lp-pricing-anchor">
+            Uma secretária CLT custa <strong>R$ 3.500+/mês</strong>.<br />
+            A MedicinaMKT atende 24/7 a partir de <strong>R$ 297</strong>.
+          </p>
           <SectionHeader
             kicker="Escolha seu plano"
             title={<>Comece pequeno,<br /><em>cresça quando quiser</em></>}
@@ -325,6 +389,9 @@ export default function Landing() {
                 <Phone size={16} />
                 Falar com humano
               </a>
+              <p className="lp-microcopy lp-cta-microcopy">
+                Sem cartão de crédito · Setup guiado em 24h · Cancele quando quiser
+              </p>
             </div>
           </div>
         </div>
@@ -384,8 +451,6 @@ export default function Landing() {
 }
 
 /* ─── Subcomponentes ──────────────────────────────────────────────────────── */
-function DotSep() { return <span className="lp-marquee-dot">●</span> }
-
 function SectionHeader({ kicker, title, light }) {
   return (
     <div className={`lp-section-header ${light ? 'light' : ''}`}>
@@ -433,6 +498,106 @@ function StepCard({ number, title, description }) {
   )
 }
 
+function VersatilityCard({ tone, icon, title, description }) {
+  return (
+    <div className={`lp-versatility-card lp-tone-${tone}`}>
+      <div className="lp-versatility-icon">{icon}</div>
+      <h3 className="lp-versatility-title">{title}</h3>
+      <p className="lp-versatility-desc">{description}</p>
+    </div>
+  )
+}
+
+function SecurityItem({ icon, title, description, flag }) {
+  return (
+    <div className="lp-security-item">
+      <div className="lp-security-icon">
+        {flag ? <span className="lp-security-flag">{flag}</span> : icon}
+      </div>
+      <div>
+        <h4 className="lp-security-title">{title}</h4>
+        <p className="lp-security-desc">{description}</p>
+      </div>
+    </div>
+  )
+}
+
+function TestimonialsSection({ items }) {
+  const [idx, setIdx] = useState(0)
+  const total = items.length
+  useEffect(() => {
+    if (total <= 1) return
+    const t = setInterval(() => setIdx(i => (i + 1) % total), 8000)
+    return () => clearInterval(t)
+  }, [total])
+  const t = items[idx]
+  return (
+    <section className="lp-testimonial">
+      <div className="lp-container">
+        <div className="lp-testimonial-card" key={idx}>
+          <div className="lp-quote-mark">&ldquo;</div>
+          <p className="lp-quote">
+            {renderQuote(t)}
+          </p>
+          <div className="lp-quote-author">
+            <div className="lp-avatar">{t.initials}</div>
+            <div>
+              <div className="lp-author-name">{t.authorName}</div>
+              <div className="lp-author-role">{t.authorRole}</div>
+            </div>
+          </div>
+          {total > 1 && (
+            <div className="lp-testimonial-nav">
+              <button
+                className="lp-testimonial-arrow"
+                onClick={() => setIdx(i => (i - 1 + total) % total)}
+                aria-label="Depoimento anterior"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <div className="lp-testimonial-dots">
+                {items.map((_, i) => (
+                  <button
+                    key={i}
+                    className={`lp-testimonial-dot ${i === idx ? 'active' : ''}`}
+                    onClick={() => setIdx(i)}
+                    aria-label={`Depoimento ${i + 1}`}
+                  />
+                ))}
+              </div>
+              <button
+                className="lp-testimonial-arrow"
+                onClick={() => setIdx(i => (i + 1) % total)}
+                aria-label="Próximo depoimento"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function renderQuote(t) {
+  // Quebra a quote pra aplicar <em> no highlight e <strong> no fechamento
+  let txt = t.quote
+  const parts = []
+  if (t.highlight && txt.includes(t.highlight)) {
+    const [before, after] = txt.split(t.highlight)
+    parts.push(before, <em key="hl">{t.highlight}</em>)
+    txt = after
+  }
+  if (t.strong && txt.includes(t.strong)) {
+    const [before, after] = txt.split(t.strong)
+    parts.push(before, <strong key="st">{t.strong}</strong>, after)
+  } else {
+    parts.push(txt)
+  }
+  return parts
+}
+
 function PricingCard({ name, price, tagline, features, cta, featured, badge, custom }) {
   return (
     <div className={`lp-plan ${featured ? 'featured' : ''}`}>
@@ -458,6 +623,9 @@ function PricingCard({ name, price, tagline, features, cta, featured, badge, cus
       <Link to="/login" className={`lp-plan-cta ${featured ? 'featured' : ''}`}>
         {cta} <ArrowRight size={14} />
       </Link>
+      {!custom && (
+        <p className="lp-plan-microcopy">Sem cartão · Setup em 24h</p>
+      )}
     </div>
   )
 }

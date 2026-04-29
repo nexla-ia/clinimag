@@ -5,6 +5,22 @@
 export const UPDATES = [
   {
     date: '2026-04-28',
+    title: 'Landing 2.0 — UX e conversão otimizadas',
+    type: 'improvement',
+    tags: ['Marketing', 'Landing'],
+    items: [
+      'Highlight do hero ajustado com clip vertical para não invadir a linha de baixo (Item 1)',
+      'Stats com nota de rodapé "Média dos clientes nos últimos 6 meses" e troca de "0" por "<2% taxa de não respondidas" para credibilidade (Item 2)',
+      'Carrossel de especialidades substituído por seção "Funciona do consultório solo à rede" com 4 cards pastel (Item 3)',
+      'Nova seção "Segurança e LGPD" com 4 itens (servidor BR, criptografia, contrato, retenção) antes do pricing (Item 4)',
+      'CTA secundário do hero trocado de "Acessar conta" para "Como funciona" — prospect entende antes de testar (Item 5)',
+      'Microcopy "Sem cartão · Setup em 24h · Cancele quando quiser" embaixo dos CTAs principais (Item 6)',
+      'Âncora de valor no pricing: "Secretária CLT custa R$ 3.500+/mês. MedicinaMKT a partir de R$ 297" (Item 7)',
+      'Seção de depoimento agora suporta carrossel com setas, dots e auto-rotate de 8s — pronta para receber mais 2-3 quotes (Item 8)',
+    ],
+  },
+  {
+    date: '2026-04-28',
     title: 'Onboarding obrigatório no primeiro acesso',
     type: 'feature',
     tags: ['Onboarding', 'Tutorial'],
