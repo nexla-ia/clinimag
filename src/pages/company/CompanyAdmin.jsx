@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
-import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil, QrCode, Wifi, WifiOff, LogOut, Trash2 } from 'lucide-react'
+import LimitReachedModal from '../../components/LimitReachedModal'
+import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '../../lib/planLimits'
+import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil, QrCode, Wifi, WifiOff, LogOut, Trash2, Lock } from 'lucide-react'
 import './Company.css'
 
 const SECTOR_COLORS = ['#2563EB', '#16A34A', '#7C3AED', '#DC2626', '#D97706', '#0891B2']
@@ -28,7 +30,9 @@ export default function CompanyAdmin() {
   const { session } = useAuth()
   const instance  = session?.company?.instance
   const companyId = session?.company?.id
-  const maxUsers  = session?.company?.max_users ?? 5
+  const limits    = getEffectiveLimits(session?.company)
+  const maxUsers  = limits.users
+  const [limitModal, setLimitModal] = useState(null)
 
   const [users, setUsers]               = useState([])
   const [sectors, setSectors]           = useState([])
@@ -425,18 +429,22 @@ export default function CompanyAdmin() {
       <div className="page-body" style={{ marginTop: 0 }}>
         <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div className="section-title">Usuários ({activeUsers.length} / {maxUsers})</div>
+            <div className="section-title">Usuários ({activeUsers.length} / {formatLimit(maxUsers)})</div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-              Limite configurado pelo administrador: <strong>{maxUsers}</strong> usuários ativos
+              Plano <strong>{limits.plan}</strong> · {limits.extra_users > 0 ? <>+{limits.extra_users} usuário{limits.extra_users > 1 ? 's' : ''} extras (R$39 cada)</> : <>limite padrão do plano</>}
             </div>
           </div>
           <button
             className="nx-btn-primary"
-            style={{ fontSize: 12, padding: '6px 14px', opacity: activeUsers.length >= maxUsers ? 0.5 : 1 }}
-            disabled={activeUsers.length >= maxUsers}
-            onClick={() => { setUserForm({ name: '', email: '', password: '', role: 'viewer' }); setUserErr(''); setUserModal(true) }}
-          >
-            <Plus size={13} /> Novo usuário
+            style={{ fontSize: 12, padding: '6px 14px', opacity: reachedLimit(activeUsers.length, maxUsers) ? 0.7 : 1 }}
+            onClick={() => {
+              if (reachedLimit(activeUsers.length, maxUsers)) {
+                setLimitModal(upgradeMessage('users', maxUsers, limits.plan))
+                return
+              }
+              setUserForm({ name: '', email: '', password: '', role: 'viewer' }); setUserErr(''); setUserModal(true)
+            }}>
+            {reachedLimit(activeUsers.length, maxUsers) ? <Lock size={13} /> : <Plus size={13} />} Novo usuário
           </button>
         </div>
 
@@ -517,6 +525,15 @@ export default function CompanyAdmin() {
         loading={loggingOut}
         onConfirm={confirmLogoutAction}
         onCancel={() => setConfirmLogout(false)}
+      />
+
+      <LimitReachedModal
+        open={!!limitModal}
+        title={limitModal?.title}
+        body={limitModal?.body}
+        cta={limitModal?.cta}
+        planName={limits.plan}
+        onClose={() => setLimitModal(null)}
       />
 
       {/* Modal criar setor */}

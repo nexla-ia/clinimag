@@ -92,7 +92,11 @@ export default function AdmCompanyDetail() {
       apiInstancia: company.api_instancia || '',
       historyTable: company.history_table || '',
       contactsTable: company.contacts_table || '',
-      maxUsers: company.max_users ?? 5,
+      plan: company.plan || 'Starter',
+      extraUsers: company.extra_users ?? 0,
+      maxUsers: company.max_users ?? '',
+      maxProfessionals: company.max_professionals ?? '',
+      maxAgendas: company.max_agendas ?? '',
       digisacUrl: company.digisac_url || '',
       aiEnabled: company.ai_enabled !== false,
       evolutionUrl: company.evolution_url || '',
@@ -107,17 +111,22 @@ export default function AdmCompanyDetail() {
       setCompanyErr('API Instância é obrigatória quando a instância está preenchida.'); return
     }
     setSaving(true)
-    const { error } = await supabase.from('companies').update({
+    const updates = {
       name: companyForm.name,
       instance: companyForm.instance || null,
       api_instancia: companyForm.apiInstancia || null,
       history_table: companyForm.historyTable || null,
       contacts_table: companyForm.contactsTable || null,
-      max_users: parseInt(companyForm.maxUsers) || 5,
+      plan: companyForm.plan || 'Starter',
+      extra_users: parseInt(companyForm.extraUsers) || 0,
+      max_users: companyForm.maxUsers === '' || companyForm.maxUsers == null ? null : parseInt(companyForm.maxUsers),
+      max_professionals: companyForm.maxProfessionals === '' || companyForm.maxProfessionals == null ? null : parseInt(companyForm.maxProfessionals),
+      max_agendas: companyForm.maxAgendas === '' || companyForm.maxAgendas == null ? null : parseInt(companyForm.maxAgendas),
       digisac_url: companyForm.digisacUrl?.trim() || null,
       ai_enabled: !!companyForm.aiEnabled,
       evolution_url: companyForm.evolutionUrl?.trim().replace(/\/+$/, '') || null,
-    }).eq('id', company.id)
+    }
+    const { error } = await supabase.from('companies').update(updates).eq('id', company.id)
     setSaving(false)
     if (error) { setCompanyErr('Erro ao salvar: ' + error.message); return }
     setCompanyModal(false)
@@ -564,10 +573,53 @@ export default function AdmCompanyDetail() {
                   <input className="nx-input" placeholder="Ex: contatos_clinica" value={companyForm.contactsTable} onChange={e => setCompanyForm(p => ({ ...p, contactsTable: e.target.value }))} />
                 </div>
               </div>
-              <div style={{ maxWidth: 160 }}>
-                <label style={labelStyle}>Limite de usuários</label>
-                <input className="nx-input" type="number" min={1} max={100} value={companyForm.maxUsers}
-                  onChange={e => setCompanyForm(p => ({ ...p, maxUsers: e.target.value }))} />
+              {/* ─── Plano e limites ──────────────────────────────────── */}
+              <div style={{
+                background: 'linear-gradient(135deg, #FEF3C7 0%, #FFFBEB 100%)',
+                border: '1.5px solid #FDE68A',
+                borderRadius: 10,
+                padding: '14px 16px',
+                display: 'flex', flexDirection: 'column', gap: 12,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#92400E' }}>
+                  Plano e limites
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={labelStyle}>Plano</label>
+                    <select className="nx-select" value={companyForm.plan}
+                      onChange={e => setCompanyForm(p => ({ ...p, plan: e.target.value }))}>
+                      <option value="Starter">Starter — R$ 247</option>
+                      <option value="Pro">Pro — R$ 597</option>
+                      <option value="Business">Business — Sob medida</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Add-on usuários extras <span style={{ fontWeight: 400, textTransform: 'none' }}>(R$ 39/mês cada)</span></label>
+                    <input className="nx-input" type="number" min={0} max={200} value={companyForm.extraUsers}
+                      onChange={e => setCompanyForm(p => ({ ...p, extraUsers: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#92400E', fontWeight: 500, marginTop: -2 }}>
+                  Overrides individuais — deixe vazio pra usar o default do plano:
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ ...labelStyle, fontSize: 10 }}>Máx. usuários</label>
+                    <input className="nx-input" type="number" min={1} max={500} placeholder="auto" value={companyForm.maxUsers}
+                      onChange={e => setCompanyForm(p => ({ ...p, maxUsers: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={{ ...labelStyle, fontSize: 10 }}>Máx. profissionais</label>
+                    <input className="nx-input" type="number" min={1} max={500} placeholder="auto" value={companyForm.maxProfessionals}
+                      onChange={e => setCompanyForm(p => ({ ...p, maxProfessionals: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={{ ...labelStyle, fontSize: 10 }}>Máx. agendas</label>
+                    <input className="nx-input" type="number" min={1} max={500} placeholder="auto" value={companyForm.maxAgendas}
+                      onChange={e => setCompanyForm(p => ({ ...p, maxAgendas: e.target.value }))} />
+                  </div>
+                </div>
               </div>
               <div>
                 <label style={labelStyle}>URL Digisac <span style={{ fontWeight: 400, textTransform: 'none' }}>(deixe vazio se não usa)</span></label>

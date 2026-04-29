@@ -4,10 +4,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
+import LimitReachedModal from '../../components/LimitReachedModal'
+import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '../../lib/planLimits'
 import {
   Calendar, Plus, X, Pencil, Trash2, ChevronLeft, ChevronRight,
   Clock, User as UserIcon, Phone, ListChecks, CheckCircle2, XCircle, AlertCircle, Settings,
-  MessageSquare, History
+  MessageSquare, History, Lock
 } from 'lucide-react'
 import './Company.css'
 
@@ -94,6 +96,9 @@ export default function CompanyAgenda() {
   const [agendaModal, setAgendaModal] = useState(null)
   const [agendaErr, setAgendaErr]     = useState('')
   const [savingAgenda, setSavingAgenda] = useState(false)
+  const [limitModal, setLimitModal]   = useState(null)
+
+  const limits = getEffectiveLimits(session?.company)
 
   const [apptModal, setApptModal]     = useState(null)
   const [apptErr, setApptErr]         = useState('')
@@ -162,6 +167,10 @@ export default function CompanyAgenda() {
   }, [instance])
 
   function openNewAgenda() {
+    if (reachedLimit(agendas.length, limits.agendas)) {
+      setLimitModal(upgradeMessage('agendas', limits.agendas, limits.plan))
+      return
+    }
     setAgendaModal({
       name: '', color: AGENDA_COLORS[0],
       working_days: [1, 2, 3, 4, 5],
@@ -497,9 +506,19 @@ export default function CompanyAgenda() {
 
       {tab === 'agendas' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-            <button className="nx-btn-primary" onClick={openNewAgenda} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> Nova agenda
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
+              {agendas.length} de {formatLimit(limits.agendas)} agendas
+              {reachedLimit(agendas.length, limits.agendas) && <span style={{ marginLeft: 8, color: '#C9A074', fontWeight: 700 }}>· limite atingido</span>}
+            </div>
+            <button
+              className="nx-btn-primary"
+              onClick={openNewAgenda}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: reachedLimit(agendas.length, limits.agendas) ? 0.7 : 1,
+              }}>
+              {reachedLimit(agendas.length, limits.agendas) ? <Lock size={13} /> : <Plus size={14} />} Nova agenda
             </button>
           </div>
           {agendas.length === 0 ? (
@@ -792,6 +811,15 @@ export default function CompanyAgenda() {
         loading={deletingNow}
         onConfirm={confirmDeleteApptAction}
         onCancel={() => setConfirmDeleteAppt(false)}
+      />
+
+      <LimitReachedModal
+        open={!!limitModal}
+        title={limitModal?.title}
+        body={limitModal?.body}
+        cta={limitModal?.cta}
+        planName={limits.plan}
+        onClose={() => setLimitModal(null)}
       />
 
       {/* Modal agendamento */}

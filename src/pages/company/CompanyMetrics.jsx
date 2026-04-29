@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import LimitReachedModal from '../../components/LimitReachedModal'
+import { getEffectiveLimits, upgradeMessage } from '../../lib/planLimits'
 import {
   Users, MessageSquare, TrendingUp, Clock, Inbox, BarChart2, RefreshCw,
   Calendar, BellRing, Kanban, Headset, CheckCircle2, XCircle, AlertCircle,
-  Phone, Bot, ListChecks, Flag, ChevronRight, Layers, DollarSign, Stethoscope,
+  Phone, Bot, ListChecks, Flag, ChevronRight, Layers, DollarSign, Stethoscope, Lock,
 } from 'lucide-react'
 import './Company.css'
 
@@ -127,11 +129,15 @@ export default function CompanyMetrics() {
   const companyId     = session?.company?.id
   const contactsTable = session?.company?.contacts_table
   const aiEnabled     = session?.company?.ai_enabled !== false
+  const limits        = getEffectiveLimits(session?.company)
+  const advancedAllowed = limits.advanced_metrics
+  const ADVANCED_TABS  = ['equipe', 'financeiro', 'leads']
 
   const [period, setPeriod]   = useState('semana')
   const [tab, setTab]         = useState('overview')
   const [loading, setLoading] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(null)
+  const [limitModal, setLimitModal] = useState(null)
 
   const [msgs, setMsgs]                 = useState([])
   const [convs, setConvs]               = useState([])
@@ -253,18 +259,29 @@ export default function CompanyMetrics() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-        {TABS.filter(t => aiEnabled || t.key !== 'leads' || contactsTable).map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            style={{
-              padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer',
-              borderBottom: tab === t.key ? '2px solid #2563EB' : '2px solid transparent',
-              color: tab === t.key ? '#2563EB' : 'var(--text-secondary)',
-              fontSize: 13, fontWeight: tab === t.key ? 700 : 500,
-              display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: -1,
-            }}>
-            <t.icon size={14} /> {t.label}
-          </button>
-        ))}
+        {TABS.filter(t => aiEnabled || t.key !== 'leads' || contactsTable).map(t => {
+          const locked = !advancedAllowed && ADVANCED_TABS.includes(t.key)
+          return (
+            <button key={t.key} onClick={() => {
+              if (locked) {
+                setLimitModal(upgradeMessage('advanced_metrics', null, limits.plan))
+                return
+              }
+              setTab(t.key)
+            }}
+              title={locked ? `Disponível a partir do plano Pro` : ''}
+              style={{
+                padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer',
+                borderBottom: tab === t.key ? '2px solid #2563EB' : '2px solid transparent',
+                color: tab === t.key ? '#2563EB' : (locked ? '#94A3B8' : 'var(--text-secondary)'),
+                fontSize: 13, fontWeight: tab === t.key ? 700 : 500,
+                display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: -1,
+                opacity: locked ? 0.6 : 1,
+              }}>
+              {locked ? <Lock size={12} /> : <t.icon size={14} />} {t.label}
+            </button>
+          )
+        })}
       </div>
 
       {tab === 'overview'    && <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, range, period, loading }} />}
@@ -274,6 +291,15 @@ export default function CompanyMetrics() {
       {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, range, period, loading }} />}
       {tab === 'leads'       && <LeadsTab       {...{ leads, range, period, loading, contactsTable }} />}
       {tab === 'atividades'  && <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />}
+
+      <LimitReachedModal
+        open={!!limitModal}
+        title={limitModal?.title}
+        body={limitModal?.body}
+        cta={limitModal?.cta}
+        planName={limits.plan}
+        onClose={() => setLimitModal(null)}
+      />
     </div>
   )
 }

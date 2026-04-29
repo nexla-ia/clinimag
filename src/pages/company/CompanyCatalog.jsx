@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
+import LimitReachedModal from '../../components/LimitReachedModal'
+import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '../../lib/planLimits'
 import {
   Plus, X, Pencil, Trash2, Stethoscope, ClipboardList, ShieldCheck, DollarSign,
-  Tag,
+  Tag, Lock,
 } from 'lucide-react'
 import './Company.css'
 
@@ -60,6 +62,10 @@ export default function CompanyCatalog() {
   const [err, setErr]               = useState('')
   const [confirmDelete, setConfirmDelete] = useState(null) // { type, item }
   const [deletingNow, setDeletingNow] = useState(false)
+  const [limitModal, setLimitModal] = useState(null)
+
+  const limits = getEffectiveLimits(session?.company)
+  const proLimitReached = reachedLimit(pros.filter(p => p.active !== false).length, limits.professionals)
 
   useEffect(() => {
     if (!instance) return
@@ -80,6 +86,10 @@ export default function CompanyCatalog() {
 
   // ─── Profissionais ─────────────────────────────────────────────────────────
   function openNewPro() {
+    if (proLimitReached) {
+      setLimitModal(upgradeMessage('professionals', limits.professionals, limits.plan))
+      return
+    }
     setProModal({
       name: '', specialty: '', registration: '', color: COLORS[0], active: true,
       working_days: [1, 2, 3, 4, 5],
@@ -238,9 +248,20 @@ export default function CompanyCatalog() {
       {/* PROFISSIONAIS */}
       {tab === 'profissionais' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-            <button className="nx-btn-primary" onClick={openNewPro} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> Novo profissional
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
+              {pros.filter(p => p.active !== false).length} de {formatLimit(limits.professionals)} profissionais
+              {proLimitReached && <span style={{ marginLeft: 8, color: '#C9A074', fontWeight: 700 }}>· limite atingido</span>}
+            </div>
+            <button
+              className="nx-btn-primary"
+              onClick={openNewPro}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: proLimitReached ? 0.7 : 1,
+              }}
+              title={proLimitReached ? `Limite de ${limits.professionals} profissionais atingido — clique pra ver opções` : ''}>
+              {proLimitReached ? <Lock size={13} /> : <Plus size={14} />} Novo profissional
             </button>
           </div>
           {pros.length === 0 ? (
@@ -569,6 +590,15 @@ export default function CompanyCatalog() {
         loading={deletingNow}
         onConfirm={doDelete}
         onCancel={() => setConfirmDelete(null)}
+      />
+
+      <LimitReachedModal
+        open={!!limitModal}
+        title={limitModal?.title}
+        body={limitModal?.body}
+        cta={limitModal?.cta}
+        planName={limits.plan}
+        onClose={() => setLimitModal(null)}
       />
     </div>
   )
