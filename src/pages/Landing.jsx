@@ -442,7 +442,7 @@ export default function Landing() {
                 'Catálogo: profissionais, procedimentos, convênios',
                 'Setores e distribuição de conversas',
                 '1 agenda · Kanban · Conversas IA',
-                'Métricas: visão geral, atendimento e agenda',
+                'Métricas: visão geral, atendimento, agenda e leads',
                 'Suporte por e-mail',
               ]}
               cta="Começar Starter"
@@ -460,7 +460,7 @@ export default function Landing() {
                 '+ Distribuição automática de tickets (round-robin)',
                 '+ Templates HSM (lembrete de consulta automatizado)',
                 '+ Agendas ilimitadas',
-                '+ Métricas completas (Equipe, Financeiro, Leads)',
+                '+ Métricas avançadas (Equipe, Financeiro)',
                 'Suporte prioritário (resposta em 2h úteis)',
               ]}
               cta="Começar Pro"
@@ -870,8 +870,8 @@ function ComparisonTable() {
       ['Kanban de atividades',          '1 quadro',      'Ilimitado',       'Ilimitado'],
     ]},
     { title: 'Métricas', rows: [
-      ['Visão geral · Atendimento · Agenda', true,       true,              true],
-      ['Equipe · Financeiro · Leads',   false,           true,              true],
+      ['Visão geral · Atendimento · Agenda · Leads', true, true,            true],
+      ['Equipe · Financeiro',           false,           true,              true],
       ['Comparativo entre filiais',     false,           false,             true],
     ]},
     { title: 'IA avançada', rows: [

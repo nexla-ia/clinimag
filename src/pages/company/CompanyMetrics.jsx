@@ -131,7 +131,7 @@ export default function CompanyMetrics() {
   const aiEnabled     = session?.company?.ai_enabled !== false
   const limits        = getEffectiveLimits(session?.company)
   const advancedAllowed = limits.advanced_metrics
-  const ADVANCED_TABS  = ['equipe', 'financeiro', 'leads']
+  const ADVANCED_TABS  = ['equipe', 'financeiro']
 
   const [period, setPeriod]   = useState('semana')
   const [tab, setTab]         = useState('overview')
