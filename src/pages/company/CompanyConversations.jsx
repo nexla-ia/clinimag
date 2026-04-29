@@ -100,7 +100,7 @@ const REASONS = [
   { value: 'auto_encerrado', label: 'Expirado',    color: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB' },
 ]
 
-const AUTO_CLOSE_HOURS = 6
+const AUTO_CLOSE_HOURS = 2
 const MANUAL_REASONS = REASONS.filter(r => r.value !== 'auto_encerrado')
 
 export default function CompanyConversations() {
