@@ -5,6 +5,21 @@
 export const UPDATES = [
   {
     date: '2026-04-28',
+    title: 'Instagram — em breve no menu',
+    type: 'feature',
+    tags: ['Instagram', 'Em breve'],
+    items: [
+      'Nova aba "Instagram" no menu lateral com badge rosa "Em breve"',
+      'Página teaser editorial com gradiente vibrante característico do Instagram',
+      'Mockup interativo do Direct unificado mostrando como será',
+      'Cards flutuantes simulando notificações de curtida em story e comentário respondido',
+      'Lista de recursos que vêm: Direct, Comentários, Stories, Agenda compartilhada',
+      'Formulário de waitlist para ser avisado no lançamento',
+      'Marquee inferior em itálico com features futuras',
+    ],
+  },
+  {
+    date: '2026-04-28',
     title: 'Tela de Tutorial — manual ilustrado da plataforma',
     type: 'feature',
     tags: ['Geral', 'Onboarding', 'Novo'],
