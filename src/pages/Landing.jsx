@@ -5,7 +5,7 @@ import {
   Users, Bot, Stethoscope, Headset, Check, ChevronRight, ChevronLeft, Star, Zap, ShieldCheck,
   Phone, Mail, Activity, Clock, TrendingUp, Lock, FileText, Trash2, Server, Quote,
   Building2, Network, Wallet, Bot as BotIcon, Instagram, BookUser, Image as ImageIcon,
-  ScanLine, FileSearch, Camera, Cake, MapPin, Heart, Pill, AlertTriangle, Pencil,
+  ScanLine, FileSearch, Camera, Cake, MapPin, Heart, Pill, AlertTriangle, Pencil, Menu, X,
 } from 'lucide-react'
 import BrandMark from '../components/BrandMark'
 import './Landing.css'
@@ -23,18 +23,28 @@ const TESTIMONIALS = [
 
 export default function Landing() {
   const [scrolled, setScrolled] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
     window.addEventListener('scroll', onScroll)
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  // Bloqueia scroll do body quando menu mobile aberto
+  useEffect(() => {
+    if (mobileOpen) document.body.style.overflow = 'hidden'
+    else document.body.style.overflow = ''
+    return () => { document.body.style.overflow = '' }
+  }, [mobileOpen])
+
+  function closeMobile() { setMobileOpen(false) }
+
   return (
     <div className="lp">
       {/* NAV */}
       <nav className={`lp-nav ${scrolled ? 'scrolled' : ''}`}>
         <div className="lp-nav-inner">
-          <Link to="/" className="lp-brand">
+          <Link to="/" className="lp-brand" onClick={closeMobile}>
             <div className="lp-brand-mark">
               <BrandMark size={32} color="#0F0E1B" strokeWidth={1.6} />
             </div>
@@ -53,8 +63,30 @@ export default function Landing() {
             <Link to="/login" className="lp-btn-ghost-sm">Acessar conta</Link>
             <a href="#planos" className="lp-btn-primary-sm">Começar agora <ArrowRight size={14} /></a>
           </div>
+
+          <button
+            className="lp-nav-burger"
+            onClick={() => setMobileOpen(o => !o)}
+            aria-label={mobileOpen ? 'Fechar menu' : 'Abrir menu'}>
+            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
         </div>
       </nav>
+
+      {/* MOBILE MENU OVERLAY */}
+      <div className={`lp-mobile-menu ${mobileOpen ? 'open' : ''}`}>
+        <div className="lp-mobile-menu-inner">
+          <a href="#recursos" onClick={closeMobile}>Recursos <ChevronRight size={16} /></a>
+          <a href="#atribuicao" onClick={closeMobile}>Atribuição <ChevronRight size={16} /></a>
+          <a href="#como-funciona" onClick={closeMobile}>Como funciona <ChevronRight size={16} /></a>
+          <a href="#vs-digisac" onClick={closeMobile}>vs Digisac <ChevronRight size={16} /></a>
+          <a href="#planos" onClick={closeMobile}>Planos <ChevronRight size={16} /></a>
+          <div className="lp-mobile-menu-actions">
+            <Link to="/login" className="lp-btn-ghost-sm" onClick={closeMobile}>Acessar conta</Link>
+            <a href="#planos" className="lp-btn-primary-sm" onClick={closeMobile}>Começar agora <ArrowRight size={14} /></a>
+          </div>
+        </div>
+      </div>
 
       {/* HERO */}
       <header className="lp-hero">
