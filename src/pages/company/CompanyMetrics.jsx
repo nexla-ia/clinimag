@@ -34,6 +34,22 @@ function inferOrigem(messages) {
   return null
 }
 
+// Normaliza variações textuais para forma canônica.
+// Ex: 'instagram', 'INSTA', 'Vi no insta' → 'Instagram'
+//     'conhecido', 'minha amiga indicou', 'Indicação de uma amiga' → 'Indicação'
+// Se não casar com nenhum padrão, devolve texto original com Title Case.
+function normalizeOrigem(raw) {
+  if (!raw || !String(raw).trim() || /desconhecid|n[aã]o informad|sem rastreio/i.test(raw)) {
+    return 'WhatsApp · sem rastreio'
+  }
+  const text = String(raw).trim().toLowerCase()
+  for (const { origem, re } of ORIGEM_PATTERNS) {
+    if (re.test(text)) return origem
+  }
+  // fallback: Title Case do texto (capitaliza a primeira letra de cada palavra)
+  return raw.trim().replace(/\b(\p{L})(\p{L}*)/gu, (_, a, b) => a.toUpperCase() + b.toLowerCase())
+}
+
 // ─── Períodos ────────────────────────────────────────────────────────────────
 const PERIODS = [
   { key: 'hoje',   label: 'Hoje' },
@@ -997,11 +1013,11 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
     return count ? totalMs / count : 0
   }, [filtered, msgs])
 
-  // Origem com conversão
+  // Origem com conversão (agrupada por valor canônico — case/variações fundem)
   const origens = useMemo(() => {
     const map = {}
     leadsWithAppt.forEach(l => {
-      const k = l.origem || 'WhatsApp · sem rastreio'
+      const k = normalizeOrigem(l.origem)
       if (!map[k]) map[k] = { name: k, total: 0, agendaram: 0, concluidas: 0, receita: 0 }
       map[k].total++
       if (l.appts.length > 0) map[k].agendaram++
