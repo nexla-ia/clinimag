@@ -103,19 +103,18 @@ POST /rpc/api_paciente_create
     "instancia": "clinicaolhos",
     "nome": "Maria Silva",
     "numero": "5511987654321@s.whatsapp.net",
-    "birthdate": "1985-03-15",
+    "birth_date": "1985-03-15",
     "gender": "feminino",
     "email": "maria@email.com",
     "insurance_plan_id": null,
-    "card_number": null,
+    "insurance_card": null,
     "allergies": "Penicilina",
-    "origem": "Instagram",
-    "primeiro_contato": "sim"
+    "referral_source": "Instagram"
   }
 }
 ```
 
-Campos opcionais aceitos no `p_data`: `phone_secondary`, `address`, `cpf`, `rg`, `profession`, `social_name`, `marital_status`, `blood_type`, `weight`, `height`, `legal_guardian`, `guardian_phone`, `chronic_conditions`, `medications`, `clinical_notes`, `classificacao_lead`, `photo` (base64).
+Campos opcionais aceitos no `p_data`: `phone_secondary`, `address`, `cpf`, `rg`, `profession`, `nome_social`, `marital_status`, `blood_type`, `weight`, `height`, `guardian_name`, `guardian_phone`, `chronic_conditions`, `medications`, `clinical_notes`, `photo` (base64), `emergency_contact`, `emergency_phone`, `notes`.
 
 ### `api_paciente_update`
 
@@ -304,10 +303,10 @@ POST /rpc/api_appointment_create
     "professional_id": "uuid",
     "procedure_id": "uuid",
     "insurance_plan_id": null,
-    "patient_name": "Maria Silva",
-    "patient_phone": "5511987654321@s.whatsapp.net",
+    "contact_nome": "Maria Silva",
+    "contact_numero": "5511987654321@s.whatsapp.net",
     "starts_at": "2026-05-02T14:00:00Z",
-    "ends_at":   "2026-05-02T14:30:00Z",
+    "duration_minutes": 30,
     "status": "agendado",
     "payment_status": "pendente",
     "price": 180.00,
@@ -340,10 +339,8 @@ POST /rpc/api_alert_create
 {
   "p_data": {
     "instancia": "clinicaolhos",
-    "contactName": "Maria Silva",
-    "phone": "5511987654321",
-    "type": "help",
-    "message": "Paciente perguntou se Bradesco cobre cirurgia refrativa.",
+    "numero": "5511987654321@s.whatsapp.net",
+    "mensagem": "Paciente perguntou se Bradesco cobre cirurgia refrativa.",
     "resolved": false
   }
 }

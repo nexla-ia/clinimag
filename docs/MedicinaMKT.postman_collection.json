@@ -93,7 +93,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"p_data\": {\n    \"instancia\": \"{{instancia}}\",\n    \"nome\": \"Maria Silva\",\n    \"numero\": \"5511987654321@s.whatsapp.net\",\n    \"birthdate\": \"1985-03-15\",\n    \"gender\": \"feminino\",\n    \"email\": \"maria@email.com\",\n    \"insurance_plan_id\": null,\n    \"card_number\": null,\n    \"allergies\": \"Penicilina\",\n    \"chronic_conditions\": null,\n    \"medications\": null,\n    \"origem\": \"Instagram\",\n    \"primeiro_contato\": \"sim\"\n  }\n}"
+              "raw": "{\n  \"p_data\": {\n    \"instancia\": \"{{instancia}}\",\n    \"nome\": \"Maria Silva\",\n    \"numero\": \"5511987654321@s.whatsapp.net\",\n    \"birth_date\": \"1985-03-15\",\n    \"gender\": \"feminino\",\n    \"email\": \"maria@email.com\",\n    \"insurance_plan_id\": null,\n    \"insurance_card\": null,\n    \"allergies\": \"Penicilina\",\n    \"chronic_conditions\": null,\n    \"medications\": null,\n    \"referral_source\": \"Instagram\"\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/rest/v1/rpc/api_paciente_create",
@@ -433,7 +433,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"p_data\": {\n    \"instancia\": \"{{instancia}}\",\n    \"agenda_id\": \"AGENDA_UUID\",\n    \"professional_id\": \"PROFESSIONAL_UUID\",\n    \"procedure_id\": \"PROCEDURE_UUID\",\n    \"insurance_plan_id\": null,\n    \"patient_name\": \"Maria Silva\",\n    \"patient_phone\": \"5511987654321@s.whatsapp.net\",\n    \"starts_at\": \"2026-05-02T14:00:00Z\",\n    \"ends_at\":   \"2026-05-02T14:30:00Z\",\n    \"status\": \"agendado\",\n    \"payment_status\": \"pendente\",\n    \"price\": 180.00,\n    \"notes\": \"Primeira consulta\"\n  }\n}"
+              "raw": "{\n  \"p_data\": {\n    \"instancia\": \"{{instancia}}\",\n    \"agenda_id\": \"AGENDA_UUID\",\n    \"professional_id\": \"PROFESSIONAL_UUID\",\n    \"procedure_id\": \"PROCEDURE_UUID\",\n    \"insurance_plan_id\": null,\n    \"contact_nome\": \"Maria Silva\",\n    \"contact_numero\": \"5511987654321@s.whatsapp.net\",\n    \"starts_at\": \"2026-05-02T14:00:00Z\",\n    \"duration_minutes\": 30,\n    \"status\": \"agendado\",\n    \"payment_status\": \"pendente\",\n    \"price\": 180.00,\n    \"notes\": \"Primeira consulta\"\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/rest/v1/rpc/api_appointment_create",
@@ -478,7 +478,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"p_data\": {\n    \"instancia\": \"{{instancia}}\",\n    \"contactName\": \"Maria Silva\",\n    \"phone\": \"5511987654321\",\n    \"type\": \"help\",\n    \"message\": \"Paciente perguntou se Bradesco cobre cirurgia refrativa. Não tenho info.\",\n    \"resolved\": false\n  }\n}"
+              "raw": "{\n  \"p_data\": {\n    \"instancia\": \"{{instancia}}\",\n    \"numero\": \"5511987654321@s.whatsapp.net\",\n    \"mensagem\": \"Paciente perguntou se Bradesco cobre cirurgia refrativa. Não tenho info — preciso de atendente humano.\",\n    \"resolved\": false\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/rest/v1/rpc/api_alert_create",
