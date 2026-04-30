@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   HelpCircle, X, Send, Plus, ArrowLeft, Image as ImageIcon, Paperclip,
-  CheckCircle2, Clock, MessageCircle, Loader2,
+  CheckCircle2, Clock, MessageCircle, Loader2, Download, ZoomIn,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './SupportWidget.css'
@@ -273,6 +273,7 @@ function TicketChat({ ticket, userId, userName, senderType, onTicketUpdated }) {
   const [imagePreview, setImagePreview] = useState(null) // base64 sem prefixo
   const [imagePrefix, setImagePrefix] = useState('')     // data:image/...;base64,
   const [otherTyping, setOtherTyping] = useState(false)
+  const [lightbox, setLightbox] = useState(null) // src da imagem em foco
   const fileRef = useRef(null)
   const bodyRef = useRef(null)
   const presenceCh = useRef(null)
@@ -299,6 +300,14 @@ function TicketChat({ ticket, userId, userName, senderType, onTicketUpdated }) {
   }
 
   useEffect(() => { loadMessages() }, [ticket.id])
+
+  // Escape fecha lightbox
+  useEffect(() => {
+    if (!lightbox) return
+    const onKey = e => { if (e.key === 'Escape') setLightbox(null) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [lightbox])
 
   // Realtime das mensagens deste ticket
   useEffect(() => {
@@ -421,7 +430,7 @@ function TicketChat({ ticket, userId, userName, senderType, onTicketUpdated }) {
               {!mine && <div className="sw-msg-author">{m.sender_name || (m.sender_type === 'adm' ? 'Suporte' : 'Empresa')}</div>}
               <div className="sw-msg-bubble">
                 {m.image && (
-                  <img src={m.image} alt="anexo" className="sw-msg-image" onClick={() => window.open(m.image, '_blank')} />
+                  <img src={m.image} alt="anexo" className="sw-msg-image" onClick={() => setLightbox(m.image)} />
                 )}
                 {m.message && <div className="sw-msg-text">{m.message}</div>}
               </div>
@@ -488,6 +497,29 @@ function TicketChat({ ticket, userId, userName, senderType, onTicketUpdated }) {
           </button>
         )}
       </div>
+
+      {lightbox && createPortal(
+        <div className="sw-lightbox" onClick={() => setLightbox(null)}>
+          <button className="sw-lightbox-close" onClick={() => setLightbox(null)} aria-label="Fechar">
+            <X size={20} />
+          </button>
+          <a
+            href={lightbox}
+            download={`anexo-${Date.now()}.png`}
+            onClick={e => e.stopPropagation()}
+            className="sw-lightbox-download"
+            title="Baixar imagem">
+            <Download size={18} />
+          </a>
+          <img
+            src={lightbox}
+            alt="anexo"
+            className="sw-lightbox-img"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>,
+        document.body
+      )}
     </>
   )
 }
