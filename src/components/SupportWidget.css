@@ -24,7 +24,15 @@
     0 1px 2px rgba(124, 89, 50, 0.25),
     0 12px 32px rgba(184, 137, 92, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transition: transform 0.2s cubic-bezier(.34,1.56,.64,1), box-shadow 0.2s;
+  transition: bottom 0.25s ease, transform 0.2s cubic-bezier(.34,1.56,.64,1), box-shadow 0.2s;
+}
+/* Em telas com composer/input fixo no rodapé (Conversas, Instagram), sobe o FAB
+   pra ficar acima do botão de enviar mensagem */
+.sw-fab.lifted {
+  bottom: 100px;
+}
+@media (max-width: 540px) {
+  .sw-fab.lifted { bottom: 88px; }
 }
 .sw-fab::before {
   content: '';
