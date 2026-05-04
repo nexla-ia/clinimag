@@ -26,6 +26,7 @@ import CompanyInstagram from './pages/company/CompanyInstagram'
 import CompanyNews from './pages/company/CompanyNews'
 import CompanyMetrics from './pages/company/CompanyMetrics'
 import CompanyAdmin from './pages/company/CompanyAdmin'
+import CompanySeguranca from './pages/company/CompanySeguranca'
 
 function PrivateAdm({ children }) {
   const { session } = useAuth()
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="alertas" element={<CompanyAlerts />} />
             <Route path="metricas" element={<CompanyMetrics />} />
             <Route path="admin" element={<CompanyAdmin />} />
+            <Route path="seguranca" element={<CompanySeguranca />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
