@@ -472,7 +472,7 @@ export default function CompanyTutorial() {
         </div>
       )}
 
-      {/* Hero */}
+      {/* Hero — estética 'diário de bordo' */}
       <div className="tut-hero">
         <div className="tut-hero-bg" />
         <div className="tut-hero-content">
@@ -481,23 +481,26 @@ export default function CompanyTutorial() {
             Manual da plataforma
           </div>
           <h1 className="tut-hero-title">
-            Olá, <em>{session?.user?.name?.split(' ')[0] || 'amig@'}!</em><br />
-            Vamos dominar a plataforma juntos?
+            <em>Vamos</em> dominar a plataforma<br />
+            juntos, {session?.user?.name?.split(' ')[0] || 'amig@'}.
           </h1>
           <p className="tut-hero-sub">
             Cada bloco abaixo é um capítulo do manual. Leia no seu ritmo, marque os
-            que terminou e siga em frente. Não tem prova no final, prometo. 🤝
+            que terminou e siga em frente. Não tem prova no final, prometo.
           </p>
 
-          <div className="tut-progress">
-            <div className="tut-progress-bar">
-              <div className="tut-progress-fill" style={{ width: `${pct}%` }} />
+          <div className="tut-hero-stats">
+            <div className="tut-hero-stat">
+              <div className="tut-hero-stat-value">{visibleModules.length}</div>
+              <div className="tut-hero-stat-label">capítulos no total</div>
             </div>
-            <div className="tut-progress-meta">
-              <span><strong>{totalCompleted}</strong> de {visibleModules.length} capítulos</span>
-              {allDone && (
-                <span className="tut-trophy"><Trophy size={13} /> Tudo dominado!</span>
-              )}
+            <div className="tut-hero-stat">
+              <div className="tut-hero-stat-value">{totalCompleted}</div>
+              <div className="tut-hero-stat-label">já dominei</div>
+            </div>
+            <div className="tut-hero-stat">
+              <div className="tut-hero-stat-value">{pct}%</div>
+              <div className="tut-hero-stat-label">{allDone ? 'tudo concluído' : 'do tutorial'}</div>
             </div>
           </div>
 
@@ -507,6 +510,11 @@ export default function CompanyTutorial() {
               Concluir tutorial e ir para o painel
               <ArrowRight size={16} />
             </button>
+          )}
+          {allDone && onboardingDone && (
+            <div className="tut-trophy-badge">
+              <Trophy size={14} /> Tutorial 100% dominado
+            </div>
           )}
         </div>
       </div>
@@ -524,14 +532,17 @@ export default function CompanyTutorial() {
                 key={m.key}
                 onClick={() => selectModule(m.key)}
                 className={`tut-nav-item ${isActive ? 'active' : ''} ${done ? 'done' : ''}`}
-                style={isActive ? { background: m.bg, borderColor: m.color } : {}}
+                style={isActive ? { borderColor: m.color } : {}}
               >
-                <div className="tut-nav-num" style={{ background: done ? m.color : 'transparent', borderColor: m.color, color: done ? '#fff' : m.color }}>
-                  {done ? <Check size={11} /> : String(i + 1).padStart(2, '0')}
+                <div className="tut-nav-badge" style={{ background: m.bg, color: m.color }}>
+                  {done ? <Check size={14} /> : String(i + 1).padStart(2, '0')}
                 </div>
                 <div className="tut-nav-info">
                   <div className="tut-nav-name">{m.title}</div>
-                  <div className="tut-nav-sub">{m.subtitle}</div>
+                  <div className="tut-nav-meta">
+                    <span style={{ color: m.color, fontWeight: 700 }}>{m.subtitle}</span>
+                    {done && <span className="tut-nav-done-pill">concluído</span>}
+                  </div>
                 </div>
                 <ChevronRight size={14} className="tut-nav-arrow" />
               </button>
