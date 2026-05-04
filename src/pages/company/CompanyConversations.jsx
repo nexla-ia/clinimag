@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser } from 'lucide-react'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -924,8 +924,24 @@ export default function CompanyConversations() {
                 const cleanNum = selected.phone.replace(/\D/g, '')
                 const saved = savedContacts[cleanNum]
                 const nome = saved?.nome || ''
+                const hasContact = !!saved
                 return (
                   <>
+                    <button
+                      className="nx-btn-ghost"
+                      style={{
+                        fontSize: 12, padding: '7px 14px',
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        color: hasContact ? '#16A34A' : '#C9A074',
+                        borderColor: hasContact ? '#BBF7D0' : '#F0E0B6',
+                        background: hasContact ? '#F0FDF4' : '#FFFBEB',
+                      }}
+                      title={hasContact ? `Já salvo como ${saved.nome}` : 'Salvar contato pra aparecer com nome'}
+                      onClick={() => openSaveContact(selected)}
+                    >
+                      {hasContact ? <UserCheck size={14} /> : <UserPlus size={14} />}
+                      {hasContact ? `Editar ${saved.nome}` : 'Salvar contato'}
+                    </button>
                     <button
                       className="nx-btn-ghost"
                       style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#7C3AED' }}
