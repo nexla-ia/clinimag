@@ -551,12 +551,12 @@ export default function AdmCompanyDetail() {
 
       {companyModal && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(4px)', padding: '1.5rem' }}>
-          <div className="nx-card" style={{ width: '100%', maxWidth: 480 }}>
-            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="nx-card" style={{ width: '100%', maxWidth: 480, maxHeight: 'calc(100vh - 3rem)', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Editar empresa</div>
               <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => setCompanyModal(false)}><X size={16} /></button>
             </div>
-            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1, minHeight: 0 }}>
               <div>
                 <label style={labelStyle}>Nome da empresa</label>
                 <input className="nx-input" value={companyForm.name} onChange={e => setCompanyForm(p => ({ ...p, name: e.target.value }))} />
@@ -686,7 +686,7 @@ export default function AdmCompanyDetail() {
                 </label>
               </div>
             </div>
-            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', flexShrink: 0, background: '#fff' }}>
               {companyErr && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{companyErr}</div>
               )}
