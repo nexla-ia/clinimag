@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft } from 'lucide-react'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -118,6 +118,10 @@ export default function CompanyConversations() {
   const [closedMap, setClosedMap]       = useState({}) // session_id → reason
   const [attendancesMap, setAttendancesMap] = useState({}) // numero → attendance record
   const [assuming, setAssuming]         = useState(null)
+  const [transferModal, setTransferModal] = useState(null)
+  const [transferringTo, setTransferringTo] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const [companyUsers, setCompanyUsers] = useState([]) // outros atendentes pra transferir
   const [tab, setTab]                 = useState('recepcao')
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [search, setSearch]           = useState('')
@@ -305,6 +309,14 @@ export default function CompanyConversations() {
         }
       })
   }, [instance])
+
+  // Carrega outros usuários da empresa pra opção de transferir conversa
+  useEffect(() => {
+    const companyId = session?.company?.id
+    if (!companyId) return
+    supabase.from('users').select('id, name, email, role').eq('company_id', companyId)
+      .then(({ data }) => setCompanyUsers(data || []))
+  }, [session?.company?.id])
 
   // Realtime: attendances
   useEffect(() => {
@@ -565,6 +577,66 @@ export default function CompanyConversations() {
     setAssuming(null)
   }
 
+  async function handleTransfer() {
+    if (!transferModal || !transferringTo || transferring) return
+    const target = companyUsers.find(u => u.email === transferringTo)
+    if (!target) return
+    setTransferring(true)
+
+    // Tenta achar o setor do novo atendente
+    const { data: memberData } = await supabase
+      .from('sector_members')
+      .select('sector_id, sectors(id, name, color)')
+      .eq('user_id', target.id)
+      .maybeSingle()
+    const targetSector = memberData?.sectors || null
+
+    const updated = {
+      attendant_name: target.name,
+      attendant_email: target.email,
+      sector_id:    targetSector?.id ?? null,
+      sector_name:  targetSector?.name ?? null,
+      sector_color: targetSector?.color ?? '#6B7280',
+    }
+
+    const { error } = await supabase
+      .from('attendances')
+      .update(updated)
+      .eq('numero', transferModal.session_id)
+      .eq('instancia', instance)
+
+    if (error) {
+      setTransferring(false)
+      setToast({ message: 'Erro ao transferir: ' + error.message, color: '#DC2626' })
+      setTimeout(() => setToast(null), 3500)
+      return
+    }
+
+    // Mensagem-marco no histórico
+    const meName = session?.user?.name || 'Atendente'
+    const handoverMsg = `↪ Atendimento transferido por ${meName} para ${target.name}`
+    await supabase.rpc('send_mensagem_geral', {
+      p_instancia: instance,
+      p_numero: transferModal.session_id,
+      p_mensagem: handoverMsg,
+      p_type: 'atendente',
+      p_hora: new Date().toISOString(),
+    })
+
+    setAttendancesMap(prev => ({
+      ...prev,
+      [transferModal.session_id]: {
+        ...(prev[transferModal.session_id] || {}),
+        ...updated,
+      },
+    }))
+    setTransferring(false)
+    setTransferModal(null)
+    setTransferringTo('')
+    setToast({ message: `Conversa transferida pra ${target.name}`, color: '#7C3AED' })
+    setTimeout(() => setToast(null), 3500)
+  }
+
   async function startRecording() {
     if (recording) return
     try {
@@ -650,8 +722,28 @@ export default function CompanyConversations() {
     setAttachedFile(null)
   }
 
+  // Helper: usuário atual pode responder essa conversa?
+  // Regra: dono da conversa OU admin OU conversa ainda sem atendimento.
+  function canRespond(contact) {
+    if (!contact) return false
+    if (closedMap[contact.session_id]) return false
+    const att = attendancesMap[contact.session_id]
+    if (!att) return true
+    if (isAdmin) return true
+    return att.attendant_email === session?.user?.email
+  }
+
   async function handleSend() {
     if (sending || !selected) return
+    if (!canRespond(selected)) {
+      const att = attendancesMap[selected.session_id]
+      setToast({
+        message: `Conversa em atendimento por ${att?.attendant_name || 'outro atendente'}. Peça pra ele transferir ou finalize antes.`,
+        color: '#DC2626',
+      })
+      setTimeout(() => setToast(null), 4000)
+      return
+    }
     let audio = recordedAudio
     if (recording) {
       audio = await stopRecording({ persistPreview: false })
@@ -994,13 +1086,35 @@ export default function CompanyConversations() {
                     >
                       <Calendar size={14} /> Agendar
                     </button>
-                    <button
-                      className="nx-btn-ghost"
-                      style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
-                      onClick={() => { setCloseModal(selected); setReason('') }}
-                    >
-                      <CheckCircle2 size={14} /> Finalizar conversa
-                    </button>
+                    {(() => {
+                      const att = attendancesMap[selected.session_id]
+                      const isOwner = att && att.attendant_email === session?.user?.email
+                      if (!att || (!isOwner && !isAdmin)) return null
+                      return (
+                        <button
+                          className="nx-btn-ghost"
+                          style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#0891B2' }}
+                          onClick={() => { setTransferModal(selected); setTransferringTo('') }}
+                          title="Passar essa conversa pra outro atendente"
+                        >
+                          <ArrowRightLeft size={14} /> Transferir
+                        </button>
+                      )
+                    })()}
+                    {(() => {
+                      const att = attendancesMap[selected.session_id]
+                      const isOwner = !att || isAdmin || att.attendant_email === session?.user?.email
+                      if (!isOwner) return null
+                      return (
+                        <button
+                          className="nx-btn-ghost"
+                          style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+                          onClick={() => { setCloseModal(selected); setReason('') }}
+                        >
+                          <CheckCircle2 size={14} /> Finalizar conversa
+                        </button>
+                      )
+                    })()}
                   </>
                 )
               })()}
@@ -1014,6 +1128,31 @@ export default function CompanyConversations() {
                 ) : null
               })()}
             </div>
+
+            {/* Banner: conversa assumida por outro atendente (não-dono e não-admin) */}
+            {(() => {
+              if (isClosed) return null
+              const att = attendancesMap[selected.session_id]
+              if (!att) return null
+              const isOwner = att.attendant_email === session?.user?.email
+              if (isOwner || isAdmin) return null
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                  background: 'linear-gradient(90deg, #FEF3C7 0%, #FED7AA 100%)',
+                  borderBottom: '1px solid #FDBA74',
+                  padding: '10px 20px', flexShrink: 0,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#92400E' }}>
+                    <Lock size={14} style={{ color: '#D97706' }} />
+                    <span>
+                      Conversa em atendimento por <strong>{att.attendant_name}</strong> — você não pode responder.
+                      Peça pra ele <strong>transferir</strong> ou aguarde a conversa ser finalizada pra abrir novo ticket.
+                    </span>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Banner Recepção: botão assumir
                 Nova lógica: se já tem mensagem de atendente/humano no histórico,
@@ -1313,14 +1452,15 @@ export default function CompanyConversations() {
                     className="nx-input"
                     style={{ flex: 1, fontSize: 13 }}
                     placeholder={
-                      recordedAudio ? "Mensagem opcional para acompanhar o áudio..."
+                      !canRespond(selected) ? "Conversa está com outro atendente — você não pode responder"
+                      : recordedAudio ? "Mensagem opcional para acompanhar o áudio..."
                       : attachedFile ? "Mensagem opcional para acompanhar o arquivo..."
                       : "Digite uma mensagem..."
                     }
                     value={msgText}
                     onChange={e => setMsgText(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                    disabled={sending || recording}
+                    disabled={sending || recording || !canRespond(selected)}
                   />
                   <input
                     ref={fileInputRef}
@@ -1334,10 +1474,13 @@ export default function CompanyConversations() {
                       <button
                         onClick={() => fileInputRef.current?.click()}
                         title="Anexar imagem ou PDF"
+                        disabled={!canRespond(selected)}
                         style={{
                           padding: '0 14px', flexShrink: 0,
                           background: '#fff', border: '1px solid var(--border)',
-                          borderRadius: 8, color: '#6B7280', cursor: 'pointer',
+                          borderRadius: 8, color: '#6B7280',
+                          cursor: canRespond(selected) ? 'pointer' : 'not-allowed',
+                          opacity: canRespond(selected) ? 1 : 0.45,
                           display: 'inline-flex', alignItems: 'center',
                         }}
                       >
@@ -1346,10 +1489,13 @@ export default function CompanyConversations() {
                       <button
                         onClick={startRecording}
                         title="Gravar áudio"
+                        disabled={!canRespond(selected)}
                         style={{
                           padding: '0 14px', flexShrink: 0,
                           background: '#fff', border: '1px solid var(--border)',
-                          borderRadius: 8, color: '#6B7280', cursor: 'pointer',
+                          borderRadius: 8, color: '#6B7280',
+                          cursor: canRespond(selected) ? 'pointer' : 'not-allowed',
+                          opacity: canRespond(selected) ? 1 : 0.45,
                           display: 'inline-flex', alignItems: 'center',
                         }}
                       >
@@ -1361,7 +1507,7 @@ export default function CompanyConversations() {
                     className="nx-btn-primary"
                     style={{ padding: '0 16px', flexShrink: 0 }}
                     onClick={handleSend}
-                    disabled={(!msgText.trim() && !recordedAudio && !attachedFile && !recording) || sending}
+                    disabled={(!msgText.trim() && !recordedAudio && !attachedFile && !recording) || sending || !canRespond(selected)}
                   >
                     <Send size={14} />
                   </button>
@@ -1497,6 +1643,68 @@ export default function CompanyConversations() {
         }}>
           <CheckCircle2 size={16} />
           {toast.message}
+        </div>
+      , document.body)}
+
+      {transferModal && createPortal(
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, backdropFilter: 'blur(4px)', padding: '1.5rem',
+        }} onClick={() => !transferring && setTransferModal(null)}>
+          <div className="nx-card" style={{ width: '100%', maxWidth: 440, maxHeight: 'calc(100vh - 3rem)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ArrowRightLeft size={16} style={{ color: '#0891B2' }} /> Transferir conversa
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+                  Pra qual atendente passar essa conversa?
+                </div>
+              </div>
+              <button onClick={() => !transferring && setTransferModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '1rem 1.5rem', flex: 1, overflowY: 'auto', minHeight: 0 }}>
+              {(() => {
+                const others = companyUsers.filter(u => u.email !== session?.user?.email && u.role !== 'admin')
+                if (!others.length) {
+                  return (
+                    <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+                      Não tem outro atendente cadastrado nessa empresa pra receber.
+                    </div>
+                  )
+                }
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {others.map(u => (
+                      <label key={u.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                        border: `1.5px solid ${transferringTo === u.email ? '#0891B2' : 'var(--border)'}`,
+                        background: transferringTo === u.email ? '#ECFEFF' : '#fff',
+                        transition: 'all 0.15s',
+                      }}>
+                        <input type="radio" name="transfer-target" checked={transferringTo === u.email}
+                          onChange={() => setTransferringTo(u.email)}
+                          style={{ width: 16, height: 16 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>{u.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{u.email}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 10 }}>
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setTransferModal(null)} disabled={transferring}>Cancelar</button>
+              <button className="nx-btn-primary" style={{ flex: 1, justifyContent: 'center', background: '#0891B2', borderColor: '#0891B2' }}
+                onClick={handleTransfer} disabled={!transferringTo || transferring}>
+                {transferring ? 'Transferindo...' : 'Transferir conversa'}
+              </button>
+            </div>
+          </div>
         </div>
       , document.body)}
 
