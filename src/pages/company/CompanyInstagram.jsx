@@ -106,10 +106,15 @@ const MANUAL_REASONS = REASONS.filter(r => r.value !== 'auto_encerrado')
 export default function CompanyInstagram() {
   const { session } = useAuth()
   const igEnabled = session?.company?.instagram_enabled === true
+  const igConfigured = !!session?.company?.instagram_webhook_path
 
-  if (!igEnabled) return <InstagramLockedScreen company={session?.company} />
+  // Empresa precisa estar ativa E ter o path do n8n cadastrado.
+  // Sem path, o setup técnico ainda não foi finalizado.
+  if (!igEnabled || !igConfigured) return <InstagramLockedScreen company={session?.company} />
   return <InstagramInbox />
 }
+
+const N8N_BASE = 'https://n8n.nexladesenvolvimento.com.br/webhook'
 
 function InstagramInbox() {
   const { session } = useAuth()
@@ -119,6 +124,8 @@ function InstagramInbox() {
   const isAdmin      = session?.user?.role === 'admin'
   const userSector   = session?.user?.sector
   const aiEnabled    = session?.company?.ai_enabled !== false
+  const igPath       = session?.company?.instagram_webhook_path
+  const igWebhookUrl = igPath ? `${N8N_BASE}/${igPath}` : null
 
   const [contacts, setContacts]               = useState([])
   const [closedMap, setClosedMap]             = useState({})
@@ -349,7 +356,7 @@ function InstagramInbox() {
       recipient_id: recipientId,
     })
 
-    fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexlainstagram', {
+    if (igWebhookUrl) fetch(igWebhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -429,7 +436,7 @@ function InstagramInbox() {
       })
       if (insErr) console.error('insert mensagens_geral IG:', insErr)
 
-      fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexlainstagram', {
+      if (igWebhookUrl) fetch(igWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

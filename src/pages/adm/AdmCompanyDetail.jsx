@@ -101,6 +101,7 @@ export default function AdmCompanyDetail() {
       digisacUrl: company.digisac_url || '',
       aiEnabled: company.ai_enabled !== false,
       instagramEnabled: company.instagram_enabled === true,
+      instagramWebhookPath: company.instagram_webhook_path || '',
       evolutionUrl: company.evolution_url || '',
     })
     setCompanyErr('')
@@ -127,6 +128,9 @@ export default function AdmCompanyDetail() {
       digisac_url: companyForm.digisacUrl?.trim() || null,
       ai_enabled: !!companyForm.aiEnabled,
       instagram_enabled: !!companyForm.instagramEnabled,
+      instagram_webhook_path: companyForm.instagramEnabled
+        ? (companyForm.instagramWebhookPath?.trim().replace(/^\/+|\/+$/g, '') || null)
+        : null,
       evolution_url: companyForm.evolutionUrl?.trim().replace(/\/+$/, '') || null,
     }
     const { error } = await supabase.from('companies').update(updates).eq('id', company.id)
@@ -684,6 +688,41 @@ export default function AdmCompanyDetail() {
                     </div>
                   </div>
                 </label>
+                {companyForm.instagramEnabled && (
+                  <div style={{ marginTop: 10 }}>
+                    <label style={{ ...labelStyle, color: '#BE185D' }}>
+                      Path do webhook n8n <span style={{ color: '#DC2626' }}>*</span>
+                    </label>
+                    <div style={{
+                      display: 'flex', alignItems: 'stretch',
+                      border: '1.5px solid rgba(220, 38, 127, 0.25)',
+                      borderRadius: 8, overflow: 'hidden',
+                      background: '#fff',
+                    }}>
+                      <span style={{
+                        padding: '9px 10px', fontSize: 11.5,
+                        background: 'rgba(131, 58, 180, 0.06)',
+                        color: '#7C3AED', fontFamily: 'monospace',
+                        borderRight: '1px solid rgba(220, 38, 127, 0.15)',
+                        whiteSpace: 'nowrap',
+                        display: 'flex', alignItems: 'center',
+                      }}>n8n.nexladesenvolvimento.com.br/webhook/</span>
+                      <input
+                        className="nx-input"
+                        placeholder="envioNexlainstagram_clinicaXYZ"
+                        value={companyForm.instagramWebhookPath}
+                        onChange={e => setCompanyForm(p => ({ ...p, instagramWebhookPath: e.target.value.trim() }))}
+                        style={{
+                          border: 'none', borderRadius: 0, flex: 1,
+                          fontFamily: 'monospace', fontSize: 12.5,
+                        }}
+                      />
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                      Cada clínica tem um workflow próprio no n8n com a credencial da Meta API dela.
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', flexShrink: 0, background: '#fff' }}>
