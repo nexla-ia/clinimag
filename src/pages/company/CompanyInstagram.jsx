@@ -105,6 +105,14 @@ const MANUAL_REASONS = REASONS.filter(r => r.value !== 'auto_encerrado')
 
 export default function CompanyInstagram() {
   const { session } = useAuth()
+  const igEnabled = session?.company?.instagram_enabled === true
+
+  if (!igEnabled) return <InstagramLockedScreen company={session?.company} />
+  return <InstagramInbox />
+}
+
+function InstagramInbox() {
+  const { session } = useAuth()
   const navigate = useNavigate()
   const instance     = session?.company?.instance
   const apiInstancia = session?.company?.api_instancia
@@ -822,6 +830,131 @@ export default function CompanyInstagram() {
         </div>,
         document.body
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tela de bloqueio (empresa sem Instagram ativo)
+// ─────────────────────────────────────────────────────────────────────────────
+function InstagramLockedScreen({ company }) {
+  const phone = '5566996201819'
+  const msg = encodeURIComponent(
+    `Olá, sou da clínica ${company?.name || ''} e queria liberar o Instagram Direct na plataforma. Podem me ajudar?`
+  )
+  const whatsappUrl = `https://wa.me/${phone}?text=${msg}`
+
+  return (
+    <div className="ig-locked">
+      <div className="ig-locked-bg">
+        <div className="ig-locked-orb ig-locked-orb-1" />
+        <div className="ig-locked-orb ig-locked-orb-2" />
+        <div className="ig-locked-orb ig-locked-orb-3" />
+      </div>
+
+      <div className="ig-locked-content">
+        <div className="ig-locked-badge">
+          <Lock size={11} />
+          <span>Recurso disponível mediante setup</span>
+        </div>
+
+        <h1 className="ig-locked-title">
+          <span>Que tal trazer seu</span>
+          <span className="ig-locked-grad">Instagram Direct</span>
+          <span>pra dentro da plataforma?</span>
+        </h1>
+
+        <p className="ig-locked-sub">
+          Pra ativar o Instagram aqui na sua clínica, a gente precisa configurar a integração
+          com a Meta Business API e conectar com a IA. <strong>Fala com o time</strong> que a gente
+          libera o setup pra você.
+        </p>
+
+        {/* Preview pequeno do que vem */}
+        <div className="ig-locked-preview">
+          <div className="ig-locked-preview-window">
+            <div className="ig-locked-preview-bar">
+              <Instagram size={14} />
+              <span>Direct</span>
+              <span className="ig-locked-preview-dot" />
+              <span className="ig-locked-preview-handle">@suaclinica</span>
+            </div>
+            <div className="ig-locked-preview-body">
+              <div className="ig-locked-preview-dm">
+                <div className="ig-locked-preview-avatar" style={{ background: 'linear-gradient(135deg, #F472B6, #EC4899)' }}>A</div>
+                <div className="ig-locked-preview-text">
+                  <strong>ana_silva</strong>
+                  <span>Vocês fazem botox?</span>
+                </div>
+                <div className="ig-locked-preview-time">2min</div>
+              </div>
+              <div className="ig-locked-preview-dm">
+                <div className="ig-locked-preview-avatar" style={{ background: 'linear-gradient(135deg, #FBBF24, #FB923C)' }}>J</div>
+                <div className="ig-locked-preview-text">
+                  <strong>joao.fit</strong>
+                  <span>Olá! Queria agendar...</span>
+                </div>
+                <div className="ig-locked-preview-time">14min</div>
+              </div>
+              <div className="ig-locked-preview-dm">
+                <div className="ig-locked-preview-avatar" style={{ background: 'linear-gradient(135deg, #A78BFA, #6366F1)' }}>M</div>
+                <div className="ig-locked-preview-text">
+                  <strong>mariazinha</strong>
+                  <span>Obrigada! Foi ótimo.</span>
+                </div>
+                <div className="ig-locked-preview-time">1h</div>
+              </div>
+            </div>
+          </div>
+          <div className="ig-locked-preview-overlay">
+            <div className="ig-locked-preview-overlay-icon">
+              <Lock size={26} />
+            </div>
+          </div>
+        </div>
+
+        {/* O que vem por aí */}
+        <div className="ig-locked-features">
+          <div className="ig-locked-feature">
+            <div className="ig-locked-feature-icon" style={{ background: 'rgba(236, 72, 153, 0.12)', color: '#EC4899' }}>
+              <MessageCircle size={16} />
+            </div>
+            <div>
+              <div className="ig-locked-feature-title">Direct unificado</div>
+              <div className="ig-locked-feature-desc">DM do Insta na mesma caixa do WhatsApp</div>
+            </div>
+          </div>
+          <div className="ig-locked-feature">
+            <div className="ig-locked-feature-icon" style={{ background: 'rgba(247, 119, 55, 0.12)', color: '#F77737' }}>
+              <Sparkles size={16} />
+            </div>
+            <div>
+              <div className="ig-locked-feature-title">IA atende e qualifica</div>
+              <div className="ig-locked-feature-desc">Mesma inteligência do WhatsApp respondendo no Insta</div>
+            </div>
+          </div>
+          <div className="ig-locked-feature">
+            <div className="ig-locked-feature-icon" style={{ background: 'rgba(131, 58, 180, 0.12)', color: '#833AB4' }}>
+              <Calendar size={16} />
+            </div>
+            <div>
+              <div className="ig-locked-feature-title">Agenda integrada</div>
+              <div className="ig-locked-feature-desc">Pacientes agendam pelo Insta como pelo WhatsApp</div>
+            </div>
+          </div>
+        </div>
+
+        {/* CTA */}
+        <a className="ig-locked-cta" href={whatsappUrl} target="_blank" rel="noopener noreferrer">
+          <MessageCircle size={16} />
+          <span>Falar com o time pra liberar</span>
+          <span className="ig-locked-cta-arrow">→</span>
+        </a>
+
+        <div className="ig-locked-note">
+          A gente cuida da configuração técnica · Setup costuma ficar pronto em até 48h úteis
+        </div>
+      </div>
     </div>
   )
 }

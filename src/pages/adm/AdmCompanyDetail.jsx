@@ -100,6 +100,7 @@ export default function AdmCompanyDetail() {
       maxAgendas: company.max_agendas ?? '',
       digisacUrl: company.digisac_url || '',
       aiEnabled: company.ai_enabled !== false,
+      instagramEnabled: company.instagram_enabled === true,
       evolutionUrl: company.evolution_url || '',
     })
     setCompanyErr('')
@@ -125,6 +126,7 @@ export default function AdmCompanyDetail() {
       max_agendas: companyForm.maxAgendas === '' || companyForm.maxAgendas == null ? null : parseInt(companyForm.maxAgendas),
       digisac_url: companyForm.digisacUrl?.trim() || null,
       ai_enabled: !!companyForm.aiEnabled,
+      instagram_enabled: !!companyForm.instagramEnabled,
       evolution_url: companyForm.evolutionUrl?.trim().replace(/\/+$/, '') || null,
     }
     const { error } = await supabase.from('companies').update(updates).eq('id', company.id)
@@ -655,6 +657,30 @@ export default function AdmCompanyDetail() {
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                       Quando desativada, todas as mensagens do cliente vão direto para a Recepção.
+                    </div>
+                  </div>
+                </label>
+              </div>
+              <div>
+                <label style={labelStyle}>Instagram Direct</label>
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+                  border: `1.5px solid ${companyForm.instagramEnabled ? 'rgba(220, 38, 127, 0.4)' : 'var(--border)'}`,
+                  background: companyForm.instagramEnabled
+                    ? 'linear-gradient(135deg, rgba(131, 58, 180, 0.06) 0%, rgba(247, 119, 55, 0.06) 100%)'
+                    : 'var(--bg-surface)',
+                  transition: 'all 0.15s',
+                }}>
+                  <input type="checkbox" checked={!!companyForm.instagramEnabled}
+                    onChange={e => setCompanyForm(p => ({ ...p, instagramEnabled: e.target.checked }))}
+                    style={{ width: 16, height: 16 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: companyForm.instagramEnabled ? '#BE185D' : 'var(--text-primary)' }}>
+                      {companyForm.instagramEnabled ? 'Instagram ativo — inbox liberada' : 'Instagram inativo — empresa vê tela de upgrade'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Liberar exige configuração no n8n + Meta Business API. Só ative depois de testar.
                     </div>
                   </div>
                 </label>

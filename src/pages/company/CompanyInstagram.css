@@ -852,3 +852,342 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================
+   Tela bloqueada — empresa sem Instagram ativo
+   ============================================ */
+.ig-locked {
+  position: relative;
+  min-height: calc(100vh - 50px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 32px;
+  background:
+    radial-gradient(ellipse at top left, rgba(131, 58, 180, 0.08), transparent 50%),
+    radial-gradient(ellipse at bottom right, rgba(247, 119, 55, 0.1), transparent 50%),
+    linear-gradient(180deg, #FAFAFA 0%, #FFFFFF 100%);
+  overflow: hidden;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+/* Orbs decorativos */
+.ig-locked-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ig-locked-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.5;
+  animation: igLockedOrb 16s ease-in-out infinite;
+}
+.ig-locked-orb-1 {
+  width: 380px;
+  height: 380px;
+  background: linear-gradient(135deg, #833AB4 0%, #FD1D1D 100%);
+  top: -120px;
+  left: -100px;
+}
+.ig-locked-orb-2 {
+  width: 320px;
+  height: 320px;
+  background: linear-gradient(135deg, #FD1D1D 0%, #F77737 100%);
+  bottom: -80px;
+  right: -60px;
+  animation-delay: -5s;
+}
+.ig-locked-orb-3 {
+  width: 240px;
+  height: 240px;
+  background: linear-gradient(135deg, #F77737 0%, #FCB045 100%);
+  top: 40%;
+  right: 22%;
+  opacity: 0.3;
+  animation-delay: -10s;
+}
+@keyframes igLockedOrb {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(20px, -30px) scale(1.05); }
+  66%      { transform: translate(-15px, 20px) scale(0.97); }
+}
+
+.ig-locked-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 720px;
+  text-align: center;
+}
+
+/* Badge */
+.ig-locked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(131, 58, 180, 0.2);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #833AB4;
+  letter-spacing: 0.02em;
+  margin-bottom: 28px;
+  box-shadow: 0 4px 16px -4px rgba(131, 58, 180, 0.15);
+}
+
+/* Título */
+.ig-locked-title {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: clamp(32px, 5vw, 48px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: #0F172A;
+  margin: 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ig-locked-grad {
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  font-weight: 400;
+  background: linear-gradient(135deg, #833AB4 0%, #FD1D1D 50%, #F77737 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: -0.01em;
+}
+
+/* Subtítulo */
+.ig-locked-sub {
+  font-size: 16px;
+  line-height: 1.55;
+  color: #475569;
+  margin: 0 auto 36px;
+  max-width: 560px;
+}
+.ig-locked-sub strong {
+  color: #0F172A;
+  font-weight: 600;
+}
+
+/* Preview janela mockup */
+.ig-locked-preview {
+  position: relative;
+  max-width: 480px;
+  margin: 0 auto 36px;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 24px 60px -20px rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: #fff;
+}
+.ig-locked-preview-window {
+  filter: blur(2px);
+  opacity: 0.85;
+}
+.ig-locked-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #EFEFEF;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #262626;
+}
+.ig-locked-preview-bar svg {
+  background: linear-gradient(135deg, #833AB4 0%, #FD1D1D 100%);
+  color: #fff;
+  padding: 4px;
+  border-radius: 7px;
+  width: 22px;
+  height: 22px;
+}
+.ig-locked-preview-dot {
+  width: 4px; height: 4px; border-radius: 50%; background: #CBD5E1;
+}
+.ig-locked-preview-handle {
+  font-size: 11.5px;
+  color: #8E8E8E;
+  font-weight: 500;
+}
+.ig-locked-preview-body {
+  padding: 8px 0;
+}
+.ig-locked-preview-dm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+}
+.ig-locked-preview-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.ig-locked-preview-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+.ig-locked-preview-text strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #262626;
+}
+.ig-locked-preview-text span {
+  font-size: 11.5px;
+  color: #8E8E8E;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ig-locked-preview-time {
+  font-size: 10px;
+  color: #8E8E8E;
+}
+
+/* Cadeado central com brilho gradient */
+.ig-locked-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.55));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.ig-locked-preview-overlay-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #833AB4 0%, #FD1D1D 50%, #F77737 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 32px -8px rgba(220, 38, 127, 0.5);
+  border: 4px solid #fff;
+}
+
+/* Features grid */
+.ig-locked-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.ig-locked-feature {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.ig-locked-feature:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -12px rgba(15, 23, 42, 0.12);
+}
+.ig-locked-feature-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ig-locked-feature-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F172A;
+  margin-bottom: 3px;
+}
+.ig-locked-feature-desc {
+  font-size: 11.5px;
+  color: #64748B;
+  line-height: 1.4;
+}
+
+/* CTA */
+.ig-locked-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #833AB4 0%, #FD1D1D 50%, #F77737 100%);
+  color: #fff;
+  text-decoration: none;
+  padding: 14px 28px;
+  border-radius: 12px;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 16px 32px -10px rgba(220, 38, 127, 0.55);
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.ig-locked-cta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.25), transparent 60%);
+  pointer-events: none;
+}
+.ig-locked-cta:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 20px 40px -10px rgba(220, 38, 127, 0.65);
+}
+.ig-locked-cta-arrow {
+  font-size: 18px;
+  transition: transform 0.2s;
+}
+.ig-locked-cta:hover .ig-locked-cta-arrow {
+  transform: translateX(3px);
+}
+
+.ig-locked-note {
+  margin-top: 18px;
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  font-size: 14px;
+  color: #94A3B8;
+}
+
+@media (max-width: 720px) {
+  .ig-locked { padding: 40px 20px; }
+  .ig-locked-features { grid-template-columns: 1fr; }
+  .ig-locked-preview { max-width: 100%; }
+}

@@ -527,6 +527,7 @@ export default function AdmDashboard() {
                         <div style={{ fontSize: 10, color: '#9CA3AF', fontFamily: 'monospace' }}>
                           {c.instance || 'sem instância'}
                           {c.ai_enabled !== false && <span style={{ marginLeft: 6, color: '#7C3AED' }}>· IA</span>}
+                          {c.instagram_enabled === true && <span style={{ marginLeft: 6, color: '#DC2880' }}>· IG</span>}
                         </div>
                       </div>
                     </div>
