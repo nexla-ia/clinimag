@@ -102,6 +102,18 @@ function formatPhoneDisplay(num) {
   return `(${d.slice(2, 4)}) ${d.slice(4, 8)}-${d.slice(8)}`
 }
 
+/**
+ * Chave de busca por telefone — descarta 55 e 9 extra, pra match começar do DDD.
+ * Usado nas sugestões da agenda: usuário digita "699926..." ou "5569992...",
+ * ambos viram "69926..." e bate contra o saved_contacts.
+ */
+function phoneSearchKey(raw) {
+  let d = (raw || '').replace(/\D/g, '')
+  if (d.startsWith('55') && d.length >= 4) d = d.slice(2)
+  if (d.length >= 3 && d[2] === '9') d = d.slice(0, 2) + d.slice(3)
+  return d
+}
+
 export default function CompanyAgenda() {
   const { session } = useAuth()
   const navigate = useNavigate()
@@ -906,14 +918,16 @@ export default function CompanyAgenda() {
                     }
                   }} />
                 {(() => {
-                  const typed = (apptModal.contact_numero || '').replace(/\D/g, '')
-                  if (typed.length < 3) return null
+                  const typedKey = phoneSearchKey(apptModal.contact_numero)
+                  if (typedKey.length < 2) return null
                   const matches = savedContacts
-                    .filter(c => c.numero && normalizeWhatsAppNumber(c.numero).includes(typed.slice(-Math.min(typed.length, 8))))
+                    .filter(c => c.numero && phoneSearchKey(c.numero).startsWith(typedKey))
                     .slice(0, 5)
-                  // Indica se o número exato já está salvo
+                  // Indica se o número exato já está salvo (compara forma normalizada completa)
                   const normTyped = normalizeWhatsAppNumber(apptModal.contact_numero)
-                  const exact = savedContacts.find(c => normalizeWhatsAppNumber(c.numero) === normTyped)
+                  const exact = normTyped && normTyped.length >= 11
+                    ? savedContacts.find(c => normalizeWhatsAppNumber(c.numero) === normTyped)
+                    : null
                   if (matches.length === 0 && !exact) return null
                   return (
                     <>
