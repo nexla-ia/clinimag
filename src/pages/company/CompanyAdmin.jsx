@@ -5,10 +5,18 @@ import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
 import LimitReachedModal from '../../components/LimitReachedModal'
 import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '../../lib/planLimits'
-import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil, QrCode, Wifi, WifiOff, LogOut, Trash2, Lock } from 'lucide-react'
+import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil, QrCode, Wifi, WifiOff, LogOut, Trash2, Lock, Bell } from 'lucide-react'
 import './Company.css'
 
 const SECTOR_COLORS = ['#2563EB', '#16A34A', '#7C3AED', '#DC2626', '#D97706', '#0891B2']
+
+const REMINDER_OPTIONS = [
+  { value: 30,    label: '30 minutos antes' },
+  { value: 60,    label: '1 hora antes' },
+  { value: 1440,  label: '24 horas antes' },
+  { value: 2880,  label: '48 horas antes' },
+  { value: 10080, label: '7 dias antes' },
+]
 
 function slugify(name) {
   return (name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
@@ -62,6 +70,29 @@ export default function CompanyAdmin() {
   const [qrErr, setQrErr]           = useState('')
   const [confirmLogout, setConfirmLogout] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+
+  // Lembretes automáticos de agendamento
+  const [reminderEnabled, setReminderEnabled] = useState(session?.company?.reminder_enabled ?? false)
+  const [reminderOffset,  setReminderOffset]  = useState(session?.company?.reminder_offset_minutes ?? 1440)
+  const [savingReminder,  setSavingReminder]  = useState(false)
+  const [reminderSaved,   setReminderSaved]   = useState(false)
+  const [reminderErr,     setReminderErr]     = useState('')
+
+  async function saveReminder() {
+    if (!companyId) return
+    setSavingReminder(true); setReminderErr(''); setReminderSaved(false)
+    const { error } = await supabase
+      .from('companies')
+      .update({ reminder_enabled: reminderEnabled, reminder_offset_minutes: reminderOffset })
+      .eq('id', companyId)
+    setSavingReminder(false)
+    if (error) {
+      setReminderErr('Erro ao salvar: ' + error.message)
+    } else {
+      setReminderSaved(true)
+      setTimeout(() => setReminderSaved(false), 2500)
+    }
+  }
 
   async function fetchState() {
     if (!evolutionUrl || !instance || !apiKey) return null
@@ -353,6 +384,120 @@ export default function CompanyAdmin() {
               )}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Lembretes automáticos de agendamento */}
+      <div className="page-body">
+        <div className="section-header">
+          <div className="section-title">Lembretes automáticos</div>
+        </div>
+        <div className="nx-card" style={{ padding: '1.25rem 1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+            {/* Header + toggle */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#EFF6FF', border: '1px solid #BFDBFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Bell size={16} style={{ color: '#2563EB' }} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
+                    Enviar lembrete antes de cada consulta
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 520, lineHeight: 1.5 }}>
+                    O sistema envia automaticamente uma mensagem no WhatsApp pra cada paciente agendado, na antecedência que você escolher.
+                  </div>
+                </div>
+              </div>
+              <button type="button"
+                onClick={() => setReminderEnabled(v => !v)}
+                aria-pressed={reminderEnabled}
+                style={{
+                  position: 'relative', width: 42, height: 24, borderRadius: 999,
+                  background: reminderEnabled ? '#2563EB' : '#CBD5E1',
+                  border: 'none', cursor: 'pointer', padding: 0,
+                  transition: 'background 0.2s ease',
+                  flexShrink: 0,
+                }}>
+                <span style={{
+                  position: 'absolute', top: 2,
+                  left: reminderEnabled ? 20 : 2,
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: '#fff',
+                  transition: 'left 0.2s ease',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
+                }} />
+              </button>
+            </div>
+
+            {reminderEnabled && (
+              <>
+                {/* Offset options */}
+                <div>
+                  <div style={labelStyle}>Avisar com antecedência de</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {REMINDER_OPTIONS.map(opt => (
+                      <button key={opt.value} type="button"
+                        onClick={() => setReminderOffset(opt.value)}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: 8,
+                          border: `1.5px solid ${reminderOffset === opt.value ? '#2563EB' : 'var(--border)'}`,
+                          background: reminderOffset === opt.value ? '#EFF6FF' : '#fff',
+                          color: reminderOffset === opt.value ? '#1D4ED8' : 'var(--text-primary)',
+                          fontSize: 13,
+                          fontWeight: reminderOffset === opt.value ? 700 : 500,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Preview */}
+                <div>
+                  <div style={labelStyle}>Como a mensagem chega no paciente</div>
+                  <div style={{
+                    background: '#F0FDF4',
+                    border: '1px solid #BBF7D0',
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                    fontSize: 13.5,
+                    lineHeight: 1.55,
+                    color: '#0F172A',
+                    maxWidth: 520,
+                  }}>
+                    Olá <strong>Maria</strong>! 👋 Passando pra lembrar da sua consulta no dia <strong>15/05</strong> às <strong>14:30</strong> com <strong>Dra. Camila</strong>. Até lá! 🩺
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                    Os campos em negrito vêm do agendamento (nome, data, hora e profissional).
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Save */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', paddingTop: 4 }}>
+              <button onClick={saveReminder} disabled={savingReminder} className="nx-btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '8px 16px' }}>
+                {savingReminder ? 'Salvando...' : 'Salvar configuração'}
+              </button>
+              {reminderSaved && (
+                <span style={{ fontSize: 12, color: '#16A34A', fontWeight: 600 }}>
+                  ✓ Salvo com sucesso
+                </span>
+              )}
+              {reminderErr && (
+                <span style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>
+                  {reminderErr}
+                </span>
+              )}
+            </div>
+
+          </div>
         </div>
       </div>
 
