@@ -159,17 +159,72 @@ export default function Landing() {
 
       </header>
 
-      {/* STATS */}
+      {/* STATS — dark editorial moment */}
       <section className="lp-stats">
+        <div className="lp-stats-glow lp-glow-warm" />
+        <div className="lp-stats-glow lp-glow-cool" />
         <div className="lp-container">
-          <div className="lp-stats-grid">
-            <Stat number="3.2x" label="Mais agendamentos confirmados" />
-            <Stat number="68%" label="Redução no tempo de atendimento" />
-            <Stat number="24/7" label="IA atendendo seus pacientes" />
-            <Stat number="<2%" label="Taxa de mensagens não respondidas" />
+          <div className="lp-stats-stage">
+
+            {/* Hero — 3.2x */}
+            <article className="lp-stat-card lp-stat-hero">
+              <span className="lp-stat-idx">01</span>
+              <div className="lp-stat-meta">
+                <span className="lp-stat-trend">
+                  <TrendingUp size={13} /> Crescimento médio
+                </span>
+              </div>
+              <div className="lp-stat-figure">
+                <span className="lp-stat-num lp-stat-num-1">3.2<em>x</em></span>
+              </div>
+              <p className="lp-stat-caption">Mais agendamentos confirmados<br/><span className="lp-stat-sub">vs. atendimento manual via WhatsApp</span></p>
+              <div className="lp-stat-bars" aria-hidden="true">
+                <span style={{ height: '22%' }} />
+                <span style={{ height: '32%' }} />
+                <span style={{ height: '44%' }} />
+                <span style={{ height: '58%' }} />
+                <span style={{ height: '92%' }} />
+              </div>
+            </article>
+
+            {/* 02 — 68% */}
+            <article className="lp-stat-card lp-stat-side lp-stat-2">
+              <span className="lp-stat-idx">02</span>
+              <div className="lp-stat-row">
+                <span className="lp-stat-num lp-stat-num-2">68<em>%</em></span>
+                <div className="lp-stat-visual"><Clock size={20} strokeWidth={1.8} /></div>
+              </div>
+              <p className="lp-stat-caption">Redução no tempo de atendimento</p>
+            </article>
+
+            {/* 03 — 24/7 */}
+            <article className="lp-stat-card lp-stat-side lp-stat-3">
+              <span className="lp-stat-idx">03</span>
+              <div className="lp-stat-row">
+                <span className="lp-stat-num lp-stat-num-3">24<em>/7</em></span>
+                <div className="lp-stat-visual lp-vis-pulse">
+                  <span className="lp-pulse-dot" />
+                </div>
+              </div>
+              <p className="lp-stat-caption">IA atendendo seus pacientes</p>
+            </article>
+
+            {/* 04 — <2% */}
+            <article className="lp-stat-card lp-stat-side lp-stat-4">
+              <span className="lp-stat-idx">04</span>
+              <div className="lp-stat-row">
+                <span className="lp-stat-num lp-stat-num-4"><i className="lp-stat-lt">&lt;</i>2<em>%</em></span>
+                <div className="lp-stat-visual"><MessageSquare size={18} strokeWidth={1.8} /></div>
+              </div>
+              <p className="lp-stat-caption">Taxa de mensagens não respondidas</p>
+            </article>
+
           </div>
+
           <p className="lp-stats-note">
-            Média dos clientes Clinisac nos últimos 6 meses · Atualizado mensalmente
+            <span className="lp-stats-note-line" />
+            Média dos clientes Clinisac · últimos 6 meses · atualizado mensalmente
+            <span className="lp-stats-note-line" />
           </p>
         </div>
       </section>
@@ -1310,15 +1365,6 @@ function SectionHeader({ kicker, title, light }) {
         {kicker}
       </div>
       <h2 className="lp-h2">{title}</h2>
-    </div>
-  )
-}
-
-function Stat({ number, label }) {
-  return (
-    <div className="lp-stat">
-      <div className="lp-stat-number">{number}</div>
-      <div className="lp-stat-label">{label}</div>
     </div>
   )
 }
