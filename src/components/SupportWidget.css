@@ -3,77 +3,6 @@
    Tipografia: Bricolage Grotesque (títulos) + DM Sans (texto) + Instrument Serif (microcopy)
    ────────────────────────────────────────────────────────────────────────── */
 
-/* ── FAB ──────────────────────────────────────────────────────────────────── */
-.sw-fab {
-  position: fixed;
-  bottom: 28px;
-  right: 28px;
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #DCB994 0%, #C9A074 45%, #A37846 100%);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9990;
-  font-family: 'DM Sans', system-ui, sans-serif;
-  box-shadow:
-    0 1px 2px rgba(124, 89, 50, 0.25),
-    0 12px 32px rgba(184, 137, 92, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transition: bottom 0.25s ease, transform 0.2s cubic-bezier(.34,1.56,.64,1), box-shadow 0.2s;
-}
-/* Em telas com composer/input fixo no rodapé (Conversas, Instagram), sobe o FAB
-   pra ficar acima do botão de enviar mensagem */
-.sw-fab.lifted {
-  bottom: 100px;
-}
-@media (max-width: 540px) {
-  .sw-fab.lifted { bottom: 88px; }
-}
-.sw-fab::before {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(201, 160, 116, 0.35);
-  animation: swPulseRing 2.4s ease-out infinite;
-  pointer-events: none;
-}
-@keyframes swPulseRing {
-  0%   { opacity: 0.7; transform: scale(0.9); }
-  70%  { opacity: 0;   transform: scale(1.25); }
-  100% { opacity: 0;   transform: scale(1.25); }
-}
-.sw-fab:hover {
-  transform: translateY(-3px) scale(1.04);
-  box-shadow:
-    0 1px 2px rgba(124, 89, 50, 0.3),
-    0 18px 44px rgba(184, 137, 92, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-.sw-fab-badge {
-  position: absolute;
-  top: -3px; right: -3px;
-  min-width: 22px; height: 22px;
-  background: #DC2626;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  border-radius: 999px;
-  padding: 0 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2.5px solid #fff;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-  box-shadow: 0 4px 10px rgba(220, 38, 38, 0.45);
-}
-
 /* ── Overlay ──────────────────────────────────────────────────────────────── */
 .sw-overlay {
   position: fixed;
@@ -725,6 +654,5 @@
     max-height: 100vh;
     border-radius: 0;
   }
-  .sw-fab { bottom: 18px; right: 18px; width: 54px; height: 54px; }
   .sw-msg { max-width: 90%; }
 }

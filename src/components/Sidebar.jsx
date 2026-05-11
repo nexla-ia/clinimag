@@ -25,13 +25,26 @@ export default function Sidebar({ links, role }) {
       </div>
 
       <nav className="sidebar-nav">
-        {links.map(link => (
-          <NavLink key={link.to} to={link.to} end={link.end} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <link.icon size={16} />
-            {link.label}
-            {link.badge ? <span className={`sidebar-badge nx-badge nx-badge-${link.badgeColor || 'cyan'}`}>{link.badge}</span> : null}
-          </NavLink>
-        ))}
+        {links.map(link => link.onClick
+          ? (
+            <button
+              key={link.key || link.label}
+              type="button"
+              onClick={link.onClick}
+              className={`sidebar-link ${link.active ? 'active' : ''}`}>
+              <link.icon size={16} />
+              {link.label}
+              {link.badge ? <span className={`sidebar-badge nx-badge nx-badge-${link.badgeColor || 'cyan'}`}>{link.badge}</span> : null}
+            </button>
+          )
+          : (
+            <NavLink key={link.to} to={link.to} end={link.end} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <link.icon size={16} />
+              {link.label}
+              {link.badge ? <span className={`sidebar-badge nx-badge nx-badge-${link.badgeColor || 'cyan'}`}>{link.badge}</span> : null}
+            </NavLink>
+          )
+        )}
       </nav>
 
       <div className="sidebar-footer">

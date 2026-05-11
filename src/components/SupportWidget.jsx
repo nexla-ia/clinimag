@@ -1,15 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useLocation } from 'react-router-dom'
 import {
-  Headset, X, Send, Plus, ArrowLeft, Image as ImageIcon, Paperclip,
+  X, Send, Plus, ArrowLeft, Image as ImageIcon, Paperclip,
   CheckCircle2, Clock, MessageCircle, Loader2, Download, ZoomIn,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './SupportWidget.css'
-
-// Rotas que têm composer/input fixo no rodapé — FAB sobe pra não cobrir o botão de enviar
-const SCREENS_WITH_BOTTOM_INPUT = ['/painel/conversas', '/painel/instagram']
 
 const STATUS_LABELS = {
   open:     { label: 'Aguardando',  color: '#D97706', bg: '#FEF3C7' },
@@ -29,17 +25,12 @@ function formatTime(ts) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
-export default function SupportWidget({ session }) {
-  const location = useLocation()
-  const [open, setOpen] = useState(false)
+export default function SupportWidget({ session, open, onClose, onUnreadChange }) {
   const [view, setView] = useState('list') // list | chat | new
   const [tickets, setTickets] = useState([])
   const [activeTicket, setActiveTicket] = useState(null)
   const [unreadTotal, setUnreadTotal] = useState(0)
   const [loading, setLoading] = useState(false)
-
-  // Em telas com composer fixo (Conversas/Instagram), sobe o FAB pra não tampar
-  const liftedFab = SCREENS_WITH_BOTTOM_INPUT.some(p => location.pathname.startsWith(p))
 
   const companyId = session?.company?.id
   const userId = session?.user?.id
@@ -88,11 +79,19 @@ export default function SupportWidget({ session }) {
     return () => supabase.removeChannel(ch)
   }, [companyId, activeTicket?.id])
 
-  function openWidget() {
-    setOpen(true)
-    setView('list')
-    loadTickets()
-  }
+  // Quando o widget é aberto, volta pra lista e recarrega
+  useEffect(() => {
+    if (open) {
+      setView('list')
+      setActiveTicket(null)
+      loadTickets()
+    }
+  }, [open])
+
+  // Propaga contagem de não-lidas pro parent (sidebar)
+  useEffect(() => {
+    if (onUnreadChange) onUnreadChange(unreadTotal)
+  }, [unreadTotal, onUnreadChange])
 
   function refreshActiveTicket() {
     if (activeTicket?.id) {
@@ -100,20 +99,11 @@ export default function SupportWidget({ session }) {
     }
   }
 
-  return (
-    <>
-      <button
-        className={`sw-fab ${liftedFab ? 'lifted' : ''}`}
-        onClick={openWidget}
-        aria-label="Abrir suporte"
-        title="Falar com o suporte">
-        <Headset size={22} />
-        {unreadTotal > 0 && <span className="sw-fab-badge">{unreadTotal}</span>}
-      </button>
+  if (!open) return null
 
-      {open && createPortal(
-        <div className="sw-overlay" onClick={() => setOpen(false)}>
-          <div className="sw-panel" onClick={e => e.stopPropagation()}>
+  return createPortal(
+    <div className="sw-overlay" onClick={onClose}>
+      <div className="sw-panel" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="sw-header">
               {view === 'chat' && (
@@ -136,7 +126,7 @@ export default function SupportWidget({ session }) {
                     : 'gente de verdade do outro lado.'}
                 </div>
               </div>
-              <button className="sw-close" onClick={() => setOpen(false)} aria-label="Fechar">
+              <button className="sw-close" onClick={onClose} aria-label="Fechar">
                 <X size={16} />
               </button>
             </div>
@@ -168,11 +158,9 @@ export default function SupportWidget({ session }) {
                 onCancel={() => setView('list')}
               />
             )}
-          </div>
-        </div>,
-        document.body
-      )}
-    </>
+      </div>
+    </div>,
+    document.body
   )
 }
 

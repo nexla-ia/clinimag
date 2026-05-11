@@ -6,7 +6,7 @@ import BillingBanner from '../../components/BillingBanner'
 import BlockedScreen from '../../components/BlockedScreen'
 import SupportWidget from '../../components/SupportWidget'
 import { shouldBlockAccess } from '../../lib/billing'
-import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban, Stethoscope, GraduationCap, Instagram, ShieldCheck } from 'lucide-react'
+import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban, Stethoscope, GraduationCap, Instagram, ShieldCheck, Headset } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { latestUpdateDate } from '../../data/updates'
@@ -20,6 +20,8 @@ export default function CompanyLayout() {
   const instance = session?.company?.instance
   const [activeCount, setActiveCount] = useState(0)
   const [pendingAlerts, setPendingAlerts] = useState(0)
+  const [supportOpen, setSupportOpen] = useState(false)
+  const [supportUnread, setSupportUnread] = useState(0)
 
   // Onboarding obrigatório: força usuário novo para o tutorial até concluir
   useEffect(() => {
@@ -104,6 +106,9 @@ export default function CompanyLayout() {
       { to: '/painel/catalogo', icon: Stethoscope,  label: 'Catálogo Clínico' },
       { to: '/painel/admin',    icon: Settings2,    label: 'Administração' },
     ] : []),
+    { key: 'suporte', icon: Headset, label: 'Suporte',
+      onClick: () => setSupportOpen(true), active: supportOpen,
+      badge: supportUnread > 0 ? supportUnread : null, badgeColor: 'amber' },
   ]
 
   if (blocked) {
@@ -125,7 +130,12 @@ export default function CompanyLayout() {
           <Outlet />
         </main>
       </div>
-      <SupportWidget session={session} />
+      <SupportWidget
+        session={session}
+        open={supportOpen}
+        onClose={() => setSupportOpen(false)}
+        onUnreadChange={setSupportUnread}
+      />
     </div>
   )
 }
