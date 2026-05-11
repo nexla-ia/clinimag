@@ -74,6 +74,34 @@ function minutesToTime(min) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
+/**
+ * Normaliza número de WhatsApp pro formato da Evolution API.
+ * O session_id da Evolution é "55<DDD><8 dígitos>@s.whatsapp.net" — sem o 9
+ * extra que a Anatel mandou colocar em 2012. Se o usuário digitar com o 9,
+ * a gente remove pra bater com o saved_contacts.
+ *   "(69) 99269-5898"      → "556992695898"
+ *   "5569992695898"        → "556992695898"  (remove 9 extra)
+ *   "556992695898"         → "556992695898"  (já tá certo)
+ *   "69992695898"          → "556992695898"  (sem 55, adiciona)
+ */
+function normalizeWhatsAppNumber(raw) {
+  let d = (raw || '').replace(/\D/g, '')
+  if (!d) return ''
+  // Adiciona 55 se veio só com DDD + número (11 ou 10 dígitos)
+  if (d.length === 11 || d.length === 10) d = '55' + d
+  // Remove o 9 extra: 13 dígitos, começa com 55, e o 5º dígito é 9
+  if (d.length === 13 && d.startsWith('55') && d[4] === '9') {
+    d = '55' + d.slice(2, 4) + d.slice(5)
+  }
+  return d
+}
+
+function formatPhoneDisplay(num) {
+  const d = normalizeWhatsAppNumber(num)
+  if (d.length !== 12) return num || ''
+  return `(${d.slice(2, 4)}) ${d.slice(4, 8)}-${d.slice(8)}`
+}
+
 export default function CompanyAgenda() {
   const { session } = useAuth()
   const navigate = useNavigate()
@@ -350,7 +378,7 @@ export default function CompanyAgenda() {
     }
 
     setSavingAppt(true)
-    const numero = apptModal.contact_numero?.replace(/\D/g, '') || null
+    const numero = normalizeWhatsAppNumber(apptModal.contact_numero) || null
     const payload = {
       agenda_id: apptModal.agenda_id,
       instancia: instance,
@@ -595,8 +623,22 @@ export default function CompanyAgenda() {
           ) : (
             <div className="nx-card" style={{ padding: 0, overflow: 'hidden' }}>
               {/* Toolbar */}
-              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <select className="nx-select" style={{ fontSize: 13 }}
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={() => setTab('agendas')}
+                  className="nx-btn-ghost"
+                  title="Ver todas as agendas"
+                  style={{ fontSize: 12, padding: '7px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <ChevronLeft size={14} /> Agendas
+                </button>
+                <div style={{ width: 1, height: 22, background: 'var(--border)' }} />
+                {selectedAgenda && (
+                  <span aria-hidden="true" style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: selectedAgenda.color,
+                    boxShadow: `0 0 0 3px ${selectedAgenda.color}22`,
+                  }} />
+                )}
+                <select className="nx-select" style={{ fontSize: 13, fontWeight: 600 }}
                   value={selectedAgendaId || ''} onChange={e => setSelectedAgendaId(e.target.value)}>
                   {agendas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
@@ -851,11 +893,82 @@ export default function CompanyAgenda() {
                   {savedContacts.map(c => <option key={c.id} value={c.nome}>{c.numero}</option>)}
                 </datalist>
               </div>
-              <div>
+              <div style={{ position: 'relative' }}>
                 <label style={labelStyle}>Telefone</label>
-                <input className="nx-input" placeholder="Ex: 5561991234567"
+                <input className="nx-input" placeholder="Ex: (69) 99269-5898"
                   value={apptModal.contact_numero || ''}
-                  onChange={e => setApptModal(p => ({ ...p, contact_numero: e.target.value }))} />
+                  onChange={e => setApptModal(p => ({ ...p, contact_numero: e.target.value }))}
+                  onBlur={e => {
+                    // Ao sair do campo, normaliza pro formato Evolution (sem o 9 extra)
+                    const norm = normalizeWhatsAppNumber(e.target.value)
+                    if (norm && norm !== e.target.value.replace(/\D/g, '')) {
+                      setApptModal(p => ({ ...p, contact_numero: norm }))
+                    }
+                  }} />
+                {(() => {
+                  const typed = (apptModal.contact_numero || '').replace(/\D/g, '')
+                  if (typed.length < 3) return null
+                  const matches = savedContacts
+                    .filter(c => c.numero && normalizeWhatsAppNumber(c.numero).includes(typed.slice(-Math.min(typed.length, 8))))
+                    .slice(0, 5)
+                  // Indica se o número exato já está salvo
+                  const normTyped = normalizeWhatsAppNumber(apptModal.contact_numero)
+                  const exact = savedContacts.find(c => normalizeWhatsAppNumber(c.numero) === normTyped)
+                  if (matches.length === 0 && !exact) return null
+                  return (
+                    <>
+                      {exact && (
+                        <div style={{
+                          marginTop: 6, padding: '6px 10px',
+                          background: '#ECFDF5', border: '1px solid #A7F3D0',
+                          borderRadius: 8, fontSize: 11.5, color: '#065F46',
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                        }}>
+                          <CheckCircle2 size={11} /> Esse contato já conversou com você ({exact.nome})
+                        </div>
+                      )}
+                      {matches.length > 0 && !exact && (
+                        <div style={{
+                          marginTop: 6,
+                          background: '#fff', border: '1px solid var(--border)',
+                          borderRadius: 8, overflow: 'hidden',
+                          boxShadow: '0 4px 12px rgba(15, 23, 42, 0.08)',
+                        }}>
+                          <div style={{ padding: '6px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+                            textTransform: 'uppercase', color: 'var(--text-muted)',
+                            background: '#F8FAFC', borderBottom: '1px solid var(--border)' }}>
+                            Contatos que já conversaram com você
+                          </div>
+                          {matches.map(c => (
+                            <button key={c.id} type="button"
+                              onClick={() => setApptModal(p => ({
+                                ...p,
+                                contact_nome: p.contact_nome || c.nome,
+                                contact_numero: normalizeWhatsAppNumber(c.numero),
+                              }))}
+                              style={{
+                                width: '100%', textAlign: 'left',
+                                padding: '8px 10px',
+                                background: 'transparent', border: 'none',
+                                borderBottom: '1px solid #F1F5F9', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                                fontFamily: 'inherit',
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                {c.nome}
+                              </span>
+                              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                {formatPhoneDisplay(c.numero)}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                 <div>
