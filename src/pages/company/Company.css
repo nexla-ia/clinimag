@@ -41,6 +41,38 @@
   font-weight: 600;
   font-size: 14px;
   color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hamburger — escondido por padrão, aparece em mobile */
+.company-hamburger {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  align-items: center;
+  justify-content: center;
+}
+.company-hamburger:hover {
+  background: var(--bg-hover);
+}
+
+/* Backdrop — escondido por padrão */
+.company-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 14, 27, 0.4);
+  z-index: 70;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
 }
 
 .company-main {
@@ -318,4 +350,62 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* ─── Responsividade do painel ─────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .company-hamburger {
+    display: inline-flex;
+  }
+  .company-topbar {
+    padding: 0 1rem;
+    height: 54px;
+    gap: 12px;
+  }
+  .company-topbar-name {
+    font-size: 13.5px;
+  }
+  .company-sidebar-backdrop {
+    display: block;
+  }
+  .company-root.sidebar-open .company-sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* Histórico e Alertas com padding reduzido */
+  .history-root,
+  .alerts-root {
+    padding: 1rem;
+  }
+  /* Layout de contatos/chat — em mobile vira coluna única */
+  .contacts-root {
+    flex-direction: column;
+    height: auto;
+  }
+  .contacts-list {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 280px;
+  }
+  .chat-panel {
+    min-height: calc(100dvh - 50px - 280px);
+  }
+  .msg-bubble {
+    max-width: 85%;
+    font-size: 13.5px;
+  }
+}
+
+@media (max-width: 540px) {
+  .company-topbar {
+    padding: 0 0.75rem;
+  }
+  .company-topbar-name {
+    font-size: 13px;
+  }
+  .history-root,
+  .alerts-root {
+    padding: 0.75rem;
+  }
 }
