@@ -98,6 +98,23 @@ export function AuthProvider({ children }) {
     if (session?.role === 'adm') loadDB()
   }, [session?.role, loadDB])
 
+  // Verifica a cada 5 min se o usuário/empresa ainda está ativo no banco.
+  // Protege contra o caso de um admin desativar um usuário logado.
+  useEffect(() => {
+    if (!session || session.role === 'adm') return
+    async function checkActive() {
+      const [{ data: userData }, { data: companyData }] = await Promise.all([
+        supabase.from('users').select('active').eq('id', session.user.id).single(),
+        supabase.from('companies').select('active').eq('id', session.company.id).single(),
+      ])
+      if ((userData && !userData.active) || (companyData && !companyData.active)) {
+        logout()
+      }
+    }
+    const id = setInterval(checkActive, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [session?.user?.id, session?.company?.id])
+
   async function login(email, password, mode) {
     const { data, error } = await supabase.rpc('login_user', {
       p_email: email,

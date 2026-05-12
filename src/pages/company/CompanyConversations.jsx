@@ -403,12 +403,12 @@ export default function CompanyConversations() {
     if (!toClose.length) return
 
     toClose.forEach(c => {
-      supabase.from('conversations').insert({
+      supabase.from('conversations').upsert({
         session_id: c.session_id,
         instancia: instance,
         reason: 'auto_encerrado',
         closed_at: new Date().toISOString(),
-      }).then(() => {})
+      }, { onConflict: 'session_id,instancia', ignoreDuplicates: true }).then(() => {})
       supabase.from('attendances').delete().eq('numero', c.session_id).eq('instancia', instance).then(() => {})
     })
 
@@ -528,7 +528,9 @@ export default function CompanyConversations() {
     const name = session?.user?.name || 'Atendente'
     const sectorLabel = userSector ? ` (${userSector.name})` : ''
 
-    await supabase.from('attendances').upsert({
+    // INSERT sem ON CONFLICT UPDATE — se outro atendente assumiu primeiro,
+    // o banco retorna erro 23505 (unique violation) e abortamos silenciosamente.
+    const { error: insertErr } = await supabase.from('attendances').insert({
       numero: contact.session_id,
       instancia: instance,
       sector_id: userSector?.id || null,
@@ -537,7 +539,15 @@ export default function CompanyConversations() {
       attendant_name: name,
       attendant_email: session?.user?.email,
       assumed_at: new Date().toISOString(),
-    }, { onConflict: 'numero,instancia' })
+    })
+    if (insertErr) {
+      setAssuming(null)
+      if (insertErr.code === '23505') {
+        setToast({ message: 'Essa conversa já foi assumida por outro atendente.', color: '#DC2626' })
+        setTimeout(() => setToast(null), 4000)
+      }
+      return
+    }
 
     const assumeMsg = `▶ Atendimento assumido por ${name}${sectorLabel}`
     await supabase.rpc('send_mensagem_geral', {
