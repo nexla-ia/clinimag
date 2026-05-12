@@ -125,6 +125,7 @@ export default function CompanyAgenda() {
   const [agendas, setAgendas]         = useState([])
   const [appointments, setAppointments] = useState([])
   const [savedContacts, setSavedContacts] = useState([])
+  const [chatContacts,  setChatContacts]  = useState([]) // contatos que já conversaram (de mensagens_geral)
   const [professionals, setProfessionals] = useState([])
   const [procedures, setProcedures]   = useState([])
   const [insurancePlans, setInsurancePlans] = useState([])
@@ -160,7 +161,11 @@ export default function CompanyAgenda() {
       supabase.from('procedures').select('*').eq('instancia', instance).order('name'),
       supabase.from('insurance_plans').select('*').eq('instancia', instance).order('name'),
       supabase.from('procedure_prices').select('*'),
-    ]).then(([{ data: ag }, { data: sc }, { data: pros }, { data: procs }, { data: plans }, { data: prices }]) => {
+      // Números que já conversaram (mensagens_geral) — pega só os 500 mais recentes
+      // pra não puxar o banco inteiro; dedup vem no JS
+      supabase.from('mensagens_geral').select('numero, created_at').eq('instancia', instance)
+        .order('created_at', { ascending: false }).limit(500),
+    ]).then(([{ data: ag }, { data: sc }, { data: pros }, { data: procs }, { data: plans }, { data: prices }, { data: mg }]) => {
       if (ag) {
         setAgendas(ag)
         if (!selectedAgendaId && ag.length) setSelectedAgendaId(ag[0].id)
@@ -170,6 +175,34 @@ export default function CompanyAgenda() {
       if (procs) setProcedures(procs.filter(p => p.active !== false))
       if (plans) setInsurancePlans(plans.filter(p => p.active !== false))
       if (prices) setProcedurePrices(prices)
+
+      // Monta lista de contatos distintos da mensagens_geral (mais recente primeiro),
+      // merging com saved_contacts pra trazer o nome quando existir.
+      if (mg) {
+        const nameByNumber = {}
+        ;(sc || []).forEach(c => {
+          const k = normalizeWhatsAppNumber(c.numero)
+          if (k) nameByNumber[k] = c.nome
+        })
+        const seen = new Set()
+        const list = []
+        mg.forEach(r => {
+          const norm = normalizeWhatsAppNumber(r.numero)
+          if (!norm || norm.length < 10) return
+          // Ignora session_ids de grupos (@g.us)
+          if ((r.numero || '').includes('@g.us')) return
+          if (seen.has(norm)) return
+          seen.add(norm)
+          list.push({
+            numero: norm,
+            nome:   nameByNumber[norm] || null, // pode ser null = sem cadastro
+            saved:  !!nameByNumber[norm],
+            lastTs: r.created_at,
+          })
+        })
+        setChatContacts(list)
+      }
+
       setLoading(false)
     })
   }, [instance])
@@ -927,13 +960,14 @@ export default function CompanyAgenda() {
                 {(() => {
                   const typedKey = phoneSearchKey(apptModal.contact_numero)
                   if (typedKey.length < 2) return null
-                  const matches = savedContacts
-                    .filter(c => c.numero && phoneSearchKey(c.numero).startsWith(typedKey))
-                    .slice(0, 5)
-                  // Indica se o número exato já está salvo (compara forma normalizada completa)
+                  // chatContacts já vem ordenado por mais recente
+                  const matches = chatContacts
+                    .filter(c => phoneSearchKey(c.numero).startsWith(typedKey))
+                    .slice(0, 6)
+                  // Match exato — quando o número digitado bate certinho com alguém
                   const normTyped = normalizeWhatsAppNumber(apptModal.contact_numero)
                   const exact = normTyped && normTyped.length >= 11
-                    ? savedContacts.find(c => normalizeWhatsAppNumber(c.numero) === normTyped)
+                    ? chatContacts.find(c => c.numero === normTyped)
                     : null
                   if (matches.length === 0 && !exact) return null
                   return (
@@ -945,7 +979,8 @@ export default function CompanyAgenda() {
                           borderRadius: 8, fontSize: 11.5, color: '#065F46',
                           display: 'inline-flex', alignItems: 'center', gap: 5,
                         }}>
-                          <CheckCircle2 size={11} /> Esse contato já conversou com você ({exact.nome})
+                          <CheckCircle2 size={11} /> Esse contato já conversou com você
+                          {exact.nome ? ` (${exact.nome})` : ' (sem cadastro)'}
                         </div>
                       )}
                       {matches.length > 0 && !exact && (
@@ -961,11 +996,11 @@ export default function CompanyAgenda() {
                             Contatos que já conversaram com você
                           </div>
                           {matches.map(c => (
-                            <button key={c.id} type="button"
+                            <button key={c.numero} type="button"
                               onClick={() => setApptModal(p => ({
                                 ...p,
-                                contact_nome: p.contact_nome || c.nome,
-                                contact_numero: normalizeWhatsAppNumber(c.numero),
+                                contact_nome: p.contact_nome || c.nome || '',
+                                contact_numero: c.numero,
                               }))}
                               style={{
                                 width: '100%', textAlign: 'left',
@@ -977,8 +1012,21 @@ export default function CompanyAgenda() {
                               }}
                               onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
                               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                {c.nome}
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                                {c.nome ? (
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
+                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {c.nome}
+                                  </span>
+                                ) : (
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+                                    textTransform: 'uppercase', color: '#94A3B8',
+                                    background: '#F1F5F9', padding: '2px 7px', borderRadius: 999,
+                                  }}>
+                                    Sem cadastro
+                                  </span>
+                                )}
                               </span>
                               <span style={{ fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                                 {formatPhoneDisplay(c.numero)}
