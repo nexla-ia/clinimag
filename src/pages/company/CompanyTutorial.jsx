@@ -6,7 +6,7 @@ import {
   PartyPopper, BookOpen, ChevronRight, Bot, Headset, Phone, Star, Zap,
   Mic, Paperclip, FileText, Trophy, Inbox, Users, Flag, Clock, ShieldCheck,
   Camera, Cake, Heart, Instagram, UserPlus, UserCheck, ClipboardList,
-  TrendingUp, AlertCircle,
+  TrendingUp, AlertCircle, MessageSquareHeart, Lock, EyeOff, Database, Send,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -161,10 +161,20 @@ const MODULES = [
       },
       {
         title: 'Integração com Conversas',
-        desc: 'Cada vez que cria/altera/cancela um agendamento, registra mensagem no chat do paciente. Cancelar manda automaticamente um aviso pelo WhatsApp.',
+        desc: 'Cada vez que cria, remarca, confirma ou cancela um agendamento, registra mensagem no chat do paciente. Vocês veem o histórico inteiro da consulta dentro da conversa, sem alternar telas.',
+      },
+      {
+        title: 'WhatsApp dispara automaticamente em todo evento',
+        desc: 'Marcou a consulta? Paciente recebe confirmação no WhatsApp na hora. Remarcou? Aviso com data nova. Confirmou? Mensagem agradecendo. Cancelou? Aviso amigável. Tudo sai sozinho, com o nome do paciente, data, hora e profissional — vocês não precisam mais ficar copiando e colando texto.',
+        chips: [{ icon: MessageSquare, label: 'WhatsApp em todo evento' }, { icon: Zap, label: 'Sem trabalho manual' }],
+      },
+      {
+        title: 'Sugestões de telefone inteligentes',
+        desc: 'No campo de telefone do agendamento, comece a digitar pelo DDD (sem precisar do 55) e a plataforma sugere pacientes que já conversaram com vocês. Pega contatos salvos e também números que aparecem no histórico do chat — mesmo paciente nunca cadastrado aparece na sugestão.',
+        chips: [{ icon: Phone, label: 'Filtra do DDD' }],
       },
     ],
-    tip: 'Na lista de Conversas aparece uma tag roxa "📅 hoje 14:30" no contato que tem agendamento futuro. Visualmente indica quem espera consulta.',
+    tip: 'Na lista de Conversas aparece uma tag roxa "📅 hoje 14:30" no contato que tem agendamento futuro. Visualmente indica quem espera consulta. E se ligar os lembretes automáticos lá na Administração, o paciente recebe mais um WhatsApp antes da hora — relembrando que tem consulta.',
     cta: { label: 'Abrir Agenda', to: '/painel/agenda' },
   },
   {
@@ -327,6 +337,74 @@ const MODULES = [
     cta: { label: 'Abrir Catálogo', to: '/painel/catalogo' },
   },
   {
+    key: 'seguranca',
+    icon: ShieldCheck,
+    color: '#0D9488',
+    bg: '#CCFBF1',
+    emoji: '🛡️',
+    title: 'Segurança & Privacidade',
+    subtitle: 'O que a gente vê, o que a gente nunca vê',
+    intro: 'A aba Segurança existe pra deixar transparente como a CliniSac trata os dados de vocês e dos pacientes. Quando paciente perguntar "pra onde vai meu dado?", vocês têm a resposta dentro da plataforma.',
+    steps: [
+      {
+        title: 'Nove pilares navegáveis',
+        desc: 'Cada pilar é um card com explicação enxuta: privacidade da conversa, infraestrutura AWS Brasil, criptografia (TLS 1.3 + AES-256), métricas vs bisbilhotagem, LGPD na prática, controlador vs operadora, transparência total, direitos do paciente e plano de incidente.',
+        chips: [{ icon: Lock, label: 'Criptografia' }, { icon: Database, label: 'AWS Brasil' }, { icon: ShieldCheck, label: 'LGPD' }],
+      },
+      {
+        title: 'O que a equipe Nexla vê',
+        desc: 'Métricas agregadas (volume de tickets, tempo médio, conversão), erros do sistema pra debugar, configurações que vocês mesmo definem. Tudo o que precisa pra plataforma funcionar bem.',
+      },
+      {
+        title: 'O que a equipe Nexla NUNCA vê (sem autorização)',
+        desc: 'Conteúdo de mensagens, áudios, imagens enviadas pelos pacientes, dados clínicos do prontuário. Esses dados ficam isolados — só vocês acessam. Se a gente precisar olhar pra resolver um problema específico, pedimos autorização antes.',
+        chips: [{ icon: EyeOff, label: 'Conteúdo isolado' }],
+      },
+      {
+        title: 'LGPD na prática',
+        desc: 'Vocês são o controlador dos dados dos pacientes; a CliniSac é só operadora. Cada paciente tem direito de pedir acesso, exportação ou exclusão dos próprios dados — vocês podem fazer isso direto na ficha do paciente.',
+      },
+      {
+        title: 'Plano de incidente',
+        desc: 'Se acontecer algo inesperado (vazamento, indisponibilidade), o protocolo está descrito na própria página: prazo de notificação à ANPD, comunicação aos titulares afetados, registro de auditoria. Não é checklist genérico — é o que a gente faz.',
+      },
+    ],
+    tip: 'Mostre a aba Segurança pra paciente preocupado com privacidade. Mostre também pro convênio que pedir auditoria. Está tudo pronto pra apresentar — e é a verdade.',
+    cta: { label: 'Abrir Segurança', to: '/painel/seguranca' },
+  },
+  {
+    key: 'feedback',
+    icon: MessageSquareHeart,
+    color: '#DB2777',
+    bg: '#FCE7F3',
+    emoji: '💌',
+    title: 'Feedback — moldando a plataforma com vocês',
+    subtitle: 'Diga o que mudaria, faria diferente ou que ama',
+    intro: 'O Feedback é o lugar pra vocês contarem o que tá funcionando, o que tá doendo e o que querem ver. A gente lê tudo — e usa pra decidir o que construir a seguir.',
+    steps: [
+      {
+        title: 'Capa editorial dividida em dois',
+        desc: 'Esquerda: o formulário pra mandar um feedback novo, com categorias (Sugestão, Melhoria, Bug, Ideia maluca, Elogio) e nota de 1 a 5 estrelas. Direita: o histórico dos seus feedbacks anteriores, com a resposta da equipe quando tiver.',
+        chips: [{ icon: Star, label: 'Categoria + nota' }, { icon: History, label: 'Histórico fixo' }],
+      },
+      {
+        title: 'O que escrever',
+        desc: 'Pode ser "isso aqui devia ser do jeito X", "achei um bug na tela Y", "o nome desse botão é ruim", "amei a parte Z". Sem regra. Quanto mais específico, mais útil — mas se vier curto, tudo bem também.',
+      },
+      {
+        title: 'A gente responde',
+        desc: 'Cada feedback ganha um status (Recebido → Em análise → Em desenvolvimento → Implementado / Não vai rolar). Quando a equipe responde, aparece embaixo do seu feedback como um post-it. Você consegue acompanhar o ciclo inteiro da sua ideia.',
+        chips: [{ icon: Send, label: 'Status' }, { icon: MessageSquareHeart, label: 'Resposta da equipe' }],
+      },
+      {
+        title: 'Pra reportar bug, use o Suporte',
+        desc: 'Feedback é pra ideia, sugestão, opinião. Pra problema que tá impedindo de trabalhar agora, mais rápido abrir um chamado no Suporte — a equipe vê na hora.',
+      },
+    ],
+    tip: 'Não tenha cerimônia. Os melhores features da plataforma saíram daqui — clínica disse "queria que tivesse X" e em duas semanas tava no ar.',
+    cta: { label: 'Mandar um feedback', to: '/painel/feedback' },
+  },
+  {
     key: 'suporte',
     icon: Headset,
     color: '#C9A074',
@@ -337,9 +415,9 @@ const MODULES = [
     intro: 'Não tem central de URA, não tem ticket genérico que demora 2 dias. Você fala direto com a equipe que cuida da plataforma — em chat, com print, em poucos minutos.',
     steps: [
       {
-        title: 'Botão flutuante em qualquer tela',
-        desc: 'No canto inferior direito tem um ícone de fone cobre. Click abre o chat de suporte sem você sair do que estava fazendo. Em telas com input no rodapé (Conversas), ele sobe sozinho pra não atrapalhar.',
-        chips: [{ icon: Headset, label: 'Sempre acessível' }],
+        title: 'Encontre o Suporte no menu lateral',
+        desc: 'No menu da esquerda tem o item "Suporte" com ícone de fone. Click e abre o painel deslizante de chamados sobre a tela que você estava — sem perder o contexto. Se tiver resposta nova aguardando, um número amarelo aparece ao lado do item indicando quantas.',
+        chips: [{ icon: Headset, label: 'Sempre no menu' }, { icon: BellRing, label: 'Badge de não lidas' }],
       },
       {
         title: 'Abrir um chamado novo',
@@ -359,8 +437,8 @@ const MODULES = [
         desc: 'Cada chamado fica salvo. Quando vier um problema parecido depois, é só abrir e mostrar a solução de antes. Status: Aguardando · Respondido · Encerrado.',
       },
       {
-        title: 'Marcar como resolvido',
-        desc: 'Quando o problema acabar, clica em "Marcar como resolvido" no rodapé do chat. Se voltar a acontecer, é só responder no mesmo chamado e ele reabre.',
+        title: 'Voltar ou fechar a qualquer hora',
+        desc: 'No topo do painel tem botão "Voltar" (no chat) e "Fechar" (no canto direito) com texto bem visível — no celular você não fica perdido sem saber como sair. Marcar como resolvido também tá no rodapé do chat.',
       },
     ],
     tip: 'Quanto mais detalhe e print, mais rápido a gente resolve. Se for urgente, fala "URGENTE" no resumo — a equipe prioriza.',
@@ -373,12 +451,22 @@ const MODULES = [
     bg: '#E2E8F0',
     emoji: '⚙️',
     title: 'Administração',
-    subtitle: 'Conexão, equipe e setores',
-    intro: 'Painel de configurações. Visível só para usuários com perfil Admin.',
+    subtitle: 'Plano, conexão, lembretes e equipe',
+    intro: 'Painel de configurações. Visível só para usuários com perfil Admin — onde você cuida do plano, da conexão WhatsApp, dos lembretes automáticos e dos acessos da equipe.',
     steps: [
       {
+        title: 'Plano e cobrança no topo',
+        desc: 'Primeiro card mostra qual plano vocês têm, valor mensal, próximo vencimento e status (em dia, próximo do venc., vencido). Ao lado, três barras de progresso mostram quantos profissionais, usuários e agendas vocês já usaram do limite. Se houver upgrade disponível, aparece botão dourado/azul que abre conversa com a nossa equipe direto no WhatsApp.',
+        chips: [{ icon: TrendingUp, label: 'Uso do plano' }, { icon: Clock, label: 'Vencimento' }, { icon: ArrowRight, label: 'Upgrade' }],
+      },
+      {
         title: 'Conexão WhatsApp',
-        desc: 'Status da instância em tempo real. Botão "Gerar QR Code" mostra o QR pra escanear no celular. Detecta a conexão automaticamente.',
+        desc: 'Status da instância em tempo real (Conectado / Aguardando / Desconectado). Botão "Gerar QR Code" mostra o QR pra escanear no celular. Cai a conexão? Reconecta pelo mesmo botão.',
+      },
+      {
+        title: 'Lembretes automáticos de agendamento',
+        desc: 'Ligue o switch e escolha a antecedência: 30 min, 1h, 24h, 48h ou 7 dias antes da consulta. A plataforma manda WhatsApp pro paciente sozinha, no horário certo, com o nome dele, data, hora e profissional. Preview da mensagem aparece embaixo pra você ver exatamente o que o paciente vai receber.',
+        chips: [{ icon: BellRing, label: 'Disparo automático' }, { icon: MessageSquare, label: 'Preview da msg' }, { icon: Clock, label: '30min a 7d antes' }],
       },
       {
         title: 'Setores',
@@ -389,7 +477,7 @@ const MODULES = [
         desc: 'Crie acessos para sua equipe (respeitando o limite do seu plano). Defina perfil Admin ou Operador. Pode editar nome, e-mail, senha e excluir.',
       },
     ],
-    tip: 'Operadores só veem conversas do setor deles + Recepção. Use isso para organizar grupos de atendimento sem confundir.',
+    tip: 'O card de Plano mostra "em vermelho" quando algum recurso passou do limite do plano — antes da gente travar, vocês já veem que precisam fazer upgrade. Botão fala direto com nossa equipe pra acertar.',
     cta: { label: 'Abrir Administração', to: '/painel/admin' },
   },
 ]
