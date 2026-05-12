@@ -4,8 +4,9 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
 import LimitReachedModal from '../../components/LimitReachedModal'
-import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '../../lib/planLimits'
-import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil, QrCode, Wifi, WifiOff, LogOut, Trash2, Lock, Bell } from 'lucide-react'
+import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit, PLAN_DEFAULTS, UNLIMITED } from '../../lib/planLimits'
+import { computeBillingStatus, fmtMoney, fmtDateBR, statusBadge, BILLING_STATUS } from '../../lib/billing'
+import { Plus, X, UserMinus, RefreshCw, UserCheck, UserX, Pencil, QrCode, Wifi, WifiOff, LogOut, Trash2, Lock, Bell, Crown, Sparkles, TrendingUp, ArrowUpRight, Calendar as CalendarIcon, Users as UsersIcon, Stethoscope, Layers } from 'lucide-react'
 import './Company.css'
 
 const SECTOR_COLORS = ['#2563EB', '#16A34A', '#7C3AED', '#DC2626', '#D97706', '#0891B2']
@@ -44,6 +45,8 @@ export default function CompanyAdmin() {
 
   const [users, setUsers]               = useState([])
   const [sectors, setSectors]           = useState([])
+  const [proCount, setProCount]         = useState(0)
+  const [agendasCount, setAgendasCount] = useState(0)
   const [sectorMembers, setSectorMembers] = useState([])
   const [saving, setSaving]             = useState(false)
 
@@ -181,6 +184,18 @@ export default function CompanyAdmin() {
       .then(({ data }) => { if (data) setSectors(data) })
   }, [instance])
 
+  // Carrega contagens pro card de plano (profissionais + agendas)
+  useEffect(() => {
+    if (!instance) return
+    Promise.all([
+      supabase.from('professionals').select('id', { count: 'exact', head: true }).eq('instancia', instance),
+      supabase.from('agendas').select('id', { count: 'exact', head: true }).eq('instancia', instance),
+    ]).then(([{ count: p }, { count: a }]) => {
+      setProCount(p || 0)
+      setAgendasCount(a || 0)
+    })
+  }, [instance])
+
   useEffect(() => {
     if (!sectors.length) { setSectorMembers([]); return }
     supabase.from('sector_members').select('*').in('sector_id', sectors.map(s => s.id))
@@ -300,8 +315,197 @@ export default function CompanyAdmin() {
   const domain = slugify(session?.company?.name || 'empresa') + '.com'
   const activeUsers = users.filter(u => u.active !== false)
 
+  // Plan/billing data pro card hero do topo
+  const planName  = limits.plan || 'Starter'
+  const planDef   = PLAN_DEFAULTS[planName] || PLAN_DEFAULTS.Starter
+  const PLAN_THEMES = {
+    Starter:  { bg: 'linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)', border: 'rgba(217, 119, 6, 0.20)',  numColor: '#B45309', accent: '#D97706', accentSoft: '#FED7AA', icon: Sparkles, glow: 'rgba(250, 204, 21, 0.30)' },
+    Pro:      { bg: 'linear-gradient(135deg, #0F0E1B 0%, #1E1B2E 100%)', border: 'rgba(184, 137, 92, 0.4)', numColor: '#FCD34D', accent: '#C9A074', accentSoft: '#A37846', icon: Crown,    glow: 'rgba(201, 160, 116, 0.35)', dark: true },
+    Business: { bg: 'linear-gradient(135deg, #2E1065 0%, #4C1D95 100%)', border: 'rgba(167, 139, 250, 0.5)', numColor: '#DDD6FE', accent: '#A78BFA', accentSoft: '#7C3AED', icon: TrendingUp, glow: 'rgba(167, 139, 250, 0.35)', dark: true },
+  }
+  const planTheme = PLAN_THEMES[planName] || PLAN_THEMES.Starter
+  const PlanIcon = planTheme.icon
+
+  const billing = computeBillingStatus(session?.company)
+  const billingBadge = statusBadge(billing.status)
+
+  const upgradeTarget = planName === 'Starter' ? 'Pro' : planName === 'Pro' ? 'Business' : null
+  const upgradeWhatsApp = `https://wa.me/5561999999999?text=${encodeURIComponent(`Olá! Quero fazer upgrade do meu plano CliniSac (atual: ${planName}${upgradeTarget ? ` → ${upgradeTarget}` : ''}). Empresa: ${session?.company?.name || ''}`)}`
+
+  // Helper pra renderizar uma mini stat com barra de progresso
+  function PlanStat({ icon: Icon, label, used, total }) {
+    const isUnlimited = total === UNLIMITED
+    const pct = isUnlimited ? 0 : Math.min(100, Math.round((used / Math.max(1, total)) * 100))
+    const atLimit = !isUnlimited && used >= total
+    const nearLimit = !isUnlimited && pct >= 80 && !atLimit
+    const barColor = atLimit ? '#DC2626' : nearLimit ? '#D97706' : '#16A34A'
+    const trackColor = planTheme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(15, 14, 27, 0.06)'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12,
+            color: planTheme.dark ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)',
+            fontWeight: 600, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+            <Icon size={13} /> {label}
+          </div>
+          <div style={{ fontFamily: 'var(--font-display, "Bricolage Grotesque")', fontWeight: 700,
+            fontSize: 14, color: planTheme.dark ? '#fff' : 'var(--text-primary)',
+            fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ color: atLimit ? '#FCA5A5' : nearLimit ? '#FCD34D' : 'inherit' }}>{used}</span>
+            <span style={{ opacity: 0.5 }}>/{isUnlimited ? '∞' : total}</span>
+          </div>
+        </div>
+        <div style={{ height: 5, background: trackColor, borderRadius: 999, overflow: 'hidden' }}>
+          <div style={{
+            height: '100%',
+            width: isUnlimited ? '12%' : `${pct}%`,
+            background: isUnlimited
+              ? `repeating-linear-gradient(45deg, ${barColor}, ${barColor} 4px, transparent 4px, transparent 8px)`
+              : `linear-gradient(90deg, ${barColor}88, ${barColor})`,
+            borderRadius: 999,
+            transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1)',
+          }} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="page-enter">
+      {/* ─── Plano e cobrança (card hero) ──────────────────────────────── */}
+      <div className="page-body">
+        <div className="section-header">
+          <div className="section-title">Plano e cobrança</div>
+        </div>
+        <div style={{
+          position: 'relative',
+          background: planTheme.bg,
+          border: `1px solid ${planTheme.border}`,
+          borderRadius: 18,
+          padding: '1.5rem 1.75rem',
+          overflow: 'hidden',
+          color: planTheme.dark ? '#fff' : 'var(--text-primary)',
+        }}>
+          {/* Glow ambiental */}
+          <div aria-hidden="true" style={{
+            position: 'absolute', top: -80, right: -80,
+            width: 240, height: 240, borderRadius: '50%',
+            background: planTheme.glow, filter: 'blur(60px)', pointerEvents: 'none',
+          }} />
+
+          <div style={{ position: 'relative', display: 'grid',
+            gridTemplateColumns: '1fr 1.4fr', gap: 28, alignItems: 'center' }}>
+
+            {/* Coluna esquerda: badge do plano + status billing */}
+            <div>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '6px 12px', borderRadius: 999,
+                background: planTheme.dark ? 'rgba(255,255,255,0.08)' : '#fff',
+                border: `1px solid ${planTheme.dark ? 'rgba(255,255,255,0.15)' : planTheme.border}`,
+                fontSize: 10.5, fontWeight: 700, letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                color: planTheme.accent,
+              }}>
+                <PlanIcon size={11} /> Plano atual
+              </div>
+
+              <div style={{
+                marginTop: 12,
+                fontFamily: 'var(--font-display, "Bricolage Grotesque")',
+                fontWeight: 800, fontSize: 44, lineHeight: 1, letterSpacing: '-0.04em',
+                color: planTheme.numColor,
+              }}>
+                {planName}
+              </div>
+
+              <div style={{ marginTop: 8, fontSize: 13,
+                color: planTheme.dark ? 'rgba(255,255,255,0.7)' : 'var(--text-secondary)' }}>
+                {planDef.price ? (
+                  <><strong style={{ fontWeight: 700 }}>{fmtMoney(planDef.price)}</strong>/mês</>
+                ) : (
+                  <em style={{ fontFamily: 'Instrument Serif, serif', fontSize: 14 }}>preço sob medida</em>
+                )}
+              </div>
+
+              {/* Vencimento + status badge */}
+              {billing.status !== BILLING_STATUS.NO_CONFIG && (
+                <div style={{
+                  marginTop: 16,
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  padding: '7px 12px',
+                  borderRadius: 10,
+                  background: planTheme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.7)',
+                  border: `1px solid ${planTheme.dark ? 'rgba(255,255,255,0.10)' : 'rgba(15, 14, 27, 0.06)'}`,
+                  backdropFilter: 'blur(8px)',
+                }}>
+                  <CalendarIcon size={13} style={{ color: billingBadge.color }} />
+                  <div style={{ fontSize: 12, color: planTheme.dark ? 'rgba(255,255,255,0.8)' : 'var(--text-secondary)' }}>
+                    Próximo vencimento{' '}
+                    <strong style={{ fontWeight: 700, color: planTheme.dark ? '#fff' : 'var(--text-primary)' }}>
+                      {fmtDateBR(billing.dueDate)}
+                    </strong>
+                  </div>
+                  <span style={{
+                    fontSize: 10.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                    padding: '2px 8px', borderRadius: 999,
+                    background: billingBadge.bg, color: billingBadge.color,
+                    border: `1px solid ${billingBadge.border}`,
+                  }}>
+                    {billing.daysUntilDue != null && billing.daysUntilDue > 0
+                      ? `em ${billing.daysUntilDue}d`
+                      : billing.daysUntilDue === 0
+                      ? 'hoje'
+                      : billing.daysOverdue
+                      ? `${billing.daysOverdue}d atrás`
+                      : billingBadge.label}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Coluna direita: 3 stats + CTA */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <PlanStat icon={Stethoscope} label="Profissionais" used={proCount} total={limits.professionals} />
+              <PlanStat icon={UsersIcon}   label="Usuários na equipe" used={users.length} total={limits.users} />
+              <PlanStat icon={Layers}      label="Agendas"           used={agendasCount} total={limits.agendas} />
+
+              {/* CTA upgrade — apenas se houver target */}
+              {upgradeTarget && (
+                <a href={upgradeWhatsApp} target="_blank" rel="noreferrer"
+                  style={{
+                    marginTop: 6,
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between',
+                    gap: 10,
+                    padding: '11px 16px', borderRadius: 12,
+                    background: planTheme.dark
+                      ? 'linear-gradient(120deg, #FCD34D 0%, #FB923C 100%)'
+                      : 'linear-gradient(120deg, #2563EB 0%, #1D4ED8 100%)',
+                    color: planTheme.dark ? '#422006' : '#fff',
+                    fontFamily: 'var(--font-display, "Bricolage Grotesque")',
+                    fontWeight: 700, fontSize: 13.5,
+                    letterSpacing: '-0.01em',
+                    textDecoration: 'none',
+                    boxShadow: planTheme.dark
+                      ? '0 8px 24px -8px rgba(252, 211, 77, 0.5)'
+                      : '0 8px 24px -8px rgba(37, 99, 235, 0.45)',
+                    transition: 'transform 0.2s, box-shadow 0.2s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <ArrowUpRight size={15} /> Fazer upgrade pra {upgradeTarget}
+                  </span>
+                  <span style={{ fontSize: 11, opacity: 0.85, fontWeight: 600 }}>
+                    Falar com o time
+                  </span>
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Conexão WhatsApp */}
       <div className="page-body">
         <div className="section-header">
