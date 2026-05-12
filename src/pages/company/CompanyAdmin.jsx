@@ -368,6 +368,7 @@ export default function CompanyAdmin() {
 
   const billing = computeBillingStatus(session?.company)
   const billingBadge = statusBadge(billing.status)
+  const displayPrice = session?.company?.plan_price_override ?? planDef.price
 
   const upgradeTarget = planName === 'Starter' ? 'Pro' : planName === 'Pro' ? 'Business' : null
   const upgradeWhatsApp = `https://wa.me/5561999999999?text=${encodeURIComponent(`Olá! Quero fazer upgrade do meu plano CliniSac (atual: ${planName}${upgradeTarget ? ` → ${upgradeTarget}` : ''}). Empresa: ${session?.company?.name || ''}`)}`
@@ -460,8 +461,8 @@ export default function CompanyAdmin() {
 
               <div style={{ marginTop: 8, fontSize: 13,
                 color: planTheme.dark ? 'rgba(255,255,255,0.7)' : 'var(--text-secondary)' }}>
-                {planDef.price ? (
-                  <><strong style={{ fontWeight: 700 }}>{fmtMoney(planDef.price)}</strong>/mês</>
+                {displayPrice ? (
+                  <><strong style={{ fontWeight: 700 }}>{fmtMoney(displayPrice)}</strong>/mês</>
                 ) : (
                   <em style={{ fontFamily: 'Instrument Serif, serif', fontSize: 14 }}>preço sob medida</em>
                 )}
