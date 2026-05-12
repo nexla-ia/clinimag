@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft } from 'lucide-react'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -871,7 +871,7 @@ export default function CompanyConversations() {
   const isClosed = selected ? closed.has(selected.session_id) : false
 
   return (
-    <div className="contacts-root">
+    <div className={`contacts-root ${selected ? 'has-selected' : ''}`}>
       <div className="contacts-list">
         {/* Abas */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
@@ -1021,6 +1021,13 @@ export default function CompanyConversations() {
         ) : (
           <>
             <div className="chat-header">
+              <button
+                type="button"
+                className="chat-back-mobile"
+                onClick={() => setSelected(null)}
+                aria-label="Voltar para a lista">
+                <ChevronLeft size={20} />
+              </button>
               {(() => {
                 const cleanNum = selected.phone.replace(/\D/g, '')
                 const saved = savedContacts[cleanNum]
@@ -1077,14 +1084,14 @@ export default function CompanyConversations() {
                       onClick={() => openSaveContact(selected)}
                     >
                       {hasContact ? <UserCheck size={14} /> : <UserPlus size={14} />}
-                      {hasContact ? `Editar ${saved.nome}` : 'Salvar contato'}
+                      <span className="btn-label">{hasContact ? `Editar ${saved.nome}` : 'Salvar contato'}</span>
                     </button>
                     <button
                       className="nx-btn-ghost"
                       style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#7C3AED' }}
                       onClick={() => navigate(`/painel/agenda?numero=${cleanNum}${nome ? `&nome=${encodeURIComponent(nome)}` : ''}`)}
                     >
-                      <Calendar size={14} /> Agendar
+                      <Calendar size={14} /> <span className="btn-label">Agendar</span>
                     </button>
                     {(() => {
                       const att = attendancesMap[selected.session_id]
@@ -1097,7 +1104,7 @@ export default function CompanyConversations() {
                           onClick={() => { setTransferModal(selected); setTransferringTo('') }}
                           title="Passar essa conversa pra outro atendente"
                         >
-                          <ArrowRightLeft size={14} /> Transferir
+                          <ArrowRightLeft size={14} /> <span className="btn-label">Transferir</span>
                         </button>
                       )
                     })()}
@@ -1111,7 +1118,7 @@ export default function CompanyConversations() {
                           style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
                           onClick={() => { setCloseModal(selected); setReason('') }}
                         >
-                          <CheckCircle2 size={14} /> Finalizar conversa
+                          <CheckCircle2 size={14} /> <span className="btn-label">Finalizar conversa</span>
                         </button>
                       )
                     })()}
@@ -1166,28 +1173,20 @@ export default function CompanyConversations() {
               })
               if (respondidaPorFora) {
                 return (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    background: 'linear-gradient(90deg, #FFFBEB 0%, #FEF3C7 100%)',
-                    borderBottom: '1px solid #FDE68A',
-                    padding: '10px 20px', flexShrink: 0, gap: 12,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#92400E' }}>
-                      <PhoneCall size={15} style={{ color: '#D97706' }} />
-                      <span>Conversa atendida <strong>direto no WhatsApp</strong> (fora da plataforma) — IA não está mais respondendo</span>
+                  <div className="chat-banner chat-banner-wa">
+                    <div className="chat-banner-text">
+                      <PhoneCall size={15} style={{ color: '#D97706', flexShrink: 0 }} />
+                      <span><span className="chat-banner-long">Conversa atendida </span><strong>direto no WhatsApp</strong> <span className="chat-banner-long">(fora da plataforma) — IA não está mais respondendo</span></span>
                     </div>
                     <button
                       onClick={e => handleAssume(selected, e)}
                       disabled={assuming === selected.session_id}
                       title="Trazer essa conversa pro seu setor pra continuar dentro da plataforma"
+                      className="chat-banner-btn"
                       style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 7,
                         background: 'transparent', color: '#92400E',
                         border: '1.5px solid #D97706',
-                        borderRadius: 8, padding: '8px 16px',
-                        fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                         opacity: assuming === selected.session_id ? 0.6 : 1,
-                        flexShrink: 0,
                       }}>
                       <UserCheck size={14} />
                       {assuming === selected.session_id ? 'Trazendo...' : 'Trazer pro meu setor'}
