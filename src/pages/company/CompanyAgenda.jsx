@@ -9,7 +9,7 @@ import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '.
 import {
   Calendar, Plus, X, Pencil, Trash2, ChevronLeft, ChevronRight,
   Clock, User as UserIcon, Phone, ListChecks, CheckCircle2, XCircle, AlertCircle, Settings,
-  MessageSquare, History, Lock
+  MessageSquare, History, Lock, Repeat
 } from 'lucide-react'
 import './Company.css'
 
@@ -150,6 +150,8 @@ export default function CompanyAgenda() {
   const [confirmDeleteAgenda, setConfirmDeleteAgenda] = useState(null)
   const [confirmDeleteAppt, setConfirmDeleteAppt] = useState(false)
   const [deletingNow, setDeletingNow] = useState(false)
+  const [draggingId, setDraggingId] = useState(null)
+  const [dragOverSlot, setDragOverSlot] = useState(null)
 
   // Carrega agendas + agendamentos + contatos
   useEffect(() => {
@@ -323,6 +325,8 @@ export default function CompanyAgenda() {
       insurance_plan_id: null,
       price: 0,
       payment_status: 'pendente',
+      recurrence: null,
+      recurrence_count: 4,
     })
     setApptErr('')
     setPatientHistory([])
@@ -395,6 +399,21 @@ export default function CompanyAgenda() {
       const sign = tz[0] === '-' ? -1 : 1
       const [h, m] = tz.slice(1).split(':').map(Number)
       return new Date(date.getTime() + sign * (h * 60 + m) * 60000).getUTCDay()
+    }
+
+    // Conflito de horário na mesma agenda
+    const agendaConflict = appointments.find(a => {
+      if (a.id === apptModal.id) return false
+      if (a.agenda_id !== apptModal.agenda_id) return false
+      if (a.status === 'cancelado') return false
+      const aStart = new Date(a.starts_at).getTime()
+      const aEnd = aStart + (a.duration_minutes || 30) * 60000
+      return startsAt.getTime() < aEnd && aStart < endsAt.getTime()
+    })
+    if (agendaConflict) {
+      const cTime = new Date(agendaConflict.starts_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      setApptErr(`Conflito de horário: ${agendaConflict.contact_nome} já está marcado às ${cTime} nesta agenda.`)
+      return
     }
 
     // Validação: dia/horário do profissional
@@ -480,6 +499,24 @@ export default function CompanyAgenda() {
       : await supabase.from('appointments').update(payload).eq('id', apptModal.id)
     setSavingAppt(false)
     if (error) { setApptErr('Erro: ' + error.message); return }
+
+    // Agendamentos recorrentes (somente ao criar)
+    if (isNew && apptModal.recurrence) {
+      const count = Math.min(parseInt(apptModal.recurrence_count) || 4, 52)
+      const extras = []
+      for (let i = 1; i < count; i++) {
+        let next
+        if (apptModal.recurrence === 'mensal') {
+          next = new Date(startsAt)
+          next.setMonth(next.getMonth() + i)
+        } else {
+          const days = apptModal.recurrence === 'semanal' ? 7 : 14
+          next = new Date(startsAt.getTime() + i * days * 86400000)
+        }
+        extras.push({ ...payload, starts_at: next.toISOString() })
+      }
+      if (extras.length) await supabase.from('appointments').insert(extras)
+    }
 
     // ─── Mensagens automáticas pro paciente (chat interno + WhatsApp) ─────
     if (numero) {
@@ -769,31 +806,80 @@ export default function CompanyAgenda() {
                         const working = isWorkingDay(d)
                         const appt = working ? apptAt(d, hhmm) : null
                         const status = appt ? STATUS_OPTIONS.find(s => s.value === appt.status) : null
+                        const slotKey = `${fmtDateInput(d)}_${hhmm}`
+                        const isDragOver = dragOverSlot === slotKey
                         return (
                           <div key={i}
-                            onClick={() => working && (appt ? openEditAppt(appt) : openNewAppt(d, hhmm))}
+                            onClick={() => !draggingId && working && (appt ? openEditAppt(appt) : openNewAppt(d, hhmm))}
+                            onDragOver={e => {
+                              if (!working) return
+                              const occupied = apptAt(d, hhmm)
+                              if (occupied && occupied.id !== e.dataTransfer.types[0]) {
+                                e.dataTransfer.dropEffect = 'none'
+                                return
+                              }
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                              setDragOverSlot(slotKey)
+                            }}
+                            onDragLeave={e => {
+                              if (!e.currentTarget.contains(e.relatedTarget)) setDragOverSlot(null)
+                            }}
+                            onDrop={async e => {
+                              e.preventDefault()
+                              if (!working) return
+                              const apptId = e.dataTransfer.getData('apptId')
+                              if (!apptId) return
+                              const droppedAppt = appointments.find(a => a.id === apptId)
+                              if (!droppedAppt) return
+                              const occupied = apptAt(d, hhmm)
+                              if (occupied && occupied.id !== apptId) return
+                              setDragOverSlot(null)
+                              setDraggingId(null)
+                              const tz = session?.company?.timezone || '-03:00'
+                              const newStartsAt = new Date(`${fmtDateInput(d)}T${hhmm}:00${tz}`)
+                              if (newStartsAt.toISOString() === droppedAppt.starts_at) return
+                              setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, starts_at: newStartsAt.toISOString() } : a))
+                              const { error } = await supabase.from('appointments').update({ starts_at: newStartsAt.toISOString() }).eq('id', apptId)
+                              if (error) setAppointments(prev => prev.map(a => a.id === apptId ? droppedAppt : a))
+                            }}
                             style={{
                               minHeight: 46, borderLeft: '1px solid var(--border)',
-                              background: !working ? '#F9FAFB' : 'transparent',
+                              background: isDragOver ? '#DBEAFE' : !working ? '#F9FAFB' : 'transparent',
                               cursor: working ? 'pointer' : 'not-allowed',
                               padding: 3, position: 'relative',
+                              transition: 'background 0.1s',
+                              outline: isDragOver ? '2px dashed #2563EB' : 'none',
+                              outlineOffset: '-2px',
                             }}
-                            onMouseEnter={e => { if (working && !appt) e.currentTarget.style.background = '#EFF6FF' }}
-                            onMouseLeave={e => { if (working && !appt) e.currentTarget.style.background = 'transparent' }}
+                            onMouseEnter={e => { if (working && !appt && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
+                            onMouseLeave={e => { if (working && !appt && !isDragOver) e.currentTarget.style.background = 'transparent' }}
                           >
                             {appt && status && (
-                              <div style={{
-                                background: status.color,
-                                color: '#fff',
-                                borderLeft: `3px solid ${status.color}`,
-                                borderRadius: 5,
-                                padding: '5px 8px',
-                                fontSize: 11, fontWeight: 700, lineHeight: 1.3,
-                                height: '100%',
-                                display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                                overflow: 'hidden',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                              }}>
+                              <div
+                                draggable
+                                onDragStart={e => {
+                                  e.dataTransfer.effectAllowed = 'move'
+                                  e.dataTransfer.setData('apptId', appt.id)
+                                  setDraggingId(appt.id)
+                                }}
+                                onDragEnd={() => { setDraggingId(null); setDragOverSlot(null) }}
+                                style={{
+                                  background: status.color,
+                                  color: '#fff',
+                                  borderLeft: `3px solid ${status.color}`,
+                                  borderRadius: 5,
+                                  padding: '5px 8px',
+                                  fontSize: 11, fontWeight: 700, lineHeight: 1.3,
+                                  height: '100%',
+                                  display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                                  overflow: 'hidden',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                                  opacity: draggingId === appt.id ? 0.35 : 1,
+                                  cursor: 'grab',
+                                  userSelect: 'none',
+                                  transition: 'opacity 0.15s',
+                                }}>
                                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   {appt.contact_nome}
                                 </div>
@@ -1140,6 +1226,48 @@ export default function CompanyAgenda() {
                     onChange={e => setApptModal(p => ({ ...p, duration_minutes: e.target.value }))} />
                 </div>
               </div>
+
+              {!apptModal.id && (
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Repeat size={11} /> Recorrência
+                  </label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {[
+                      { value: null,         label: 'Não repetir' },
+                      { value: 'semanal',    label: 'Semanal' },
+                      { value: 'quinzenal',  label: 'Quinzenal' },
+                      { value: 'mensal',     label: 'Mensal' },
+                    ].map(r => {
+                      const active = apptModal.recurrence === r.value
+                      return (
+                        <button key={String(r.value)} type="button"
+                          onClick={() => setApptModal(p => ({ ...p, recurrence: r.value }))}
+                          style={{
+                            padding: '5px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            border: `1.5px solid ${active ? '#2563EB' : 'var(--border)'}`,
+                            background: active ? '#EFF6FF' : 'transparent',
+                            color: active ? '#2563EB' : 'var(--text-secondary)',
+                            cursor: 'pointer',
+                          }}>
+                          {r.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {apptModal.recurrence && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input className="nx-input" type="number" min={2} max={52}
+                        style={{ width: 72, textAlign: 'center' }}
+                        value={apptModal.recurrence_count}
+                        onChange={e => setApptModal(p => ({ ...p, recurrence_count: Math.min(52, Math.max(2, parseInt(e.target.value) || 2)) }))} />
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        ocorrências — total de <strong style={{ color: 'var(--text-primary)' }}>{apptModal.recurrence_count}</strong> consultas
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {professionals.length > 0 && (
                 <div>
