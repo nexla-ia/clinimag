@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
 import {
   Plus, X, Trash2, Pencil, Calendar, User as UserIcon, Flag,
-  GripVertical, MoreVertical, Tag, ChevronRight,
+  GripVertical, MoreVertical, Tag, ChevronRight, MessageCircle, ExternalLink, Link2,
 } from 'lucide-react'
 import './Company.css'
 
@@ -47,6 +48,7 @@ function dueBadge(dateStr) {
 
 export default function CompanyKanban() {
   const { session } = useAuth()
+  const navigate = useNavigate()
   const instance = session?.company?.instance
   const companyId = session?.company?.id
   const isAdmin = session?.user?.role === 'admin'
@@ -54,7 +56,13 @@ export default function CompanyKanban() {
   const [columns, setColumns]     = useState([])
   const [cards, setCards]         = useState([])
   const [users, setUsers]         = useState([])
+  const [contacts, setContacts]   = useState([])
   const [loading, setLoading]     = useState(true)
+
+  const [comments, setComments]           = useState([])
+  const [loadingComments, setLoadingComments] = useState(false)
+  const [newComment, setNewComment]       = useState('')
+  const [savingComment, setSavingComment] = useState(false)
   const [filter, setFilter]       = useState({ assignee: 'todos', priority: 'todas', due: 'todos' })
 
   const [columnModal, setColumnModal] = useState(null)
@@ -79,10 +87,12 @@ export default function CompanyKanban() {
       supabase.from('kanban_columns').select('*').eq('instancia', instance).order('position'),
       supabase.from('kanban_cards').select('*').eq('instancia', instance).order('position'),
       supabase.from('users').select('id, name, email, active').eq('company_id', companyId),
-    ]).then(([{ data: c }, { data: ca }, { data: u }]) => {
+      supabase.from('saved_contacts').select('id, nome, numero').eq('instancia', instance).order('nome'),
+    ]).then(([{ data: c }, { data: ca }, { data: u }, { data: ct }]) => {
       if (c) setColumns(c)
       if (ca) setCards(ca)
       if (u) setUsers(u.filter(x => x.active !== false))
+      if (ct) setContacts(ct)
       setLoading(false)
     })
   }, [instance, companyId])
@@ -110,6 +120,16 @@ export default function CompanyKanban() {
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [instance])
+
+  // Carrega comentários quando abre um card existente
+  useEffect(() => {
+    if (!cardModal?.id) { setComments([]); setNewComment(''); return }
+    setLoadingComments(true)
+    supabase.from('kanban_card_comments')
+      .select('*').eq('card_id', cardModal.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => { setComments(data || []); setLoadingComments(false) })
+  }, [cardModal?.id])
 
   // Coluna CRUD
   function openNewColumn() {
@@ -180,6 +200,7 @@ export default function CompanyKanban() {
       title: '', description: '',
       assigned_user_id: null, assigned_user_name: null,
       due_date: '', priority: 'normal',
+      contact_id: null, contact_nome: '',
     })
     setCardErr('')
   }
@@ -202,6 +223,8 @@ export default function CompanyKanban() {
       assigned_user_name: cardModal.assigned_user_name || null,
       due_date: cardModal.due_date || null,
       priority: cardModal.priority || 'normal',
+      contact_id: cardModal.contact_id || null,
+      contact_nome: cardModal.contact_nome?.trim() || null,
       ...(isNew ? { position: maxPos + 1, created_by_email: session?.user?.email } : {}),
     }
     const { error } = isNew
@@ -222,6 +245,21 @@ export default function CompanyKanban() {
     setDeletingNow(false)
     setConfirmDeleteCard(false)
     setCardModal(null)
+  }
+
+  async function handleAddComment() {
+    if (!newComment.trim() || !cardModal?.id) return
+    setSavingComment(true)
+    const { data } = await supabase.from('kanban_card_comments').insert({
+      card_id: cardModal.id,
+      instancia: instance,
+      author_name: session?.user?.name || session?.user?.email || 'Usuário',
+      author_email: session?.user?.email || null,
+      body: newComment.trim(),
+    }).select().single()
+    if (data) setComments(prev => [...prev, data])
+    setNewComment('')
+    setSavingComment(false)
   }
 
   // Drag & drop
@@ -443,6 +481,19 @@ export default function CompanyKanban() {
                           }}>
                             <Flag size={9} /> {prio.label}
                           </span>
+                          {card.contact_nome && (
+                            <span
+                              onClick={e => { e.stopPropagation(); if (card.contact_id) navigate(`/painel/contatos/${card.contact_id}`) }}
+                              title={card.contact_id ? 'Abrir ficha do paciente' : ''}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 3,
+                                fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20,
+                                color: '#0891B2', background: '#ECFEFF', border: '1px solid #A5F3FC',
+                                cursor: card.contact_id ? 'pointer' : 'default',
+                              }}>
+                              <Link2 size={9} /> {card.contact_nome.split(' ')[0]}
+                            </span>
+                          )}
                           {card.assigned_user_name && (
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -609,6 +660,109 @@ export default function CompanyKanban() {
                   })}
                 </div>
               </div>
+
+              {/* Vínculo com paciente */}
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <Link2 size={11} /> Paciente vinculado (opcional)
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input className="nx-input"
+                    placeholder="Buscar paciente por nome..."
+                    value={cardModal.contact_nome || ''}
+                    onChange={e => setCardModal(p => ({ ...p, contact_nome: e.target.value, contact_id: null }))}
+                  />
+                  {cardModal.contact_id && (
+                    <button onClick={() => setCardModal(p => ({ ...p, contact_id: null, contact_nome: '' }))}
+                      style={{
+                        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
+                        display: 'inline-flex', alignItems: 'center',
+                      }}>
+                      <X size={13} />
+                    </button>
+                  )}
+                  {!cardModal.contact_id && (() => {
+                    const q = (cardModal.contact_nome || '').trim().toLowerCase()
+                    if (q.length < 2) return null
+                    const matches = contacts.filter(c => c.nome?.toLowerCase().includes(q)).slice(0, 6)
+                    if (matches.length === 0) return null
+                    return (
+                      <div style={{
+                        marginTop: 4, background: '#fff', border: '1px solid var(--border)',
+                        borderRadius: 8, overflow: 'hidden', boxShadow: '0 4px 12px rgba(15,23,42,0.08)',
+                        position: 'relative', zIndex: 10,
+                      }}>
+                        <div style={{ padding: '5px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', background: '#F8FAFC', borderBottom: '1px solid var(--border)' }}>
+                          Pacientes encontrados
+                        </div>
+                        {matches.map(c => (
+                          <button key={c.id} type="button"
+                            onClick={() => setCardModal(p => ({ ...p, contact_id: c.id, contact_nome: c.nome }))}
+                            style={{
+                              width: '100%', textAlign: 'left', padding: '8px 10px',
+                              background: 'transparent', border: 'none', borderBottom: '1px solid #F1F5F9',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontFamily: 'inherit',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{c.numero}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
+                {cardModal.contact_id && (
+                  <button onClick={() => navigate(`/painel/contatos/${cardModal.contact_id}`)}
+                    style={{ marginTop: 6, fontSize: 11, color: '#0891B2', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
+                    <ExternalLink size={11} /> Ver ficha completa do paciente
+                  </button>
+                )}
+              </div>
+
+              {/* Comentários (apenas ao editar) */}
+              {cardModal.id && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <MessageCircle size={11} /> Comentários{comments.length > 0 ? ` (${comments.length})` : ''}
+                  </div>
+                  {loadingComments ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Carregando...</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {comments.length === 0 && (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>Sem comentários ainda.</div>
+                      )}
+                      {comments.map(cm => (
+                        <div key={cm.id} style={{ background: '#F8FAFC', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{cm.author_name}</span>
+                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                              {new Date(cm.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{cm.body}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <textarea className="nx-input" rows={2}
+                      placeholder="Adicionar comentário... (Ctrl+Enter para enviar)"
+                      value={newComment}
+                      onChange={e => setNewComment(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAddComment() }}
+                      style={{ flex: 1, resize: 'vertical', minHeight: 56 }} />
+                    <button onClick={handleAddComment} disabled={savingComment || !newComment.trim()}
+                      className="nx-btn-primary"
+                      style={{ padding: '9px 16px', fontSize: 12, whiteSpace: 'nowrap', opacity: !newComment.trim() ? 0.5 : 1 }}>
+                      {savingComment ? '...' : 'Enviar'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
               {cardErr && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{cardErr}</div>}
