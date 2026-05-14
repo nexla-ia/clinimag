@@ -851,8 +851,14 @@ export default function CompanyConversations() {
           id: msg.id,
           id_mensagem: msg.id_mensagem,
           message: newText,
-          instancia: instance,
           session_id: selected?.session_id,
+          phone: selected?.phone,
+          instancia: instance,
+          api_instancia: apiInstancia,
+          ai_enabled: session?.company?.ai_enabled !== false,
+          company: session?.company?.name,
+          sender_name: session?.user?.name,
+          sender_email: session?.user?.email,
         }),
       })
       if (!res.ok) throw new Error('status ' + res.status)
