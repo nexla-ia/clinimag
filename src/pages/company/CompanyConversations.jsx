@@ -812,10 +812,22 @@ export default function CompanyConversations() {
       })
       if (insErr) console.error('send_mensagem_geral:', insErr)
 
+      // Pega o id da linha recém-inserida para o n8n poder gravar id_mensagem de volta
+      const { data: newRow } = await supabase
+        .from('mensagens_geral')
+        .select('id')
+        .eq('instancia', instance)
+        .eq('numero', selected.session_id)
+        .eq('type', 'atendente')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
       fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          row_id: newRow?.id || null,
           message: text,
           audio_base64: audio?.base64 || null,
           audio_mime: audio?.mime || null,
