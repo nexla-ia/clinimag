@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff, Loader2, ArrowLeft, Sparkles, Calendar, Bot, MessageSquare } from 'lucide-react'
 import BrandMark from '../components/BrandMark'
+import TrialCTA from '../components/TrialCTA'
 import './LoginPage.css'
 
 export default function LoginPage() {
@@ -89,7 +90,7 @@ export default function LoginPage() {
 
         {/* COLUNA DIREITA — formulário */}
         <div className="login-right">
-          <form className="login-card" onSubmit={handleSubmit}>
+          <form className="login-card" onSubmit={handleSubmit} style={{ marginBottom: 0 }}>
             <div className="login-card-header">
               <h2 className="login-card-title">Acesso ao painel</h2>
               <p className="login-card-sub">Entre com suas credenciais</p>
@@ -138,6 +139,13 @@ export default function LoginPage() {
 
             <div className="login-footer">CliniSac v2.0 · Plataforma exclusiva · Acesso restrito</div>
           </form>
+
+          {/* Trial CTA — visível somente no tab empresa */}
+          {tab === 'empresa' && (
+            <div style={{ marginTop: 12 }}>
+              <TrialCTA compact />
+            </div>
+          )}
         </div>
       </div>
     </div>

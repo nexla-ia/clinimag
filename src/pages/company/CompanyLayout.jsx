@@ -141,8 +141,13 @@ export default function CompanyLayout() {
             {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
           <div className="company-topbar-name">{session?.company?.name}</div>
-          <span className={`nx-badge nx-badge-${session?.company?.plan === 'Business' ? 'violet' : session?.company?.plan === 'Pro' ? 'cyan' : 'gray'}`}>
-            {session?.company?.plan}
+          <span className={`nx-badge nx-badge-${
+            session?.company?.plan === 'Business' ? 'violet' :
+            session?.company?.plan === 'Pro' ? 'cyan' :
+            session?.company?.plan === 'Trial' ? 'amber' :
+            'gray'
+          }`}>
+            {session?.company?.plan === 'Trial' ? '⚡ Trial' : session?.company?.plan}
           </span>
         </div>
         <BillingBanner company={session?.company} />

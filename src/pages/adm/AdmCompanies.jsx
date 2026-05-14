@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { Plus, Building2, ChevronRight, X, RefreshCw, Users, Database } from 'lucide-react'
+import { supabase } from '../../lib/supabase'
+import { Plus, Building2, ChevronRight, X, RefreshCw, Users, Database, Clock, Zap } from 'lucide-react'
 import './Adm.css'
 
 function slugify(name) {
@@ -24,12 +25,94 @@ function generatePassword(companyName) {
 
 const emptyUser = { name: '', email: '', password: '' }
 
+function trialExpiryDate() {
+  const d = new Date()
+  d.setDate(d.getDate() + 14)
+  return d
+}
+function fmtDateInput(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+function fmtDateBR(d) {
+  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
+}
+
+const emptyTrial = { name: '', email: '', password: '', instance: '', apiInstancia: '', historyTable: '', contactsTable: 'clientes' }
+
 export default function AdmCompanies() {
-  const { db, addCompany, addUser, toggleCompanyActive } = useAuth()
+  const { db, addCompany, addUser, toggleCompanyActive, loadDB } = useAuth()
   const navigate = useNavigate()
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+
+  // ── Trial modal ───────────────────────────────────────────────
+  const [showTrial, setShowTrial] = useState(false)
+  const [savingTrial, setSavingTrial] = useState(false)
+  const [trialError, setTrialError] = useState('')
+  const [trialForm, setTrialForm] = useState({ ...emptyTrial })
+
+  function closeTrial() { setShowTrial(false); setTrialError(''); setTrialForm({ ...emptyTrial }) }
+
+  async function handleSaveTrial() {
+    setTrialError('')
+    if (!trialForm.name.trim())        { setTrialError('Nome da empresa é obrigatório.'); return }
+    if (!trialForm.email.trim())       { setTrialError('E-mail do responsável é obrigatório.'); return }
+    if (!trialForm.password.trim())    { setTrialError('Senha é obrigatória.'); return }
+    if (!trialForm.instance.trim())    { setTrialError('Instância WhatsApp é obrigatória.'); return }
+    if (!trialForm.apiInstancia.trim()){ setTrialError('API da instância é obrigatória.'); return }
+
+    setSavingTrial(true)
+    try {
+      const expiry = trialExpiryDate()
+      const slug = trialForm.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,'').replace(/[^a-z0-9]/g,'')
+
+      const { data: company, error: compErr } = await supabase
+        .from('companies')
+        .insert({
+          name: trialForm.name.trim(),
+          slug,
+          plan: 'Trial',
+          instance: trialForm.instance.trim(),
+          api_instancia: trialForm.apiInstancia.trim(),
+          contacts_table: trialForm.contactsTable.trim() || 'clientes',
+          history_table: trialForm.historyTable.trim() || null,
+          next_due_date: fmtDateInput(expiry),
+          billing_grace_days: 0,
+          billing_amount: 0,
+        })
+        .select()
+        .single()
+
+      if (compErr || !company) {
+        setTrialError('Erro ao criar empresa: ' + (compErr?.message || 'verifique o Supabase.'))
+        setSavingTrial(false); return
+      }
+
+      const { error: userErr } = await supabase.rpc('create_user', {
+        p_name: trialForm.name.trim(),
+        p_email: trialForm.email.trim(),
+        p_password: trialForm.password,
+        p_role: 'admin',
+        p_company_id: company.id,
+      })
+
+      if (userErr) {
+        setTrialError('Empresa criada, mas erro ao criar usuário: ' + userErr.message)
+        setSavingTrial(false); return
+      }
+
+      if (trialForm.historyTable) await supabase.rpc('ensure_table_setup', { p_table: trialForm.historyTable.trim() })
+      if (trialForm.contactsTable) await supabase.rpc('ensure_table_setup', { p_table: trialForm.contactsTable.trim() })
+
+      await loadDB()
+      setSavingTrial(false)
+      closeTrial()
+    } catch (e) {
+      setTrialError('Erro inesperado: ' + e.message)
+      setSavingTrial(false)
+    }
+  }
   const [form, setForm] = useState({
     name: '',
     contactsTable: 'clientes',
@@ -138,9 +221,22 @@ export default function AdmCompanies() {
           <div className="page-title">Empresas</div>
           <div className="page-sub">{db.companies.length} empresa(s) cadastrada(s)</div>
         </div>
-        <button className="nx-btn-primary" onClick={() => setShowModal(true)}>
-          <Plus size={15} /> Nova empresa
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => setShowTrial(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'linear-gradient(135deg, #0891B2 0%, #7C3AED 100%)',
+              color: '#fff', border: 'none', borderRadius: 8,
+              padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              boxShadow: '0 4px 14px -4px rgba(8,145,178,0.4)',
+            }}>
+            <Zap size={13} /> Trial Gratuito
+          </button>
+          <button className="nx-btn-primary" onClick={() => setShowModal(true)}>
+            <Plus size={15} /> Nova empresa
+          </button>
+        </div>
       </div>
 
       <div className="page-body">
@@ -173,6 +269,18 @@ export default function AdmCompanies() {
                   {(c.users || []).length} acesso(s) · Criada em {new Date(c.created_at).toLocaleDateString('pt-BR')}
                 </div>
               </div>
+              {c.plan === 'Trial' && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  background: 'linear-gradient(135deg, rgba(8,145,178,0.12), rgba(124,58,237,0.12))',
+                  border: '1px solid rgba(8,145,178,0.3)',
+                  color: '#0891B2', fontSize: 10, fontWeight: 800,
+                  padding: '3px 8px', borderRadius: 999,
+                  textTransform: 'uppercase', letterSpacing: '0.08em',
+                }}>
+                  <Zap size={9} /> Trial
+                </span>
+              )}
               <span className={`nx-badge ${c.active ? 'nx-badge-green' : 'nx-badge-red'}`}>{c.active ? 'Ativa' : 'Inativa'}</span>
               <button className="table-action" style={{ flexShrink: 0 }}
                 onClick={e => { e.stopPropagation(); toggleCompanyActive(c.id) }}>
@@ -183,6 +291,215 @@ export default function AdmCompanies() {
           ))}
         </div>
       </div>
+
+      {/* ── Modal Trial ───────────────────────────────────────── */}
+      {showTrial && createPortal(
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(9,7,20,0.65)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, backdropFilter: 'blur(6px)', padding: '1.5rem',
+        }}>
+          <div style={{
+            width: '100%', maxWidth: 500, maxHeight: 'calc(100vh - 3rem)',
+            overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            borderRadius: 20,
+            background: '#0B0A14',
+            border: '1px solid rgba(255,255,255,0.08)',
+            boxShadow: '0 32px 64px -16px rgba(0,0,0,0.9)',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '22px 28px 18px',
+              borderBottom: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+              background: 'linear-gradient(135deg, rgba(8,145,178,0.12) 0%, rgba(124,58,237,0.1) 100%)',
+              flexShrink: 0,
+            }}>
+              <div>
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  background: 'rgba(8,145,178,0.15)', border: '1px solid rgba(8,145,178,0.25)',
+                  borderRadius: 999, padding: '3px 10px',
+                  fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase',
+                  color: '#0891B2', marginBottom: 10,
+                }}>
+                  <Zap size={9} /> Plano Trial — 14 dias grátis
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 17, color: '#fff' }}>
+                  Cadastrar empresa no trial
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 3 }}>
+                  Acesso expira em <strong style={{ color: '#0891B2' }}>{fmtDateBR(trialExpiryDate())}</strong>
+                </div>
+              </div>
+              <button
+                onClick={closeTrial}
+                style={{ background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: 'rgba(255,255,255,0.5)', flexShrink: 0, marginTop: 2 }}>
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ overflowY: 'auto', flex: 1, padding: '22px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+              {/* Trial info banner */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                background: 'rgba(8,145,178,0.08)', border: '1px solid rgba(8,145,178,0.2)',
+                borderRadius: 12, padding: '12px 14px',
+              }}>
+                <Clock size={16} style={{ color: '#0891B2', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.85)', marginBottom: 2 }}>
+                    14 dias de acesso completo
+                  </div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>
+                    Após o período, a empresa é bloqueada automaticamente pelo sistema de billing. Sem cobrança durante o trial.
+                  </div>
+                </div>
+              </div>
+
+              {/* Nome da empresa */}
+              <div>
+                <label style={trialLabelStyle}>Nome da empresa</label>
+                <input
+                  className="nx-input"
+                  placeholder="Ex: Clínica Saúde Total"
+                  autoFocus
+                  value={trialForm.name}
+                  onChange={e => setTrialForm(p => ({ ...p, name: e.target.value }))}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                />
+              </div>
+
+              {/* E-mail + Senha */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={trialLabelStyle}>E-mail do responsável</label>
+                  <input
+                    className="nx-input" type="email"
+                    placeholder="responsavel@clinica.com"
+                    value={trialForm.email}
+                    onChange={e => setTrialForm(p => ({ ...p, email: e.target.value }))}
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                  />
+                </div>
+                <div>
+                  <label style={trialLabelStyle}>Senha de acesso</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      className="nx-input"
+                      placeholder="Gere ou defina"
+                      value={trialForm.password}
+                      onChange={e => setTrialForm(p => ({ ...p, password: e.target.value }))}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                    />
+                    <button
+                      type="button"
+                      title="Gerar senha"
+                      onClick={() => setTrialForm(p => ({ ...p, password: generatePassword(p.name || 'trial') }))}
+                      style={{ flexShrink: 0, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '0 10px', cursor: 'pointer', color: 'rgba(255,255,255,0.6)' }}>
+                      <RefreshCw size={12} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Instância + API */}
+              <div style={{
+                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+                borderRadius: 12, padding: '14px 16px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                  <Database size={12} style={{ color: '#0891B2' }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>WhatsApp / n8n</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={trialLabelStyle}>Instância WhatsApp</label>
+                    <input className="nx-input" placeholder="clinica-saude"
+                      value={trialForm.instance}
+                      onChange={e => setTrialForm(p => ({ ...p, instance: e.target.value.trim() }))}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                  </div>
+                  <div>
+                    <label style={trialLabelStyle}>API da instância</label>
+                    <input className="nx-input" placeholder="Token/chave"
+                      value={trialForm.apiInstancia}
+                      onChange={e => setTrialForm(p => ({ ...p, apiInstancia: e.target.value.trim() }))}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={trialLabelStyle}>Tabela de contatos</label>
+                    <input className="nx-input" placeholder="clientes"
+                      value={trialForm.contactsTable}
+                      onChange={e => setTrialForm(p => ({ ...p, contactsTable: e.target.value }))}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                  </div>
+                  <div>
+                    <label style={trialLabelStyle}>Tabela histórico IA</label>
+                    <input className="nx-input" placeholder="historico_clinica"
+                      value={trialForm.historyTable}
+                      onChange={e => setTrialForm(p => ({ ...p, historyTable: e.target.value }))}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Resumo do trial */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8,
+              }}>
+                {[
+                  { label: 'Plano', value: 'Trial', color: '#0891B2' },
+                  { label: 'Duração', value: '14 dias', color: '#7C3AED' },
+                  { label: 'Valor', value: 'R$ 0,00', color: '#16A34A' },
+                ].map(item => (
+                  <div key={item.label} style={{
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 10, padding: '10px 12px', textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: item.color, letterSpacing: '-0.02em' }}>{item.value}</div>
+                    <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 3, fontWeight: 700 }}>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 28px 20px', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+              {trialError && (
+                <div style={{ background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#FCA5A5', marginBottom: 12 }}>
+                  {trialError}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={closeTrial}
+                  style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }}>
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveTrial}
+                  disabled={savingTrial}
+                  style={{
+                    flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                    background: savingTrial ? 'rgba(8,145,178,0.4)' : 'linear-gradient(135deg, #0891B2 0%, #7C3AED 100%)',
+                    border: 'none', borderRadius: 8, padding: '10px',
+                    fontSize: 13, fontWeight: 700, color: '#fff', cursor: savingTrial ? 'not-allowed' : 'pointer',
+                    boxShadow: savingTrial ? 'none' : '0 4px 16px -4px rgba(8,145,178,0.5)',
+                  }}>
+                  <Zap size={13} />
+                  {savingTrial ? 'Criando trial...' : 'Ativar trial gratuito'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      , document.body)}
 
       {showModal && createPortal(
         <div style={{
@@ -325,4 +642,10 @@ const labelStyle = {
   display: 'block', fontSize: 11, fontWeight: 500,
   color: 'var(--text-muted)', marginBottom: 5,
   textTransform: 'uppercase', letterSpacing: '0.05em',
+}
+
+const trialLabelStyle = {
+  display: 'block', fontSize: 10, fontWeight: 700,
+  color: 'rgba(255,255,255,0.35)', marginBottom: 5,
+  textTransform: 'uppercase', letterSpacing: '0.07em',
 }
