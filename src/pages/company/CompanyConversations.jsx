@@ -812,24 +812,13 @@ export default function CompanyConversations() {
       })
       if (insErr) console.error('send_mensagem_geral:', insErr)
 
-      // Pega o id da linha recém-inserida para o n8n poder gravar id_mensagem de volta
-      const { data: newRow } = await supabase
-        .from('mensagens_geral')
-        .select('id')
-        .eq('instancia', instance)
-        .eq('numero', selected.session_id)
-        .eq('type', 'atendente')
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      // Aguarda resposta do n8n para gravar id_mensagem retornado pela Evolution API
+      // Aguarda resposta do n8n (retorna instancia + mensagem + id_mensagem) para gravar no banco
       fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioclinisac', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          row_id: newRow?.id || null,
           message: text,
+          mensagem: mensagemPayload,
           audio_base64: audio?.base64 || null,
           audio_mime: audio?.mime || null,
           audio_duration: audio?.duration || null,
@@ -848,12 +837,26 @@ export default function CompanyConversations() {
         }),
       })
         .then(r => r.json())
-        .then(resp => {
-          const msgId = resp?.id_mensagem || resp?.key?.id || resp?.messageId || null
-          if (msgId && newRow?.id) {
+        .then(async resp => {
+          const msgId      = resp?.id_mensagem || null
+          const instResp   = resp?.instancia   || null
+          const msgResp    = resp?.mensagem || resp?.message || null
+          if (!msgId || !instResp || !msgResp) return
+          // Acha a linha pelo conteúdo da mensagem + instancia + numero (mais recente)
+          const { data: row } = await supabase
+            .from('mensagens_geral')
+            .select('id')
+            .eq('instancia', instResp)
+            .eq('numero', selected.session_id)
+            .eq('mensagem', msgResp)
+            .eq('type', 'atendente')
+            .order('id', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (row?.id) {
             supabase.from('mensagens_geral')
               .update({ id_mensagem: msgId })
-              .eq('id', newRow.id)
+              .eq('id', row.id)
               .then(() => {})
           }
         })
