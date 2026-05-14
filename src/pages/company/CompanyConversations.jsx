@@ -823,6 +823,7 @@ export default function CompanyConversations() {
         .limit(1)
         .maybeSingle()
 
+      // Aguarda resposta do n8n para gravar id_mensagem retornado pela Evolution API
       fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioclinisac', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -845,7 +846,18 @@ export default function CompanyConversations() {
           sender_name: session?.user?.name,
           sender_email: session?.user?.email,
         }),
-      }).catch(e => console.warn('webhook envio:', e))
+      })
+        .then(r => r.json())
+        .then(resp => {
+          const msgId = resp?.id_mensagem || resp?.key?.id || resp?.messageId || null
+          if (msgId && newRow?.id) {
+            supabase.from('mensagens_geral')
+              .update({ id_mensagem: msgId })
+              .eq('id', newRow.id)
+              .then(() => {})
+          }
+        })
+        .catch(e => console.warn('webhook envio:', e))
     } finally {
       setSending(false)
     }
