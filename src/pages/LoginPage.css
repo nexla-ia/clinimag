@@ -226,10 +226,11 @@
 
 /* ─── Coluna direita (formulário) ─────────────────────────────────────────── */
 .login-right {
-  padding: 56px 48px;
+  padding: 40px 48px;
   display: flex;
   align-items: center;
   background: white;
+  overflow-y: auto;
 }
 
 .login-card {

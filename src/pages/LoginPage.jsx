@@ -90,7 +90,9 @@ export default function LoginPage() {
 
         {/* COLUNA DIREITA — formulário */}
         <div className="login-right">
-          <form className="login-card" onSubmit={handleSubmit} style={{ marginBottom: 0 }}>
+          {/* wrapper coluna para empilhar form + trial CTA */}
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <form className="login-card" onSubmit={handleSubmit}>
             <div className="login-card-header">
               <h2 className="login-card-title">Acesso ao painel</h2>
               <p className="login-card-sub">Entre com suas credenciais</p>
@@ -142,10 +144,9 @@ export default function LoginPage() {
 
           {/* Trial CTA — visível somente no tab empresa */}
           {tab === 'empresa' && (
-            <div style={{ marginTop: 12 }}>
-              <TrialCTA compact />
-            </div>
+            <TrialCTA compact />
           )}
+          </div>
         </div>
       </div>
     </div>
