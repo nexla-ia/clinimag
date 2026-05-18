@@ -5,7 +5,7 @@ import {
   Users, Bot, Stethoscope, Headset, Check, ChevronRight, ChevronLeft, Zap, ShieldCheck,
   Phone, Mail, Activity, Clock, TrendingUp, Lock,
   Network, Bot as BotIcon, Instagram, ScanLine, Menu, X, Inbox,
-  BookUser, ImageIcon, FileSearch,
+  BookUser, ImageIcon, FileSearch, Heart, Building2,
 } from 'lucide-react'
 import BrandMark from '../components/BrandMark'
 import './Landing.css'
