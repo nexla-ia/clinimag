@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowRight, ArrowUpRight, Sparkles, MessageSquare, Calendar, BarChart3,
+  ArrowRight, ArrowRightLeft, ArrowUpRight, Sparkles, MessageSquare, Calendar, BarChart3,
   Users, Bot, Stethoscope, Headset, Check, ChevronRight, ChevronLeft, Zap, ShieldCheck,
   Phone, Mail, Activity, Clock, TrendingUp, Lock,
   Network, Bot as BotIcon, Instagram, ScanLine, Menu, X, Inbox,
+  BookUser, ImageIcon, FileSearch,
 } from 'lucide-react'
 import BrandMark from '../components/BrandMark'
 import './Landing.css'
