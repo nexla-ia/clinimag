@@ -216,6 +216,79 @@
 }
 .al-card-head svg { color: #4F46E5; }
 
+/* ── Duration distribution ───────────────────────────────────────────────── */
+.al-dur-card {
+  margin-bottom: 12px;
+}
+.al-dur-avg-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.al-dur-avg-badge strong {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-family: 'Fragment Mono', monospace;
+}
+
+.al-dur-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  align-items: end;
+  height: 130px;
+  padding-bottom: 0;
+}
+
+.al-dur-bucket {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.al-dur-bar-wrap {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  background: #F8FAFC;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 60px;
+}
+
+.al-dur-bar {
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  min-height: 4px;
+  transition: height 0.5s cubic-bezier(.4,0,.2,1);
+}
+
+.al-dur-count {
+  font-family: 'Fragment Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+.al-dur-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  white-space: nowrap;
+}
+.al-dur-pct {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'Fragment Mono', monospace;
+}
+
 /* ── Middle row ─────────────────────────────────────────────────────────── */
 .al-mid-row {
   display: grid;

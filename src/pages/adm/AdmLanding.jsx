@@ -188,6 +188,27 @@ export default function AdmLanding() {
 
   const maxTimeline = Math.max(...timelineData.map(b => b.count), 1)
 
+  // Duration distribution buckets
+  const durBuckets = useMemo(() => {
+    const buckets = [
+      { label: '< 30s',    max: 30_000,   color: '#EF4444' },
+      { label: '30s–2min', max: 120_000,  color: '#F59E0B' },
+      { label: '2–5min',   max: 300_000,  color: '#4F46E5' },
+      { label: '5–10min',  max: 600_000,  color: '#10B981' },
+      { label: '> 10min',  max: Infinity, color: '#059669' },
+    ]
+    const counted = buckets.map((b, i) => {
+      const min = i === 0 ? 0 : buckets[i - 1].max
+      const count = rows.filter(r => {
+        const d = r.duration_ms || 0
+        return d >= min && d < b.max
+      }).length
+      return { ...b, count }
+    })
+    const maxCount = Math.max(...counted.map(b => b.count), 1)
+    return counted.map(b => ({ ...b, pct: Math.round((b.count / (rows.length || 1)) * 100), barPct: Math.round((b.count / maxCount) * 100) }))
+  }, [rows])
+
   /* ── render ── */
   return (
     <div className="al">
@@ -248,6 +269,29 @@ export default function AdmLanding() {
           accent="#10B981"
           good={stats.ctaPct > 5}
         />
+      </div>
+
+      {/* DURATION DISTRIBUTION */}
+      <div className="al-card al-dur-card">
+        <div className="al-card-head">
+          <Clock size={15} />
+          <span>Tempo por sessão</span>
+          <span className="al-dur-avg-badge">
+            Média: <strong>{fmtDuration(stats.avgDur)}</strong>
+          </span>
+        </div>
+        <div className="al-dur-grid">
+          {durBuckets.map(b => (
+            <div key={b.label} className="al-dur-bucket">
+              <div className="al-dur-bar-wrap">
+                <div className="al-dur-bar" style={{ height: `${b.barPct}%`, background: b.color }} />
+              </div>
+              <div className="al-dur-count" style={{ color: b.color }}>{b.count}</div>
+              <div className="al-dur-label">{b.label}</div>
+              <div className="al-dur-pct">{b.pct}%</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* TIMELINE + DEVICES */}
