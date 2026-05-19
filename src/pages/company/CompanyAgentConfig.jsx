@@ -90,6 +90,7 @@ function isFilled(id, cfg) {
 export default function CompanyAgentConfig() {
   const { session } = useAuth()
   const companyId = session?.company?.id
+  const instance  = session?.company?.instance
   const userName  = session?.user?.name?.split(' ')[0] || 'amig@'
 
   const [activeId,  setActiveId]  = useState('identidade')
@@ -100,18 +101,21 @@ export default function CompanyAgentConfig() {
   const contentRef = useRef(null)
 
   useEffect(() => {
-    if (!companyId) return
-    supabase.from('companies').select('agent_config').eq('id', companyId).single()
+    if (!instance) return
+    supabase.from('agent_configs').select('config').eq('instancia', instance).maybeSingle()
       .then(({ data }) => {
-        if (data?.agent_config) setConfig(mergeDeep(DEFAULT_CONFIG, data.agent_config))
+        if (data?.config) setConfig(mergeDeep(DEFAULT_CONFIG, data.config))
         setLoading(false)
       })
-  }, [companyId])
+  }, [instance])
 
   async function save() {
-    if (!companyId) return
+    if (!instance) return
     setSaving(true)
-    await supabase.from('companies').update({ agent_config: config }).eq('id', companyId)
+    await supabase.from('agent_configs').upsert(
+      { instancia: instance, company_id: companyId, config },
+      { onConflict: 'instancia' }
+    )
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
