@@ -289,6 +289,61 @@
   font-family: 'Fragment Mono', monospace;
 }
 
+/* ── Section times ───────────────────────────────────────────────────────── */
+.al-sections-time-card { margin-bottom: 12px; }
+
+.al-section-rows { display: flex; flex-direction: column; gap: 8px; }
+
+.al-section-row {
+  display: grid;
+  grid-template-columns: 24px 120px 1fr 64px 60px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: background 0.1s;
+}
+.al-section-row:hover { background: #F8FAFC; }
+
+.al-section-num {
+  font-family: 'Fragment Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.al-section-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.al-section-bar-wrap {
+  height: 6px;
+  background: #F1F5F9;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.al-section-bar {
+  height: 100%;
+  border-radius: 3px;
+  min-width: 3px;
+  transition: width 0.5s cubic-bezier(.4,0,.2,1);
+}
+.al-section-time {
+  font-family: 'Fragment Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+.al-section-sessions {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* ── Middle row ─────────────────────────────────────────────────────────── */
 .al-mid-row {
   display: grid;

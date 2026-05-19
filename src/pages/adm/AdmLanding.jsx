@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
 import {
   Eye, Clock, TrendingUp, MousePointerClick, Smartphone, Monitor, Tablet,
-  Globe, RefreshCw, ArrowUpRight, Activity, Zap, ChevronRight,
+  Globe, RefreshCw, ArrowUpRight, Activity, Zap, ChevronRight, LayoutList,
 } from 'lucide-react'
+import { SECTIONS } from '../../hooks/useLandingAnalytics'
 import './AdmLanding.css'
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
@@ -188,6 +189,17 @@ export default function AdmLanding() {
 
   const maxTimeline = Math.max(...timelineData.map(b => b.count), 1)
 
+  // Per-section average time
+  const sectionStats = useMemo(() => {
+    const rowsWithSections = rows.filter(r => r.section_times && typeof r.section_times === 'object')
+    if (!rowsWithSections.length) return []
+    return SECTIONS.map(({ key, label }) => {
+      const times = rowsWithSections.map(r => r.section_times[key] || 0).filter(v => v > 0)
+      const avg = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0
+      return { key, label, avg, sessions: times.length }
+    }).sort((a, b) => b.avg - a.avg)
+  }, [rows])
+
   // Duration distribution buckets
   const durBuckets = useMemo(() => {
     const buckets = [
@@ -292,6 +304,45 @@ export default function AdmLanding() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* SECTION TIMES */}
+      <div className="al-card al-sections-time-card">
+        <div className="al-card-head">
+          <LayoutList size={15} />
+          <span>Tempo médio por seção</span>
+          <span className="al-dur-avg-badge">
+            {sectionStats.filter(s => s.sessions > 0).length} seções com dados
+          </span>
+        </div>
+        {sectionStats.filter(s => s.sessions > 0).length === 0 ? (
+          <div className="al-empty">Ainda sem dados — o tracking acumula à medida que visitantes rolam a página.</div>
+        ) : (
+          <div className="al-section-rows">
+            {(() => {
+              const maxAvg = Math.max(...sectionStats.map(s => s.avg), 1)
+              // Show in page order (not sorted by time)
+              const ordered = SECTIONS.map(({ key, label }) => sectionStats.find(s => s.key === key) || { key, label, avg: 0, sessions: 0 })
+              return ordered.map((s, i) => {
+                const barPct = Math.round((s.avg / maxAvg) * 100)
+                const hue = s.avg > 120_000 ? '#059669' : s.avg > 60_000 ? '#10B981' : s.avg > 30_000 ? '#4F46E5' : s.avg > 10_000 ? '#F59E0B' : '#94A3B8'
+                return (
+                  <div key={s.key} className="al-section-row">
+                    <span className="al-section-num">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="al-section-name">{s.label}</span>
+                    <div className="al-section-bar-wrap">
+                      <div className="al-section-bar" style={{ width: `${barPct}%`, background: hue }} />
+                    </div>
+                    <span className="al-section-time" style={{ color: hue }}>
+                      {s.avg > 0 ? fmtDuration(s.avg) : '—'}
+                    </span>
+                    <span className="al-section-sessions">{s.sessions > 0 ? `${s.sessions} sess.` : ''}</span>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+        )}
       </div>
 
       {/* TIMELINE + DEVICES */}
