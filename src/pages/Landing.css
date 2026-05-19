@@ -4273,11 +4273,93 @@
   transition: color 0.15s;
 }
 .lp-footer-col a:hover { color: white; }
+/* ─── Social strip ───────────────────────────────────────────────────────── */
+.lp-footer-social {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.lp-footer-social-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  white-space: nowrap;
+}
+.lp-footer-social-cards {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lp-ig-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  text-decoration: none;
+  color: white;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+}
+.lp-ig-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.lp-ig-clinisac::before { background: linear-gradient(135deg, rgba(16,185,129,0.12), transparent 60%); }
+.lp-ig-nexla::before    { background: linear-gradient(135deg, rgba(37,99,235,0.14), transparent 60%); }
+
+.lp-ig-card:hover { transform: translateY(-2px); }
+.lp-ig-clinisac:hover { border-color: rgba(16,185,129,0.5); background: rgba(16,185,129,0.08); }
+.lp-ig-nexla:hover    { border-color: rgba(37,99,235,0.5);  background: rgba(37,99,235,0.08); }
+.lp-ig-card:hover::before { opacity: 1; }
+
+.lp-ig-at {
+  font-family: 'Fragment Mono', monospace;
+  font-size: 13px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1;
+}
+.lp-ig-handle {
+  font-family: 'Fragment Mono', monospace;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+.lp-ig-clinisac .lp-ig-handle { color: #6EE7B7; }
+.lp-ig-nexla    .lp-ig-handle { color: #93C5FD; }
+
+.lp-ig-sub {
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  border-left: 1px solid rgba(255,255,255,0.12);
+  padding-left: 8px;
+  margin-left: 2px;
+}
+.lp-ig-icon {
+  color: rgba(255,255,255,0.3);
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+.lp-ig-clinisac:hover .lp-ig-icon { color: #6EE7B7; }
+.lp-ig-nexla:hover    .lp-ig-icon { color: #93C5FD; }
+
 .lp-footer-bottom {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 30px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255,255,255,0.08);
   font-size: 12px;
   color: rgba(255,255,255,0.5);
 }

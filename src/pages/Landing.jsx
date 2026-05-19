@@ -1068,8 +1068,39 @@ export default function Landing() {
               <h4>Falar com a gente</h4>
               <a href="https://wa.me/5561999999999"><Phone size={12} /> WhatsApp</a>
               <a href="mailto:contato@clinisac.com"><Mail size={12} /> contato@clinisac.com</a>
+              <a href="https://instagram.com/cliniisac" target="_blank" rel="noreferrer">
+                <Instagram size={12} /> @cliniisac
+              </a>
             </div>
           </div>
+
+          {/* SOCIAL STRIP */}
+          <div className="lp-footer-social">
+            <span className="lp-footer-social-label">Siga a gente</span>
+            <div className="lp-footer-social-cards">
+              <a
+                href="https://instagram.com/cliniisac"
+                target="_blank"
+                rel="noreferrer"
+                className="lp-ig-card lp-ig-clinisac">
+                <span className="lp-ig-at">@</span>
+                <span className="lp-ig-handle">cliniisac</span>
+                <span className="lp-ig-sub">CliniSac · produto</span>
+                <Instagram size={16} className="lp-ig-icon" />
+              </a>
+              <a
+                href="https://instagram.com/nexla_ia"
+                target="_blank"
+                rel="noreferrer"
+                className="lp-ig-card lp-ig-nexla">
+                <span className="lp-ig-at">@</span>
+                <span className="lp-ig-handle">nexla_ia</span>
+                <span className="lp-ig-sub">Nexla · tecnologia</span>
+                <Instagram size={16} className="lp-ig-icon" />
+              </a>
+            </div>
+          </div>
+
           <div className="lp-footer-bottom">
             <span>© 2026 CliniSac · Todos os direitos reservados</span>
             <span className="lp-footer-made">O SAC inteligente da sua clínica.</span>
