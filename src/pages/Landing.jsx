@@ -903,7 +903,7 @@ export default function Landing() {
 
           {/* CTA único pro comercial */}
           <div className="lp-pricing-cta">
-            <a href="https://wa.me/5561999999999?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20a%20CliniSac" target="_blank" rel="noreferrer" className="lp-btn-primary lp-btn-large">
+            <a href="https://wa.me/556999300101?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20a%20CliniSac" target="_blank" rel="noreferrer" className="lp-btn-primary lp-btn-large">
               Falar com o comercial agora
               <ArrowRight size={18} />
             </a>
@@ -1016,7 +1016,7 @@ export default function Landing() {
                 Experimentar grátis
                 <ArrowRight size={18} />
               </a>
-              <a href="https://wa.me/5561999999999" target="_blank" rel="noreferrer" className="lp-btn-ghost lp-btn-large">
+              <a href="https://wa.me/556999300101" target="_blank" rel="noreferrer" className="lp-btn-ghost lp-btn-large">
                 <Phone size={16} />
                 Falar com humano
               </a>
@@ -1062,7 +1062,7 @@ export default function Landing() {
             </div>
             <div className="lp-footer-col">
               <h4>Falar com a gente</h4>
-              <a href="https://wa.me/5561999999999"><Phone size={12} /> WhatsApp</a>
+              <a href="https://wa.me/556999300101"><Phone size={12} /> WhatsApp</a>
               <a href="mailto:contato@clinisac.com"><Mail size={12} /> contato@clinisac.com</a>
               <a href="https://instagram.com/cliniisac" target="_blank" rel="noreferrer">
                 <Instagram size={12} /> @cliniisac
@@ -1303,7 +1303,7 @@ function PricingTier({ name, tier, tagline, features, featured }) {
         ))}
       </ul>
       <a
-        href="https://wa.me/5561999999999?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20plano%20CliniSac"
+        href="https://wa.me/556999300101?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20plano%20CliniSac"
         target="_blank"
         rel="noreferrer"
         className={`lp-plan-cta ${featured ? 'featured' : ''}`}>
