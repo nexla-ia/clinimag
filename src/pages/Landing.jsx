@@ -1346,17 +1346,36 @@ function PricingCard({ name, price, tagline, features, cta, featured, badge, cus
   )
 }
 
-function DashboardMock() {
-  const [view, setView] = useState('rastreio')
+const MOCK_VIEWS = [
+  { key: 'rastreio',   icon: TrendingUp,    label: 'Rastreio' },
+  { key: 'conversas',  icon: MessageSquare, label: 'Conversas' },
+  { key: 'agenda',     icon: Calendar,      label: 'Agenda' },
+  { key: 'metricas',   icon: BarChart3,     label: 'Métricas' },
+  { key: 'catalogo',   icon: Stethoscope,   label: 'Catálogo' },
+  { key: 'equipe',     icon: Users,         label: 'Equipe' },
+]
 
-  const VIEWS = [
-    { key: 'rastreio',   icon: TrendingUp,    label: 'Rastreio' },
-    { key: 'conversas',  icon: MessageSquare, label: 'Conversas' },
-    { key: 'agenda',     icon: Calendar,      label: 'Agenda' },
-    { key: 'metricas',   icon: BarChart3,     label: 'Métricas' },
-    { key: 'catalogo',   icon: Stethoscope,   label: 'Catálogo' },
-    { key: 'equipe',     icon: Users,         label: 'Equipe' },
-  ]
+function DashboardMock() {
+  const [view, setView]       = useState('rastreio')
+  const [autoPlay, setAutoPlay] = useState(true)
+  const [hovered, setHovered]  = useState(false)
+
+  useEffect(() => {
+    if (!autoPlay || hovered) return
+    const keys = MOCK_VIEWS.map(v => v.key)
+    let iv
+    const timeout = setTimeout(() => {
+      iv = setInterval(() => {
+        setView(cur => {
+          const idx = keys.indexOf(cur)
+          return keys[(idx + 1) % keys.length]
+        })
+      }, 2800)
+    }, 1500)
+    return () => { clearTimeout(timeout); clearInterval(iv) }
+  }, [autoPlay, hovered])
+
+  const VIEWS = MOCK_VIEWS
 
   const FLOATING = {
     rastreio:  { left: { icon: ScanLine, label: 'Rastreados:', value: '94% dos leads' }, right: { icon: TrendingUp, label: 'Top canal:', value: 'Instagram', green: true } },
@@ -1370,7 +1389,11 @@ function DashboardMock() {
   const float = FLOATING[view]
 
   return (
-    <div className="lp-mock">
+    <div
+      className="lp-mock"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div className="lp-mock-glow" />
       <div className="lp-mock-window">
         <div className="lp-mock-bar">
@@ -1382,12 +1405,13 @@ function DashboardMock() {
         <div className="lp-mock-body">
           <div className="lp-mock-side">
             <div className="lp-mock-logo">M</div>
-            {VIEWS.map(v => (
+            {VIEWS.map((v, i) => (
               <button
                 key={v.key}
-                onClick={() => setView(v.key)}
+                onClick={() => { setAutoPlay(false); setView(v.key) }}
                 title={v.label}
                 className={`lp-mock-nav-item ${view === v.key ? 'active' : ''}`}
+                style={{ '--nav-i': i }}
               >
                 <v.icon size={11} />
               </button>

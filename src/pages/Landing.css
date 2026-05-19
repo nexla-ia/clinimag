@@ -70,6 +70,15 @@
   gap: 9px;
   padding: 4px 0;
 }
+.lp-rastreio-row:nth-child(1) { animation: lp-row-in 0.32s ease-out 0.06s both; }
+.lp-rastreio-row:nth-child(2) { animation: lp-row-in 0.32s ease-out 0.14s both; }
+.lp-rastreio-row:nth-child(3) { animation: lp-row-in 0.32s ease-out 0.22s both; }
+.lp-rastreio-row:nth-child(4) { animation: lp-row-in 0.32s ease-out 0.30s both; }
+.lp-rastreio-row:nth-child(5) { animation: lp-row-in 0.32s ease-out 0.38s both; }
+@keyframes lp-row-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
 .lp-rastreio-row {
   display: flex;
   gap: 9px;
@@ -1540,6 +1549,25 @@
   cursor: pointer;
   transition: all 0.18s ease;
   padding: 0;
+  position: relative;
+}
+.lp-mock-nav-item::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9px;
+  border: 1.5px solid #8B5CF6;
+  opacity: 0;
+  pointer-events: none;
+  animation: lp-nav-ring 2.2s ease-out calc(1.6s + var(--nav-i, 0) * 0.22s) 2;
+  animation-fill-mode: both;
+  z-index: 2;
+}
+@keyframes lp-nav-ring {
+  0%   { opacity: 0;    transform: scale(0.75); }
+  18%  { opacity: 0.7;  transform: scale(1);    }
+  55%  { opacity: 0.7;  transform: scale(1);    }
+  100% { opacity: 0;    transform: scale(1.3);  }
 }
 .lp-mock-nav-item:hover {
   background: rgba(139, 92, 246, 0.1);
