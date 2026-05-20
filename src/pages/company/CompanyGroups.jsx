@@ -37,17 +37,35 @@ function groupLabel(g) {
   return g.idgrupo.replace('@g.us', '')
 }
 
+function senderLabel(numero, namesMap) {
+  const digits = (numero || '').replace(/@.*$/, '').replace(/\D/g, '')
+  return namesMap[digits] || digits
+}
+
 export default function CompanyGroups() {
   const { session } = useAuth()
   const instance = session?.company?.instance
+  const contactsTable = session?.company?.contacts_table
   const [groups, setGroups] = useState([])
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [namesMap, setNamesMap] = useState({}) // digitos → nome
   const bottomRef = useRef(null)
   const selectedRef = useRef(null)
   selectedRef.current = selected
+
+  useEffect(() => {
+    if (!instance || !contactsTable) return
+    supabase.from(contactsTable).select('numero, nome').eq('instancia', instance)
+      .then(({ data }) => {
+        if (!data) return
+        const map = {}
+        data.forEach(c => { if (c.numero) map[c.numero.replace(/\D/g, '')] = c.nome })
+        setNamesMap(map)
+      })
+  }, [instance, contactsTable])
 
   useEffect(() => {
     if (!instance) return
@@ -171,7 +189,7 @@ export default function CompanyGroups() {
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
-                  {g.lastSender && <strong style={{ fontWeight: 600 }}>{g.lastSender}: </strong>}
+                  {g.lastSender && <strong style={{ fontWeight: 600 }}>{senderLabel(g.lastSender, namesMap)}: </strong>}
                   {g.lastMsg}
                 </div>
               </div>
@@ -224,7 +242,7 @@ export default function CompanyGroups() {
               {messages.map(msg => {
                 const type = (msg.type || '').toLowerCase()
                 const isAtendente = type === 'atendente' || type === 'humano'
-                const sender = formatSender(msg.numero)
+                const sender = senderLabel(msg.numero, namesMap)
                 const ts = parseTs(msg)
                 return (
                   <div key={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
