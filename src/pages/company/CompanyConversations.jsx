@@ -366,7 +366,7 @@ export default function CompanyConversations() {
   useEffect(() => {
     if (!instance) return
     setLoadingContacts(true)
-    supabase.from(CONV_TABLE).select('id, numero, type, "horaLastMessage", created_at')
+    supabase.from(CONV_TABLE).select('id, numero, idgrupo, type, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .order('id', { ascending: false })
@@ -375,9 +375,10 @@ export default function CompanyConversations() {
         if (!error && data) {
           const seen = new Set()
           const unique = []
-          // Indexa quem teve resposta de atendente humano em algum momento
+          // Indexa quem teve resposta de atendente humano em algum momento (só msgs individuais)
           const hasOutsideHuman = new Set()
           for (const row of data) {
+            if (row.idgrupo) continue
             const t = (row.type || '').toLowerCase()
             if ((t === 'atendente' || t === 'humano') && row.numero) {
               hasOutsideHuman.add(row.numero)
@@ -387,6 +388,7 @@ export default function CompanyConversations() {
             const sid = row.numero
             if (!sid || seen.has(sid)) continue
             if (sid.includes('@g.us')) continue  // ignora grupos do WhatsApp
+            if (row.idgrupo) continue            // mensagem de grupo → pertence ao grupo, não ao chat individual
             seen.add(sid)
             unique.push({
               session_id: sid,
@@ -461,6 +463,8 @@ export default function CompanyConversations() {
           if (!row || isToolMessage(row)) return
           // Ignora mensagens que não são do WhatsApp (Instagram tem tela separada)
           if (row.aplicativo && row.aplicativo !== 'whatsapp') return
+          // Mensagem de grupo → pertence ao chat do grupo, não ao chat individual
+          if (row.idgrupo) return
           const sid = row.numero
           if (!sid || sid.includes('@g.us')) return
           const ts = getTimestamp(row)
@@ -528,6 +532,7 @@ export default function CompanyConversations() {
     supabase.from(CONV_TABLE).select('id, id_mensagem, numero, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('numero', selected.session_id)
+      .is('idgrupo', null)
       .or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .order('id', { ascending: true })
       .limit(2000)
