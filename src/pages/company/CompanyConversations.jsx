@@ -594,13 +594,11 @@ export default function CompanyConversations() {
       p_hora: new Date().toISOString(),
     })
 
-    // Dispara o webhook do n8n pra mensagem realmente sair pro WhatsApp
-    // e a IA travar (a IA só bloqueia quando há envio efetivo de mensagem do atendente)
+    // Notifica n8n que a conversa foi assumida (para IA travar) — sem message para não enviar aviso ao cliente
     fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: assumeMsg,
         session_id: contact.session_id,
         phone: contact.phone,
         instancia: instance,

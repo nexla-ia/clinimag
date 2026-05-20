@@ -356,11 +356,11 @@ function InstagramInbox() {
       recipient_id: recipientId,
     })
 
+    // Notifica n8n que a conversa foi assumida (para IA travar) — sem message para não enviar aviso ao cliente
     if (igWebhookUrl) fetch(igWebhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: assumeMsg,
         session_id: contact.session_id,
         handle: contact.handle,
         recipient_id: recipientId,
