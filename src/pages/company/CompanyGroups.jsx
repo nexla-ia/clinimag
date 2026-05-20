@@ -6,10 +6,6 @@ import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
 
-function formatSender(numero) {
-  return (numero || '').replace(/@.*$/, '')
-}
-
 function formatTime(ts) {
   if (!ts) return ''
   const date = new Date(ts)
@@ -37,41 +33,28 @@ function groupLabel(g) {
   return g.idgrupo.replace('@g.us', '')
 }
 
-function senderLabel(numero, namesMap) {
-  const digits = (numero || '').replace(/@.*$/, '').replace(/\D/g, '')
-  return namesMap[digits] || digits
+function senderLabel(row) {
+  if (row.nome) return row.nome
+  return (row.numero || '').replace(/@.*$/, '')
 }
 
 export default function CompanyGroups() {
   const { session } = useAuth()
   const instance = session?.company?.instance
-  const contactsTable = session?.company?.contacts_table
   const [groups, setGroups] = useState([])
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
-  const [namesMap, setNamesMap] = useState({}) // digitos → nome
   const bottomRef = useRef(null)
   const selectedRef = useRef(null)
   selectedRef.current = selected
 
   useEffect(() => {
-    if (!instance || !contactsTable) return
-    supabase.from(contactsTable).select('numero, nome').eq('instancia', instance)
-      .then(({ data }) => {
-        if (!data) return
-        const map = {}
-        data.forEach(c => { if (c.numero) map[c.numero.replace(/\D/g, '')] = c.nome })
-        setNamesMap(map)
-      })
-  }, [instance, contactsTable])
-
-  useEffect(() => {
     if (!instance) return
     setLoading(true)
     supabase.from(CONV_TABLE)
-      .select('id, idgrupo, mensagem, numero, "horaLastMessage", created_at')
+      .select('id, idgrupo, nomegrupo, mensagem, numero, nome, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .not('idgrupo', 'is', null)
       .order('id', { ascending: false })
@@ -85,10 +68,10 @@ export default function CompanyGroups() {
           seen.add(row.idgrupo)
           unique.push({
             idgrupo: row.idgrupo,
-            nomegrupo: null,
+            nomegrupo: row.nomegrupo || null,
             lastMsg: row.mensagem || '',
             lastTs: parseTs(row),
-            lastSender: formatSender(row.numero),
+            lastSenderRow: row,
           })
         }
         setGroups(unique)
@@ -101,7 +84,7 @@ export default function CompanyGroups() {
     setLoadingMsgs(true)
     setMessages([])
     supabase.from(CONV_TABLE)
-      .select('id, numero, type, mensagem, base64, "horaLastMessage", created_at')
+      .select('id, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
       .order('id', { ascending: true })
@@ -130,7 +113,7 @@ export default function CompanyGroups() {
               nomegrupo: row.nomegrupo || null,
               lastMsg: row.mensagem || '',
               lastTs: parseTs(row),
-              lastSender: formatSender(row.numero),
+              lastSenderRow: row,
             }
             const exists = prev.find(g => g.idgrupo === row.idgrupo)
             if (exists) return [updated, ...prev.filter(g => g.idgrupo !== row.idgrupo)]
@@ -189,7 +172,7 @@ export default function CompanyGroups() {
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
-                  {g.lastSender && <strong style={{ fontWeight: 600 }}>{senderLabel(g.lastSender, namesMap)}: </strong>}
+                  {g.lastSenderRow && <strong style={{ fontWeight: 600 }}>{senderLabel(g.lastSenderRow)}: </strong>}
                   {g.lastMsg}
                 </div>
               </div>
@@ -242,14 +225,13 @@ export default function CompanyGroups() {
               {messages.map(msg => {
                 const type = (msg.type || '').toLowerCase()
                 const isAtendente = type === 'atendente' || type === 'humano'
-                const sender = senderLabel(msg.numero, namesMap)
                 const ts = parseTs(msg)
                 return (
                   <div key={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                       {!isAtendente && (
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#4F46E5', marginBottom: 3, marginLeft: 2 }}>
-                          {sender}
+                          {senderLabel(msg)}
                         </span>
                       )}
                       <div className="msg-bubble">
