@@ -53,13 +53,13 @@ export default function CompanyGroups() {
     if (!instance) return
     setLoading(true)
     supabase.from(CONV_TABLE)
-      .select('id, idgrupo, nomegrupo, mensagem, numero, "horaLastMessage", created_at')
+      .select('id, idgrupo, mensagem, numero, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .not('idgrupo', 'is', null)
       .order('id', { ascending: false })
       .limit(20000)
-      .then(({ data }) => {
-        if (!data) { setLoading(false); return }
+      .then(({ data, error }) => {
+        if (error || !data) { setLoading(false); return }
         const seen = new Set()
         const unique = []
         for (const row of data) {
@@ -67,7 +67,7 @@ export default function CompanyGroups() {
           seen.add(row.idgrupo)
           unique.push({
             idgrupo: row.idgrupo,
-            nomegrupo: row.nomegrupo || null,
+            nomegrupo: null,
             lastMsg: row.mensagem || '',
             lastTs: parseTs(row),
             lastSender: formatSender(row.numero),
@@ -83,13 +83,13 @@ export default function CompanyGroups() {
     setLoadingMsgs(true)
     setMessages([])
     supabase.from(CONV_TABLE)
-      .select('id, numero, type, mensagem, base64, nomegrupo, "horaLastMessage", created_at')
+      .select('id, numero, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
       .order('id', { ascending: true })
       .limit(2000)
-      .then(({ data }) => {
-        if (data) setMessages(data)
+      .then(({ data, error }) => {
+        if (!error && data) setMessages(data)
         setLoadingMsgs(false)
       })
   }, [selected?.idgrupo, instance])
