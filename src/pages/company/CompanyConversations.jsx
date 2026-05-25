@@ -255,7 +255,7 @@ export default function CompanyConversations() {
   // Carrega contacts_table (clientes) para fallback de nome/pushname
   useEffect(() => {
     if (!instance || !contactsTable) return
-    supabase.from(contactsTable).select('numero, nome').eq('instancia', instance)
+    supabase.from(contactsTable).select('numero, nome, foto').eq('instancia', instance)
       .then(({ data }) => {
         if (!data) return
         const map = {}
@@ -1134,13 +1134,18 @@ export default function CompanyConversations() {
                   setContextMenu({ x: e.clientX, y: e.clientY, contact: c })
                 }}
               >
-                <div className="contact-avatar" style={saved?.photo ? { background: 'transparent', overflow: 'hidden' } : {}}>
-                  {saved?.photo
-                    ? <img src={saved.photo} alt={saved.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : displayName
-                      ? <span style={{ fontWeight: 700, fontSize: 12, color: '#2563EB' }}>{displayName.charAt(0).toUpperCase()}</span>
-                      : <User size={14} style={{ opacity: 0.4 }} />}
-                </div>
+                {(() => {
+                  const contactPhoto = saved?.photo || cliente?.foto
+                  return (
+                    <div className="contact-avatar" style={contactPhoto ? { background: 'transparent', overflow: 'hidden' } : {}}>
+                      {contactPhoto
+                        ? <img src={contactPhoto} alt={displayName || c.phone} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : displayName
+                          ? <span style={{ fontWeight: 700, fontSize: 12, color: '#2563EB' }}>{displayName.charAt(0).toUpperCase()}</span>
+                          : <User size={14} style={{ opacity: 0.4 }} />}
+                    </div>
+                  )
+                })()}
                 <div className="contact-info" style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                     <div className="contact-name" style={displayName ? { fontWeight: 600 } : {}}>
@@ -1233,22 +1238,27 @@ export default function CompanyConversations() {
                 const headerName = saved?.nome || cliente?.nome || cliente?.pushname || null
                 return (
                   <>
-                    <div className="contact-avatar"
-                      style={{
-                        width: 38, height: 38,
-                        background: saved?.photo ? 'transparent' : undefined,
-                        overflow: 'hidden',
-                        cursor: saved ? 'pointer' : 'default',
-                      }}
-                      onClick={() => saved && navigate(`/painel/contatos/${saved.id}`)}
-                      title={saved ? 'Abrir ficha do paciente' : ''}
-                    >
-                      {saved?.photo
-                        ? <img src={saved.photo} alt={saved.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        : headerName
-                          ? <span style={{ fontWeight: 700, fontSize: 14, color: '#2563EB' }}>{headerName.charAt(0).toUpperCase()}</span>
-                          : <User size={14} style={{ opacity: 0.4 }} />}
-                    </div>
+                    {(() => {
+                      const headerPhoto = saved?.photo || cliente?.foto
+                      return (
+                        <div className="contact-avatar"
+                          style={{
+                            width: 38, height: 38,
+                            background: headerPhoto ? 'transparent' : undefined,
+                            overflow: 'hidden',
+                            cursor: saved ? 'pointer' : 'default',
+                          }}
+                          onClick={() => saved && navigate(`/painel/contatos/${saved.id}`)}
+                          title={saved ? 'Abrir ficha do paciente' : ''}
+                        >
+                          {headerPhoto
+                            ? <img src={headerPhoto} alt={headerName || selected.phone} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : headerName
+                              ? <span style={{ fontWeight: 700, fontSize: 14, color: '#2563EB' }}>{headerName.charAt(0).toUpperCase()}</span>
+                              : <User size={14} style={{ opacity: 0.4 }} />}
+                        </div>
+                      )
+                    })()}
                     <div style={{ flex: 1 }}>
                       <div
                         style={{ fontWeight: 500, fontSize: 14, color: 'var(--text-primary)', cursor: saved ? 'pointer' : 'default' }}
