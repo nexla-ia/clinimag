@@ -279,6 +279,7 @@ export default function CompanyGroups() {
           file_mime: attachedFile?.mime || null,
           file_name: attachedFile?.name || null,
           file_kind: attachedFile?.kind || null,
+          number: selected.idgrupo,
           session_id: selected.idgrupo,
           numero: instanceOwner || selected.idgrupo,
           idgrupo: selected.idgrupo,
