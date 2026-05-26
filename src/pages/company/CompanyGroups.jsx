@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { Users, ChevronLeft, Send } from 'lucide-react'
+import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText } from 'lucide-react'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -38,6 +38,22 @@ function senderLabel(row) {
   return (row.numero || '').replace(/@.*$/, '')
 }
 
+function detectMedia(b64) {
+  if (!b64 || b64.length < 10) return null
+  if (b64.startsWith('T2dn')) return { type: 'audio', mime: 'audio/ogg' }
+  if (b64.startsWith('//uQ') || b64.startsWith('SUQz')) return { type: 'audio', mime: 'audio/mpeg' }
+  if (b64.startsWith('GkXf')) return { type: 'audio', mime: 'audio/webm' }
+  if (b64.startsWith('/9j/')) return { type: 'image', mime: 'image/jpeg' }
+  if (b64.startsWith('iVBOR')) return { type: 'image', mime: 'image/png' }
+  if (b64.startsWith('UklGR')) return { type: 'image', mime: 'image/webp' }
+  if (b64.startsWith('R0lGOD')) return { type: 'image', mime: 'image/gif' }
+  if (b64.startsWith('JVBERi')) return { type: 'pdf', mime: 'application/pdf' }
+  try {
+    if (b64.length > 100 && atob(b64.slice(0, 16)).slice(4, 8) === 'ftyp') return { type: 'video', mime: 'video/mp4' }
+  } catch {}
+  return null
+}
+
 export default function CompanyGroups() {
   const { session } = useAuth()
   const instance = session?.company?.instance
@@ -50,8 +66,17 @@ export default function CompanyGroups() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [msgText, setMsgText] = useState('')
   const [sending, setSending] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [recordedAudio, setRecordedAudio] = useState(null)
+  const [recordTime, setRecordTime] = useState(0)
+  const [attachedFile, setAttachedFile] = useState(null)
   const bottomRef = useRef(null)
   const selectedRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recordStartRef = useRef(null)
+  const recordTimerRef = useRef(null)
+  const fileInputRef = useRef(null)
   selectedRef.current = selected
 
   useEffect(() => {
@@ -132,11 +157,101 @@ export default function CompanyGroups() {
     return () => supabase.removeChannel(ch)
   }, [instance])
 
+  async function startRecording() {
+    if (recording) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+          ? 'audio/ogg;codecs=opus'
+          : 'audio/webm'
+      const mr = new MediaRecorder(stream, { mimeType })
+      mr._stream = stream
+      audioChunksRef.current = []
+      mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
+      mediaRecorderRef.current = mr
+      recordStartRef.current = Date.now()
+      mr.start()
+      setRecording(true)
+      setRecordTime(0)
+      recordTimerRef.current = setInterval(() => {
+        setRecordTime(Math.floor((Date.now() - recordStartRef.current) / 1000))
+      }, 500)
+    } catch (e) {
+      console.error('Erro ao acessar microfone:', e)
+    }
+  }
+
+  function stopRecording({ persistPreview = true } = {}) {
+    return new Promise(resolve => {
+      const mr = mediaRecorderRef.current
+      if (!mr) return resolve(null)
+      mr.onstop = async () => {
+        const mimeType = mr.mimeType
+        const blob = new Blob(audioChunksRef.current, { type: mimeType })
+        const buf = await blob.arrayBuffer()
+        const bytes = new Uint8Array(buf)
+        let bin = ''
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+        const base64 = btoa(bin)
+        const duration = Math.floor((Date.now() - recordStartRef.current) / 1000)
+        const audioData = { base64, mime: mimeType, duration }
+        if (persistPreview) setRecordedAudio(audioData)
+        mr._stream?.getTracks().forEach(t => t.stop())
+        resolve(audioData)
+      }
+      mr.stop()
+      if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+      setRecording(false)
+    })
+  }
+
+  function discardAudio() { setRecordedAudio(null); setRecordTime(0) }
+
+  async function handlePickFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const isVideo = file.type.startsWith('video/')
+    const MAX = isVideo ? 50 * 1024 * 1024 : 15 * 1024 * 1024
+    if (file.size > MAX) return
+    const buf = await file.arrayBuffer()
+    const bytes = new Uint8Array(buf)
+    let bin = ''
+    const chunk = 0x8000
+    for (let i = 0; i < bytes.length; i += chunk)
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+    const base64 = btoa(bin)
+    const kind = file.type.startsWith('image/') ? 'image'
+      : file.type === 'application/pdf' ? 'pdf'
+      : file.type.startsWith('video/') ? 'video'
+      : 'file'
+    setAttachedFile({ base64, mime: file.type || 'application/octet-stream', name: file.name, size: file.size, kind })
+  }
+
+  function discardFile() { setAttachedFile(null) }
+
   async function handleSend() {
+    let audio = recordedAudio
+    if (recording) audio = await stopRecording({ persistPreview: false })
     const text = msgText.trim()
-    if (!text || !selected || sending) return
+    if (!text && !audio && !attachedFile) return
+    if (!selected || sending) return
     setSending(true)
+    const filePrefix = attachedFile
+      ? (attachedFile.kind === 'image' ? '🖼️ ' : attachedFile.kind === 'pdf' ? '📄 ' : attachedFile.kind === 'video' ? '🎬 ' : '📎 ') + attachedFile.name
+      : null
+    const mensagemPayload = audio
+      ? (text || '🎤 Áudio')
+      : attachedFile
+        ? (text ? `${filePrefix}\n${text}` : filePrefix)
+        : text
+    const mediaBase64 = audio?.base64 || attachedFile?.base64 || null
     setMsgText('')
+    setRecordedAudio(null)
+    setRecordTime(0)
+    setAttachedFile(null)
     try {
       const hora = new Date().toISOString()
       await supabase.from(CONV_TABLE).insert({
@@ -144,7 +259,8 @@ export default function CompanyGroups() {
         numero: instanceOwner || selected.idgrupo,
         idgrupo: selected.idgrupo,
         nomegrupo: selected.nomegrupo || null,
-        mensagem: text,
+        mensagem: mensagemPayload,
+        base64: mediaBase64,
         type: 'atendente',
         nome: session?.user?.name || null,
         horaLastMessage: hora,
@@ -155,7 +271,14 @@ export default function CompanyGroups() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          mensagem: text,
+          mensagem: mensagemPayload,
+          audio_base64: audio?.base64 || null,
+          audio_mime: audio?.mime || null,
+          audio_duration: audio?.duration || null,
+          file_base64: attachedFile?.base64 || null,
+          file_mime: attachedFile?.mime || null,
+          file_name: attachedFile?.name || null,
+          file_kind: attachedFile?.kind || null,
           session_id: selected.idgrupo,
           numero: instanceOwner || selected.idgrupo,
           idgrupo: selected.idgrupo,
@@ -271,6 +394,7 @@ export default function CompanyGroups() {
                 const type = (msg.type || '').toLowerCase()
                 const isAtendente = type === 'atendente' || type === 'humano'
                 const ts = parseTs(msg)
+                const media = detectMedia(msg.base64)
                 return (
                   <div key={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
@@ -279,8 +403,21 @@ export default function CompanyGroups() {
                           {senderLabel(msg)}
                         </span>
                       )}
-                      <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word' }}>
-                        {msg.mensagem}
+                      <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : undefined }}>
+                        {media?.type === 'audio' && (
+                          <audio controls src={`data:${media.mime};base64,${msg.base64}`} style={{ maxWidth: 240, height: 32 }} />
+                        )}
+                        {media?.type === 'image' && (
+                          <img src={`data:${media.mime};base64,${msg.base64}`} alt="imagem"
+                            style={{ maxWidth: 240, maxHeight: 280, borderRadius: 8, display: 'block' }} />
+                        )}
+                        {media?.type === 'video' && (
+                          <video controls src={`data:${media.mime};base64,${msg.base64}`}
+                            style={{ maxWidth: 240, borderRadius: 8, display: 'block' }} />
+                        )}
+                        {(!media || media.type === 'pdf') && msg.mensagem && (
+                          <span>{msg.mensagem}</span>
+                        )}
                       </div>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
                         {formatTime(ts)}
@@ -293,25 +430,110 @@ export default function CompanyGroups() {
             </div>
 
             {/* Barra de envio */}
-            <div className="chat-input-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
-              <textarea
-                className="chat-textarea"
-                rows={1}
-                placeholder="Mensagem para o grupo…"
-                value={msgText}
-                onChange={e => setMsgText(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-                disabled={sending}
-                style={{ flex: 1, resize: 'none', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, background: 'var(--bg-input, #fff)' }}
-              />
-              <button
-                className="nx-btn-primary"
-                onClick={handleSend}
-                disabled={!msgText.trim() || sending}
-                style={{ padding: '0 16px', height: 38, flexShrink: 0 }}
-              >
-                <Send size={14} />
-              </button>
+            <div style={{ padding: '8px 16px 12px', borderTop: '1px solid var(--border)' }}>
+              {/* Preview: arquivo anexado */}
+              {attachedFile && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: '#F8FAFF', border: '1px solid #BFDBFE',
+                  borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+                }}>
+                  {attachedFile.kind === 'image' ? (
+                    <img src={`data:${attachedFile.mime};base64,${attachedFile.base64}`} alt=""
+                      style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                  ) : attachedFile.kind === 'video' ? (
+                    <div style={{ width: 44, height: 44, borderRadius: 6, background: '#EDE9FE', color: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Film size={20} />
+                    </div>
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: 6, background: attachedFile.kind === 'pdf' ? '#FEE2E2' : '#E5E7EB', color: attachedFile.kind === 'pdf' ? '#DC2626' : '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <FileText size={20} />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachedFile.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      {attachedFile.size >= 1024 * 1024
+                        ? (attachedFile.size / (1024 * 1024)).toFixed(1) + ' MB'
+                        : (attachedFile.size / 1024).toFixed(0) + ' KB'}
+                      {' · '}{attachedFile.kind === 'pdf' ? 'PDF' : attachedFile.kind === 'image' ? 'Imagem' : attachedFile.kind === 'video' ? 'Vídeo' : 'Arquivo'}
+                    </div>
+                  </div>
+                  <button onClick={discardFile} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+                    <Trash2 size={11} /> Remover
+                  </button>
+                </div>
+              )}
+
+              {/* Preview: áudio gravado */}
+              {recordedAudio && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: '#F0FDF4', border: '1px solid #BBF7D0',
+                  borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+                }}>
+                  <audio controls src={`data:${recordedAudio.mime};base64,${recordedAudio.base64}`} style={{ flex: 1, height: 32 }} />
+                  <button onClick={discardAudio} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+                    <Trash2 size={11} /> Descartar
+                  </button>
+                </div>
+              )}
+
+              {/* Indicador de gravação */}
+              {recording && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: '#FEF2F2', border: '1px solid #FECACA',
+                  borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+                  fontSize: 12, color: '#DC2626', fontWeight: 600,
+                }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626', animation: 'pulse-dot 1.2s infinite' }} />
+                  Gravando... {String(Math.floor(recordTime / 60)).padStart(2, '0')}:{String(recordTime % 60).padStart(2, '0')}
+                  <button onClick={() => stopRecording()} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#DC2626', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    <Square size={11} /> Parar
+                  </button>
+                </div>
+              )}
+
+              {/* Input row */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="nx-input chat-composer-input"
+                  style={{ flex: 1 }}
+                  placeholder={attachedFile ? 'Mensagem opcional para acompanhar o arquivo…' : recordedAudio ? 'Mensagem opcional para acompanhar o áudio…' : 'Mensagem para o grupo…'}
+                  value={msgText}
+                  onChange={e => setMsgText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                  disabled={sending || recording}
+                />
+                <input ref={fileInputRef} type="file" accept="image/*,application/pdf,video/*" style={{ display: 'none' }} onChange={handlePickFile} />
+                {!recording && !recordedAudio && !attachedFile && (
+                  <>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Anexar imagem, PDF ou vídeo"
+                      style={{ padding: '0 14px', flexShrink: 0, background: '#fff', border: '1px solid var(--border)', borderRadius: 8, color: '#6B7280', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      <Paperclip size={15} />
+                    </button>
+                    <button
+                      onClick={startRecording}
+                      title="Gravar áudio"
+                      style={{ padding: '0 14px', flexShrink: 0, background: '#fff', border: '1px solid var(--border)', borderRadius: 8, color: '#6B7280', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      <Mic size={15} />
+                    </button>
+                  </>
+                )}
+                <button
+                  className="nx-btn-primary"
+                  style={{ padding: '0 16px', flexShrink: 0 }}
+                  onClick={handleSend}
+                  disabled={(!msgText.trim() && !recordedAudio && !attachedFile && !recording) || sending}
+                >
+                  <Send size={14} />
+                </button>
+              </div>
             </div>
           </>
         )}
