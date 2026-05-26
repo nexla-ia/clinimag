@@ -48,16 +48,32 @@ function senderLabel(row) {
 
 function detectMedia(b64) {
   if (!b64 || b64.length < 10) return null
-  if (b64.startsWith('T2dn')) return { type: 'audio', mime: 'audio/ogg' }
-  if (b64.startsWith('//uQ') || b64.startsWith('SUQz')) return { type: 'audio', mime: 'audio/mpeg' }
-  if (b64.startsWith('GkXf')) return { type: 'audio', mime: 'audio/webm' }
-  if (b64.startsWith('/9j/')) return { type: 'image', mime: 'image/jpeg' }
-  if (b64.startsWith('iVBOR')) return { type: 'image', mime: 'image/png' }
-  if (b64.startsWith('UklGR')) return { type: 'image', mime: 'image/webp' }
-  if (b64.startsWith('R0lGOD')) return { type: 'image', mime: 'image/gif' }
-  if (b64.startsWith('JVBERi')) return { type: 'pdf', mime: 'application/pdf' }
+  // Data URI: extrai mime e retorna com raw = parte pura do base64
+  if (b64.startsWith('data:')) {
+    const m = b64.match(/^data:([^;]+);base64,(.+)/)
+    if (!m) return null
+    const mime = m[1]
+    const raw = m[2]
+    const kind = mime.startsWith('image/') ? 'image'
+      : mime.startsWith('audio/') ? 'audio'
+      : mime.startsWith('video/') ? 'video'
+      : mime === 'application/pdf' ? 'pdf'
+      : null
+    if (!kind) return null
+    return { type: kind, mime, src: b64, raw }
+  }
+  // Base64 puro — detecta pelo header
+  const mk = (type, mime) => ({ type, mime, src: `data:${mime};base64,${b64}`, raw: b64 })
+  if (b64.startsWith('T2dn')) return mk('audio', 'audio/ogg')
+  if (b64.startsWith('//uQ') || b64.startsWith('SUQz')) return mk('audio', 'audio/mpeg')
+  if (b64.startsWith('GkXf')) return mk('audio', 'audio/webm')
+  if (b64.startsWith('/9j/')) return mk('image', 'image/jpeg')
+  if (b64.startsWith('iVBOR')) return mk('image', 'image/png')
+  if (b64.startsWith('UklGR')) return mk('image', 'image/webp')
+  if (b64.startsWith('R0lGOD')) return mk('image', 'image/gif')
+  if (b64.startsWith('JVBERi')) return mk('pdf', 'application/pdf')
   try {
-    if (b64.length > 100 && atob(b64.slice(0, 16)).slice(4, 8) === 'ftyp') return { type: 'video', mime: 'video/mp4' }
+    if (b64.length > 100 && atob(b64.slice(0, 16)).slice(4, 8) === 'ftyp') return mk('video', 'video/mp4')
   } catch {}
   return null
 }
@@ -80,7 +96,11 @@ export default function CompanyGroups() {
   const [attachedFile, setAttachedFile] = useState(null)
   const [mutedGroups, setMutedGroupsState] = useState(() => getMutedGroups(instance))
   const [contextMenu, setContextMenu] = useState(null) // { x, y, group }
+  const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
+  const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
   const bottomRef = useRef(null)
+  const chatBodyRef = useRef(null)
+  const skipScrollRef = useRef(false)
   const selectedRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
@@ -118,23 +138,30 @@ export default function CompanyGroups() {
       })
   }, [instance])
 
+  const MSG_PAGE = 50
+
   useEffect(() => {
     if (!selected || !instance) return
     setLoadingMsgs(true)
     setMessages([])
+    setHasMoreMsgs(false)
     supabase.from(CONV_TABLE)
       .select('id, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
-      .order('id', { ascending: true })
-      .limit(2000)
+      .order('id', { ascending: false })
+      .limit(MSG_PAGE)
       .then(({ data, error }) => {
-        if (!error && data) setMessages(data)
+        if (!error && data) {
+          setMessages([...data].reverse())
+          setHasMoreMsgs(data.length === MSG_PAGE)
+        }
         setLoadingMsgs(false)
       })
   }, [selected?.idgrupo, instance])
 
   useEffect(() => {
+    if (skipScrollRef.current) { skipScrollRef.current = false; return }
     if (!loadingMsgs) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loadingMsgs])
 
@@ -307,6 +334,34 @@ export default function CompanyGroups() {
     }
   }
 
+  async function loadMoreMessages() {
+    if (loadingMoreMsgs || !selected) return
+    const oldestId = messages[0]?.id
+    if (!oldestId) return
+    setLoadingMoreMsgs(true)
+    const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
+    const { data } = await supabase.from(CONV_TABLE)
+      .select('id, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+      .eq('instancia', instance)
+      .eq('idgrupo', selected.idgrupo)
+      .lt('id', oldestId)
+      .order('id', { ascending: false })
+      .limit(MSG_PAGE)
+    if (data && data.length > 0) {
+      const older = [...data].reverse()
+      skipScrollRef.current = true
+      setMessages(prev => [...older, ...prev])
+      setHasMoreMsgs(data.length === MSG_PAGE)
+      requestAnimationFrame(() => {
+        if (chatBodyRef.current)
+          chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight - prevScrollHeight
+      })
+    } else {
+      setHasMoreMsgs(false)
+    }
+    setLoadingMoreMsgs(false)
+  }
+
   function toggleMute(idgrupo) {
     const current = getMutedGroups(instance)
     const next = current.includes(idgrupo)
@@ -420,7 +475,18 @@ export default function CompanyGroups() {
               </div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div ref={chatBodyRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {!loadingMsgs && hasMoreMsgs && (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 8px' }}>
+                  <button onClick={loadMoreMessages} disabled={loadingMoreMsgs} style={{
+                    fontSize: 12, padding: '5px 14px', borderRadius: 20,
+                    border: '1px solid var(--border)', background: '#fff',
+                    color: 'var(--text-muted)', cursor: 'pointer',
+                  }}>
+                    {loadingMoreMsgs ? 'Carregando...' : 'Carregar mensagens anteriores'}
+                  </button>
+                </div>
+              )}
               {loadingMsgs && (
                 <div style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: 24 }}>
                   Carregando mensagens…
@@ -441,14 +507,14 @@ export default function CompanyGroups() {
                       )}
                       <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : undefined }}>
                         {media?.type === 'audio' && (
-                          <audio controls src={`data:${media.mime};base64,${msg.base64}`} style={{ maxWidth: 240, height: 32 }} />
+                          <audio controls src={media.src} style={{ maxWidth: 240, height: 32 }} />
                         )}
                         {media?.type === 'image' && (
-                          <img src={`data:${media.mime};base64,${msg.base64}`} alt="imagem"
+                          <img src={media.src} alt="imagem"
                             style={{ maxWidth: 240, maxHeight: 280, borderRadius: 8, display: 'block' }} />
                         )}
                         {media?.type === 'video' && (
-                          <video controls src={`data:${media.mime};base64,${msg.base64}`}
+                          <video controls src={media.src}
                             style={{ maxWidth: 240, borderRadius: 8, display: 'block' }} />
                         )}
                         {(!media || media.type === 'pdf') && msg.mensagem && (
