@@ -140,7 +140,7 @@ export default function CompanyGroups() {
       const hora = new Date().toISOString()
       await supabase.from(CONV_TABLE).insert({
         instancia: instance,
-        numero: session?.user?.email || 'atendente',
+        numero: selected.idgrupo,
         idgrupo: selected.idgrupo,
         nomegrupo: selected.nomegrupo || null,
         mensagem: text,
@@ -156,6 +156,7 @@ export default function CompanyGroups() {
           message: text,
           mensagem: text,
           session_id: selected.idgrupo,
+          numero: selected.idgrupo,
           idgrupo: selected.idgrupo,
           nomegrupo: selected.nomegrupo || null,
           instancia: instance,
