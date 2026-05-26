@@ -21,12 +21,16 @@ export default function CompanyLayout() {
   const instance = session?.company?.instance
   const [activeCount, setActiveCount] = useState(0)
   const [pendingAlerts, setPendingAlerts] = useState(0)
+  const [groupUnread, setGroupUnread] = useState(0)
   const [supportOpen, setSupportOpen] = useState(false)
   const [supportUnread, setSupportUnread] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // Fecha sidebar ao trocar de rota (mobile)
-  useEffect(() => { setSidebarOpen(false) }, [location.pathname])
+  // Fecha sidebar ao trocar de rota (mobile) e zera badge de grupos ao entrar na tela
+  useEffect(() => {
+    setSidebarOpen(false)
+    if (location.pathname.startsWith('/painel/grupos')) setGroupUnread(0)
+  }, [location.pathname])
   // Trava scroll do body quando drawer aberto
   useEffect(() => {
     if (sidebarOpen) document.body.style.overflow = 'hidden'
@@ -98,6 +102,28 @@ export default function CompanyLayout() {
     return () => supabase.removeChannel(ch)
   }, [instance, aiOn, userId])
 
+  // Badge de grupos: conta mensagens novas de clientes em grupos não silenciados
+  useEffect(() => {
+    if (!instance) return
+    const ch = supabase.channel('layout-groups-unread')
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'mensagens_geral',
+        filter: `instancia=eq.${instance}`,
+      }, (p) => {
+        const row = p.new
+        if (!row?.idgrupo) return
+        if ((row.type || '').toLowerCase() !== 'cliente') return
+        if (location.pathname.startsWith('/painel/grupos')) return
+        try {
+          const muted = JSON.parse(localStorage.getItem(`muted_groups_${instance}`) || '[]')
+          if (muted.includes(row.idgrupo)) return
+        } catch {}
+        setGroupUnread(n => n + 1)
+      })
+      .subscribe()
+    return () => supabase.removeChannel(ch)
+  }, [instance])
+
   const isAdmin = session?.user?.role === 'admin'
   const aiEnabled = session?.company?.ai_enabled !== false
   const lastSeen = typeof window !== 'undefined' ? localStorage.getItem('nx_news_seen') : null
@@ -108,7 +134,8 @@ export default function CompanyLayout() {
       badge: activeCount > 0 ? activeCount : null, badgeColor: 'cyan' },
     ...(aiEnabled ? [{ to: '/painel/historico', icon: History, label: 'Conversas IA' }] : []),
     { to: '/painel/instagram', icon: Instagram,     label: 'Instagram' },
-    { to: '/painel/grupos',   icon: Users,          label: 'Grupos' },
+    { to: '/painel/grupos',   icon: Users,          label: 'Grupos',
+      badge: groupUnread > 0 ? groupUnread : null, badgeColor: 'cyan' },
     { to: '/painel/contatos',  icon: Contact2,      label: 'Pacientes' },
     { to: '/painel/agenda',    icon: Calendar,      label: 'Agenda' },
     { to: '/painel/atividades', icon: Kanban,       label: 'Kanban' },
