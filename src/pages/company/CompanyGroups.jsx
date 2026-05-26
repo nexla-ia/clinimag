@@ -273,13 +273,13 @@ export default function CompanyGroups() {
                 const ts = parseTs(msg)
                 return (
                   <div key={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                       {!isAtendente && (
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#4F46E5', marginBottom: 3, marginLeft: 2 }}>
                           {senderLabel(msg)}
                         </span>
                       )}
-                      <div className="msg-bubble" style={{ wordBreak: 'break-word' }}>
+                      <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word' }}>
                         {msg.mensagem}
                       </div>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
