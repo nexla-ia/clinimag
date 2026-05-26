@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { Users, ChevronLeft } from 'lucide-react'
+import { Users, ChevronLeft, Send } from 'lucide-react'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -41,11 +41,14 @@ function senderLabel(row) {
 export default function CompanyGroups() {
   const { session } = useAuth()
   const instance = session?.company?.instance
+  const apiInstancia = session?.company?.api_instancia
   const [groups, setGroups] = useState([])
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [msgText, setMsgText] = useState('')
+  const [sending, setSending] = useState(false)
   const bottomRef = useRef(null)
   const selectedRef = useRef(null)
   selectedRef.current = selected
@@ -127,6 +130,46 @@ export default function CompanyGroups() {
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [instance])
+
+  async function handleSend() {
+    const text = msgText.trim()
+    if (!text || !selected || sending) return
+    setSending(true)
+    setMsgText('')
+    try {
+      const hora = new Date().toISOString()
+      await supabase.from(CONV_TABLE).insert({
+        instancia: instance,
+        numero: session?.user?.email || 'atendente',
+        idgrupo: selected.idgrupo,
+        nomegrupo: selected.nomegrupo || null,
+        mensagem: text,
+        type: 'atendente',
+        nome: session?.user?.name || null,
+        horaLastMessage: hora,
+        created_at: hora,
+      })
+      fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          mensagem: text,
+          session_id: selected.idgrupo,
+          idgrupo: selected.idgrupo,
+          nomegrupo: selected.nomegrupo || null,
+          instancia: instance,
+          api_instancia: apiInstancia,
+          sender_name: session?.user?.name,
+          sender_email: session?.user?.email,
+          company: session?.company?.name,
+          ai_enabled: false,
+        }),
+      }).catch(e => console.warn('webhook grupo:', e))
+    } finally {
+      setSending(false)
+    }
+  }
 
   const hasSelected = !!selected
 
@@ -245,6 +288,28 @@ export default function CompanyGroups() {
                 )
               })}
               <div ref={bottomRef} />
+            </div>
+
+            {/* Barra de envio */}
+            <div className="chat-input-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
+              <textarea
+                className="chat-textarea"
+                rows={1}
+                placeholder="Mensagem para o grupo…"
+                value={msgText}
+                onChange={e => setMsgText(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                disabled={sending}
+                style={{ flex: 1, resize: 'none', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, background: 'var(--bg-input, #fff)' }}
+              />
+              <button
+                className="nx-btn-primary"
+                onClick={handleSend}
+                disabled={!msgText.trim() || sending}
+                style={{ padding: '0 16px', height: 38, flexShrink: 0 }}
+              >
+                <Send size={14} />
+              </button>
             </div>
           </>
         )}
