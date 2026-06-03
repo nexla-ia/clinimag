@@ -544,7 +544,7 @@ export default function CompanyConversations() {
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
-    supabase.from(CONV_TABLE).select('id, id_mensagem, numero, type, mensagem, base64, "horaLastMessage", created_at')
+    supabase.from(CONV_TABLE).select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('numero', selected.session_id)
       .is('idgrupo', null)
@@ -561,6 +561,7 @@ export default function CompanyConversations() {
             type: getMessageType(r),
             content: getMessageContent(r),
             base64: r.base64 || null,
+            nome: r.nome || null,
             ts: getTimestamp(r),
           })))
         }
@@ -575,7 +576,7 @@ export default function CompanyConversations() {
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
     const { data, error } = await supabase.from(CONV_TABLE)
-      .select('id, id_mensagem, numero, type, mensagem, base64, "horaLastMessage", created_at')
+      .select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('numero', selected.session_id)
       .is('idgrupo', null)
@@ -592,6 +593,7 @@ export default function CompanyConversations() {
         type: getMessageType(r),
         content: getMessageContent(r),
         base64: r.base64 || null,
+        nome: r.nome || null,
         ts: getTimestamp(r),
       }))
       skipScrollRef.current = true
@@ -898,6 +900,7 @@ export default function CompanyConversations() {
         p_type: 'atendente',
         p_hora: new Date().toISOString(),
         p_base64: mediaBase64,
+        p_nome: session?.user?.name || null,
       })
       if (insErr) console.error('send_mensagem_geral:', insErr)
 
@@ -1535,7 +1538,7 @@ export default function CompanyConversations() {
                       {isCliente
                         ? <><User size={10} /> {resolveName(selected?.phone) !== selected?.phone ? resolveName(selected?.phone) : 'Cliente'}</>
                         : isAtendente
-                          ? <><Headset size={10} /> Atendente</>
+                          ? <><Headset size={10} /> {msg.nome || 'Atendente'}</>
                           : <><Bot size={10} /> IA</>}
                     </div>
                     <div className={`msg-row ${isLeft ? 'ai' : 'client'}`}>
