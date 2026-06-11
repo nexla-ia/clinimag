@@ -9,7 +9,7 @@ import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '.
 import {
   Calendar, Plus, X, Pencil, Trash2, ChevronLeft, ChevronRight,
   Clock, User as UserIcon, Phone, ListChecks, CheckCircle2, XCircle, AlertCircle, Settings,
-  MessageSquare, History, Lock, Repeat
+  MessageSquare, History, Lock, Repeat, FileText
 } from 'lucide-react'
 import './Company.css'
 
@@ -389,10 +389,10 @@ export default function CompanyAgenda() {
         .eq('instancia', instance)
         .like('numero', `${normNum}%`)
         .order('id', { ascending: false }).limit(5),
-      supabase.from('appointments').select('id, starts_at, status, procedure_id, notes')
+      supabase.from('appointments').select('id, starts_at, status, procedure_id, notes, prontuario, prontuario_at, prontuario_by')
         .eq('instancia', instance)
         .eq('contact_numero', normNum)
-        .order('starts_at', { ascending: false }).limit(8),
+        .order('starts_at', { ascending: false }).limit(20),
     ]).then(([{ data: mgs }, { data: aps }]) => {
       if (mgs) setPatientHistory(mgs.reverse())
       if (aps) setPatientAppts(aps.filter(a => a.id !== apptModal?.id))
@@ -507,6 +507,13 @@ export default function CompanyAgenda() {
       status: apptModal.status,
       notes: apptModal.notes?.trim() || null,
       created_by_email: session?.user?.email,
+      prontuario: apptModal.prontuario?.trim() || null,
+      prontuario_at: apptModal.prontuario?.trim()
+        ? (apptModal.prontuario_at || new Date().toISOString())
+        : null,
+      prontuario_by: apptModal.prontuario?.trim()
+        ? (session?.user?.name || session?.user?.email || null)
+        : null,
     }
     // Auto-marcar como pago se status virou 'concluido'
     let paymentStatus = apptModal.payment_status || 'pendente'
@@ -1493,6 +1500,24 @@ export default function CompanyAgenda() {
                   onChange={e => setApptModal(p => ({ ...p, notes: e.target.value }))} />
               </div>
 
+              <div>
+                <label style={{ ...labelStyle, color: '#0891B2' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <FileText size={11} /> Prontuário do Atendimento
+                  </span>
+                </label>
+                <textarea className="nx-input" rows={4}
+                  placeholder="Descreva o que foi realizado neste atendimento (procedimentos, observações clínicas, orientações...)."
+                  value={apptModal.prontuario || ''}
+                  onChange={e => setApptModal(p => ({ ...p, prontuario: e.target.value }))}
+                  style={{ borderColor: apptModal.prontuario ? '#0891B2' : undefined, resize: 'vertical' }} />
+                {apptModal.prontuario_at && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Registrado por <strong>{apptModal.prontuario_by || 'sistema'}</strong> em {new Date(apptModal.prontuario_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+              </div>
+
               {apptModal.contact_numero && (
                 <div style={{
                   background: '#F8FAFC', border: '1px solid var(--border)',
@@ -1547,22 +1572,35 @@ export default function CompanyAgenda() {
                           const procName = procedures.find(p => p.id === a.procedure_id)?.name
                           const dt = new Date(a.starts_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
                           return (
-                            <button key={a.id} type="button"
-                              onClick={() => { setApptModal(null); setTimeout(() => openEditAppt({ ...a, contact_nome: apptModal.contact_nome, contact_numero: apptModal.contact_numero }), 50) }}
-                              style={{
-                                textAlign: 'left', background: 'transparent', border: 'none',
-                                padding: '4px 0', cursor: 'pointer', fontFamily: 'inherit',
-                                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                              }}
-                              onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
-                              onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-                              <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, fontWeight: 700, flexShrink: 0,
-                                background: st?.bg || '#F1F5F9', color: st?.color || '#64748B', border: `1px solid ${st?.border || st?.color || '#CBD5E1'}` }}>
-                                {st?.label || a.status}
-                              </span>
-                              <span style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0 }}>{dt}</span>
-                              {procName && <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {procName}</span>}
-                            </button>
+                            <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <button type="button"
+                                onClick={() => { setApptModal(null); setTimeout(() => openEditAppt({ ...a, contact_nome: apptModal.contact_nome, contact_numero: apptModal.contact_numero }), 50) }}
+                                style={{
+                                  textAlign: 'left', background: 'transparent', border: 'none',
+                                  padding: '4px 0', cursor: 'pointer', fontFamily: 'inherit',
+                                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
+                                onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                                <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, fontWeight: 700, flexShrink: 0,
+                                  background: st?.bg || '#F1F5F9', color: st?.color || '#64748B', border: `1px solid ${st?.border || st?.color || '#CBD5E1'}` }}>
+                                  {st?.label || a.status}
+                                </span>
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0 }}>{dt}</span>
+                                {procName && <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {procName}</span>}
+                              </button>
+                              {a.prontuario && (
+                                <div style={{
+                                  fontSize: 11, color: '#0C4A6E',
+                                  background: '#F0F9FF', border: '1px solid #BAE6FD',
+                                  borderRadius: 6, padding: '5px 8px', lineHeight: 1.5,
+                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                }}>
+                                  <span style={{ fontWeight: 700, color: '#0891B2', marginRight: 4 }}>📋</span>
+                                  {a.prontuario}
+                                </div>
+                              )}
+                            </div>
                           )
                         })}
                       </div>

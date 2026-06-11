@@ -265,10 +265,11 @@ export default function CompanyPatientDetail() {
       {/* Tabs */}
       <div className="pat-tabs">
         {[
-          { key: 'resumo',    label: 'Resumo' },
-          { key: 'cadastro',  label: 'Cadastro' },
-          { key: 'saude',     label: 'Saúde' },
-          { key: 'historico', label: `Histórico (${appointments.length})` },
+          { key: 'resumo',      label: 'Resumo' },
+          { key: 'cadastro',    label: 'Cadastro' },
+          { key: 'saude',       label: 'Saúde' },
+          { key: 'prontuario',  label: `Prontuário (${appointments.filter(a => a.prontuario).length})` },
+          { key: 'historico',   label: `Histórico (${appointments.length})` },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} className={`pat-tab ${tab === t.key ? 'active' : ''}`}>
             {t.label}
@@ -429,6 +430,53 @@ export default function CompanyPatientDetail() {
             <SectionTitle icon={FileText} title="Observações clínicas" />
             <p className="pat-text-block">{patient.clinical_notes || 'Sem observações clínicas.'}</p>
           </div>
+        </div>
+      )}
+
+      {tab === 'prontuario' && (
+        <div className="pat-resumo">
+          {appointments.filter(a => a.prontuario).length === 0 ? (
+            <div className="pat-empty-card">
+              <FileText size={28} style={{ opacity: 0.2 }} />
+              <span>Nenhum prontuário registrado ainda. Ao salvar um agendamento com texto no campo Prontuário, ele aparece aqui.</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {appointments.filter(a => a.prontuario).map(a => {
+                const status = STATUS_META[a.status] || STATUS_META.agendado
+                return (
+                  <div key={a.id} className="pat-section-card" style={{ borderLeft: `4px solid ${status.color}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <div style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 999, fontWeight: 700,
+                        background: status.bg, color: status.color,
+                      }}>
+                        {status.label}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {fmtDateTime(a.starts_at)}
+                      </div>
+                      {a.agendas?.name && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {a.agendas.name}</div>
+                      )}
+                      {a.professionals?.name && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {a.professionals.name}</div>
+                      )}
+                    </div>
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                      {a.prontuario}
+                    </p>
+                    {a.prontuario_by && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                        Registrado por <strong>{a.prontuario_by}</strong>
+                        {a.prontuario_at ? ` em ${fmtDateTime(a.prontuario_at)}` : ''}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
