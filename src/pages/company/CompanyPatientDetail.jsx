@@ -7,7 +7,7 @@ import {
   ArrowLeft, Pencil, Camera, Phone, Mail, MapPin, Calendar, ShieldCheck,
   AlertTriangle, Pill, Heart, Cake, MessageSquare, X, Trash2, CreditCard,
   Activity, Briefcase, Users, Clock, CheckCircle2, XCircle, Clipboard,
-  FileText, Plus, AlertCircle,
+  FileText, Plus, AlertCircle, Upload, Image, Download, ZoomIn,
 } from 'lucide-react'
 import { TagPicker, TagList, useContactTags } from '../../components/Tags'
 import './CompanyPatientDetail.css'
@@ -82,7 +82,12 @@ export default function CompanyPatientDetail() {
   const [err, setErr] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [attachments, setAttachments] = useState([])
+  const [uploading, setUploading] = useState(false)
+  const [lightbox, setLightbox] = useState(null)
+  const [uploadApptId, setUploadApptId] = useState(null)
   const fileInputRef = useRef(null)
+  const attachInputRef = useRef(null)
 
   useEffect(() => {
     if (!id) return
@@ -102,12 +107,53 @@ export default function CompanyPatientDetail() {
             .eq('contact_numero', numDigits)
             .order('starts_at', { ascending: false })
             .then(({ data: ap }) => { if (ap) setAppointments(ap) })
+          supabase.from('prontuario_attachments')
+            .select('*')
+            .eq('instancia', instance)
+            .eq('contact_numero', numDigits)
+            .order('uploaded_at', { ascending: false })
+            .then(({ data: att }) => { if (att) setAttachments(att) })
         }
       }
       if (plans) setInsurancePlans(plans)
       setLoading(false)
     })
   }, [id, instance])
+
+  async function handleAttachUpload(files) {
+    if (!files?.length || !patient) return
+    const numDigits = (patient.numero || '').replace(/@.*$/, '').replace(/\D/g, '')
+    setUploading(true)
+    for (const file of Array.from(files)) {
+      const ext = file.name.split('.').pop()
+      const uniqueName = `${instance}/${numDigits}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: storageErr } = await supabase.storage
+        .from('prontuario')
+        .upload(uniqueName, file, { contentType: file.type, upsert: false })
+      if (storageErr) { console.error('upload:', storageErr); continue }
+      const { data: { publicUrl } } = supabase.storage.from('prontuario').getPublicUrl(uniqueName)
+      const { data: row } = await supabase.from('prontuario_attachments').insert({
+        instancia: instance,
+        contact_numero: numDigits,
+        appointment_id: uploadApptId || null,
+        file_path: publicUrl,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        uploaded_by: session?.user?.name || session?.user?.email || null,
+      }).select().single()
+      if (row) setAttachments(prev => [row, ...prev])
+    }
+    setUploading(false)
+    setUploadApptId(null)
+  }
+
+  async function handleDeleteAttachment(att) {
+    const path = att.file_path.split('/prontuario/')[1]
+    if (path) await supabase.storage.from('prontuario').remove([path])
+    await supabase.from('prontuario_attachments').delete().eq('id', att.id)
+    setAttachments(prev => prev.filter(a => a.id !== att.id))
+  }
 
   function startEdit() {
     setEditing({ ...patient })
@@ -435,41 +481,107 @@ export default function CompanyPatientDetail() {
 
       {tab === 'prontuario' && (
         <div className="pat-resumo">
-          {appointments.filter(a => a.prontuario).length === 0 ? (
+          {/* Resumo de saúde rápido */}
+          {(patient.blood_type || patient.allergies || patient.medications || patient.chronic_conditions) && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+              {patient.blood_type && (
+                <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:999, background:'#FEF2F2', color:'#DC2626', border:'1px solid #FECACA' }}>
+                  🩸 {patient.blood_type}
+                </span>
+              )}
+              {patient.allergies && (
+                <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:999, background:'#FFFBEB', color:'#D97706', border:'1px solid #FDE68A' }}>
+                  <AlertTriangle size={10} /> Alergia: {patient.allergies.slice(0,40)}{patient.allergies.length>40?'…':''}
+                </span>
+              )}
+              {patient.medications && (
+                <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:999, background:'#F0FDF4', color:'#16A34A', border:'1px solid #BBF7D0' }}>
+                  <Pill size={10} /> Medicamentos em uso
+                </span>
+              )}
+              {patient.chronic_conditions && (
+                <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:999, background:'#F5F3FF', color:'#7C3AED', border:'1px solid #DDD6FE' }}>
+                  <Activity size={10} /> {patient.chronic_conditions.slice(0,40)}{patient.chronic_conditions.length>40?'…':''}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Upload geral */}
+          <div className="pat-section-card" style={{ padding: '12px 16px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'var(--text-secondary)', display:'inline-flex', alignItems:'center', gap:6 }}>
+                <Image size={13} /> Fotos e documentos — {attachments.length} arquivo(s)
+              </div>
+              <button
+                onClick={() => { setUploadApptId(null); attachInputRef.current?.click() }}
+                disabled={uploading}
+                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#0891B2', color:'#fff', border:'none', borderRadius:8, padding:'7px 14px', fontSize:12, fontWeight:700, cursor:'pointer', opacity: uploading?0.6:1 }}>
+                <Upload size={12} /> {uploading ? 'Enviando...' : 'Adicionar arquivo'}
+              </button>
+            </div>
+            <input ref={attachInputRef} type="file" multiple accept="image/*,application/pdf,video/mp4,video/quicktime,.doc,.docx"
+              style={{ display:'none' }} onChange={e => handleAttachUpload(e.target.files)} />
+
+            {attachments.length > 0 && (
+              <div style={{ marginTop:12, display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(88px, 1fr))', gap:8 }}>
+                {attachments.filter(a => !a.appointment_id).map(att => (
+                  <AttachmentThumb key={att.id} att={att} onZoom={setLightbox} onDelete={handleDeleteAttachment} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Consultas com prontuário e fotos */}
+          {appointments.filter(a => a.prontuario || attachments.some(att => att.appointment_id === a.id)).length === 0 ? (
             <div className="pat-empty-card">
-              <FileText size={28} style={{ opacity: 0.2 }} />
-              <span>Nenhum prontuário registrado ainda. Ao salvar um agendamento com texto no campo Prontuário, ele aparece aqui.</span>
+              <FileText size={28} style={{ opacity:0.2 }} />
+              <span>Nenhum registro ainda. Preencha o campo Prontuário ao salvar um agendamento ou adicione fotos acima.</span>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {appointments.filter(a => a.prontuario).map(a => {
+            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+              {appointments.filter(a => a.prontuario || attachments.some(att => att.appointment_id === a.id)).map(a => {
                 const status = STATUS_META[a.status] || STATUS_META.agendado
+                const apptAtts = attachments.filter(att => att.appointment_id === a.id)
                 return (
-                  <div key={a.id} className="pat-section-card" style={{ borderLeft: `4px solid ${status.color}` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      <div style={{
-                        fontSize: 10, padding: '2px 8px', borderRadius: 999, fontWeight: 700,
-                        background: status.bg, color: status.color,
-                      }}>
-                        {status.label}
+                  <div key={a.id} className="pat-section-card" style={{ borderLeft:`4px solid ${status.color}`, padding:'14px 16px' }}>
+                    {/* Cabeçalho da consulta */}
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8, marginBottom:10 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                        <span style={{ fontSize:10, padding:'2px 8px', borderRadius:999, fontWeight:700, background:status.bg, color:status.color }}>
+                          {status.label}
+                        </span>
+                        <span style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>
+                          {fmtDateTime(a.starts_at)}
+                        </span>
+                        {a.agendas?.name && <span style={{ fontSize:11, color:'var(--text-muted)' }}>· {a.agendas.name}</span>}
+                        {a.professionals?.name && <span style={{ fontSize:11, color:'var(--text-muted)' }}>· {a.professionals.name}</span>}
                       </div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {fmtDateTime(a.starts_at)}
-                      </div>
-                      {a.agendas?.name && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {a.agendas.name}</div>
-                      )}
-                      {a.professionals?.name && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {a.professionals.name}</div>
-                      )}
+                      <button
+                        onClick={() => { setUploadApptId(a.id); attachInputRef.current?.click() }}
+                        style={{ display:'inline-flex', alignItems:'center', gap:5, background:'transparent', border:'1px solid #BAE6FD', borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:600, color:'#0891B2', cursor:'pointer' }}>
+                        <Upload size={11} /> Foto desta consulta
+                      </button>
                     </div>
-                    <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-                      {a.prontuario}
-                    </p>
+
+                    {/* Texto do prontuário */}
+                    {a.prontuario && (
+                      <p style={{ margin:'0 0 10px', fontSize:13, color:'var(--text-secondary)', lineHeight:1.75, whiteSpace:'pre-wrap' }}>
+                        {a.prontuario}
+                      </p>
+                    )}
                     {a.prontuario_by && (
-                      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                        Registrado por <strong>{a.prontuario_by}</strong>
-                        {a.prontuario_at ? ` em ${fmtDateTime(a.prontuario_at)}` : ''}
+                      <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom: apptAtts.length ? 10 : 0 }}>
+                        Registrado por <strong>{a.prontuario_by}</strong>{a.prontuario_at ? ` em ${fmtDateTime(a.prontuario_at)}` : ''}
+                      </div>
+                    )}
+
+                    {/* Fotos desta consulta */}
+                    {apptAtts.length > 0 && (
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(88px, 1fr))', gap:8, marginTop:8 }}>
+                        {apptAtts.map(att => (
+                          <AttachmentThumb key={att.id} att={att} onZoom={setLightbox} onDelete={handleDeleteAttachment} />
+                        ))}
                       </div>
                     )}
                   </div>
@@ -477,6 +589,18 @@ export default function CompanyPatientDetail() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out' }}>
+          <img src={lightbox} alt="" style={{ maxWidth:'92vw', maxHeight:'92vh', borderRadius:8, objectFit:'contain' }} />
+          <button onClick={() => setLightbox(null)}
+            style={{ position:'absolute', top:16, right:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff' }}>
+            <X size={18} />
+          </button>
         </div>
       )}
 
@@ -553,6 +677,53 @@ export default function CompanyPatientDetail() {
 }
 
 // ─── Subcomponentes ──────────────────────────────────────────────────────────
+function AttachmentThumb({ att, onZoom, onDelete }) {
+  const isImage = (att.file_type || '').startsWith('image/')
+  const isPdf   = att.file_type === 'application/pdf'
+  const isVideo = (att.file_type || '').startsWith('video/')
+  const [hover, setHover] = useState(false)
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ position:'relative', borderRadius:8, overflow:'hidden', background:'#F1F5F9', border:'1px solid var(--border)', aspectRatio:'1', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      {isImage ? (
+        <img src={att.file_path} alt={att.file_name} style={{ width:'100%', height:'100%', objectFit:'cover', cursor:'zoom-in' }}
+          onClick={() => onZoom(att.file_path)} />
+      ) : isVideo ? (
+        <video src={att.file_path} style={{ width:'100%', height:'100%', objectFit:'cover', cursor:'pointer' }}
+          onClick={() => window.open(att.file_path, '_blank')} />
+      ) : (
+        <a href={att.file_path} target="_blank" rel="noreferrer"
+          style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:8, textDecoration:'none', width:'100%', height:'100%' }}>
+          <FileText size={22} style={{ color: isPdf ? '#DC2626' : '#2563EB' }} />
+          <span style={{ fontSize:9, color:'var(--text-muted)', textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%', padding:'0 4px' }}>
+            {att.file_name}
+          </span>
+        </a>
+      )}
+      {hover && (
+        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+          {isImage && (
+            <button onClick={() => onZoom(att.file_path)}
+              style={{ background:'rgba(255,255,255,0.9)', border:'none', borderRadius:6, width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+              <ZoomIn size={13} />
+            </button>
+          )}
+          <a href={att.file_path} download={att.file_name} target="_blank" rel="noreferrer"
+            style={{ background:'rgba(255,255,255,0.9)', border:'none', borderRadius:6, width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', textDecoration:'none', color:'inherit' }}>
+            <Download size={13} />
+          </a>
+          <button onClick={() => onDelete(att)}
+            style={{ background:'rgba(220,38,38,0.85)', border:'none', borderRadius:6, width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff' }}>
+            <Trash2 size={13} />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SectionTitle({ icon: Icon, title }) {
   return (
     <div className="pat-section-title">
