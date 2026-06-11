@@ -33,6 +33,20 @@ function getTimestamp(row) { return parseTimestamp(row.horaLastMessage) || row.c
 
 const INJECTED_PROMPT_RE = /responda em portugu[eê]s|de forma objetiva|solicite\s|n[aã]o informar|indicar que|apresentaremos|breve explica[çc][aã]o|orienta[çc][õo]es gerais|avalia[çc][aã]o pr[eé]-operat/i
 
+const URL_REGEX = /(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+\.[^\s<>"]{2,})/gi
+
+function renderTextWithLinks(text, linkStyle) {
+  const parts = text.split(URL_REGEX)
+  return parts.map((part, i) => {
+    if (URL_REGEX.test(part)) {
+      URL_REGEX.lastIndex = 0
+      const href = part.startsWith('http') ? part : `https://${part}`
+      return <a key={i} href={href} target="_blank" rel="noreferrer noopener" style={linkStyle}>{part}</a>
+    }
+    return part
+  })
+}
+
 function detectMedia(b64) {
   if (!b64 || b64.length < 10) return null
   if (b64.startsWith('T2dn')) return { type: 'audio', mime: 'audio/ogg' }
@@ -1688,7 +1702,13 @@ export default function CompanyConversations() {
                                 </div>
                               </div>
                             ) : displayContent ? (
-                              <span style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</span>
+                              <span style={{ whiteSpace: 'pre-wrap' }}>
+                                {renderTextWithLinks(displayContent, {
+                                  color: isAtendente ? 'rgba(255,255,255,0.9)' : '#2563EB',
+                                  textDecoration: 'underline',
+                                  wordBreak: 'break-all',
+                                })}
+                              </span>
                             ) : null}
                           </div>
                         )
