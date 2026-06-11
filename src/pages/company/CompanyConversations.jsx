@@ -1063,8 +1063,10 @@ export default function CompanyConversations() {
       if (!search) return true
       const cleanNum = c.phone.replace(/\D/g, '')
       const nome = resolveName(c.phone)
-      return cleanNum.includes(search.replace(/\D/g, '')) ||
-             nome.toLowerCase().includes(search.toLowerCase())
+      const searchDigits = search.replace(/\D/g, '')
+      const phoneMatch = searchDigits.length > 0 && cleanNum.includes(searchDigits)
+      const nameMatch = nome.toLowerCase().includes(search.toLowerCase())
+      return phoneMatch || nameMatch
     })
     .filter(c => tagMatch(c.phone))
   const isClosed = selected ? closed.has(selected.session_id) : false
