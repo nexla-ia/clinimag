@@ -58,6 +58,20 @@ function fmtTimeInput(d) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+// Converte UTC timestamp para data/hora na timezone da clínica (independente do browser)
+function toClinicTz(dateOrStr, tzOffset) {
+  const tz = tzOffset || '-03:00'
+  const sign = tz[0] === '-' ? -1 : 1
+  const [h, m] = tz.slice(1).split(':').map(Number)
+  const shifted = new Date(new Date(dateOrStr).getTime() + sign * (h * 60 + m) * 60000)
+  const yr  = shifted.getUTCFullYear()
+  const mo  = String(shifted.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(shifted.getUTCDate()).padStart(2, '0')
+  const hh  = String(shifted.getUTCHours()).padStart(2, '0')
+  const mm  = String(shifted.getUTCMinutes()).padStart(2, '0')
+  return { dateStr: `${yr}-${mo}-${day}`, timeStr: `${hh}:${mm}` }
+}
+
 function parseTimeStr(s) {
   if (!s) return [0, 0]
   const [h, m] = s.split(':').map(Number)
@@ -387,11 +401,12 @@ export default function CompanyAgenda() {
   }, [apptModal?.contact_numero, instance])
 
   function openEditAppt(a) {
-    const d = new Date(a.starts_at)
+    const tz = session?.company?.timezone || '-03:00'
+    const { dateStr, timeStr } = toClinicTz(a.starts_at, tz)
     setApptModal({
       ...a,
-      date: fmtDateInput(d),
-      time: fmtTimeInput(d),
+      date: dateStr,
+      time: timeStr,
       _prevStatus: a.status,
       _prevStartsAt: a.starts_at,
     })
@@ -442,7 +457,9 @@ export default function CompanyAgenda() {
           setApptErr(`${pro.name} não atende ${dayLabel.toLowerCase()}. Dias disponíveis: ${workingDays.map(d => ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d]).join(', ')}`)
           return
         }
-        const apptStart = startsAt.getHours() * 60 + startsAt.getMinutes()
+        const { timeStr: apptTimeStr } = toClinicTz(startsAt, tz)
+        const [apptH, apptM] = apptTimeStr.split(':').map(Number)
+        const apptStart = apptH * 60 + apptM
         const apptEnd = apptStart + duration
         const proStart = parseInt(pro.start_time?.split(':')[0] || 8) * 60 + parseInt(pro.start_time?.split(':')[1] || 0)
         const proEnd = parseInt(pro.end_time?.split(':')[0] || 18) * 60 + parseInt(pro.end_time?.split(':')[1] || 0)
@@ -621,10 +638,11 @@ export default function CompanyAgenda() {
 
   function apptAt(day, hhmm) {
     if (!selectedAgenda) return null
-    const slotStart = new Date(`${fmtDateInput(day)}T${hhmm}:00`).getTime()
+    const tz = session?.company?.timezone || '-03:00'
+    // Ancora o slot na timezone da clínica (não do browser)
+    const slotStart = new Date(`${fmtDateInput(day)}T${hhmm}:00${tz}`).getTime()
     const slotEnd   = slotStart + (selectedAgenda.slot_minutes || 30) * 60_000
     // Aceita agendamento cujo starts_at cai DENTRO do intervalo do slot
-    // (não exige match exato — agendamento às 17:01 aparece no slot 17:00 de 30min).
     return appointments.find(a => {
       if (a.agenda_id !== selectedAgenda.id) return false
       const t = new Date(a.starts_at).getTime()
