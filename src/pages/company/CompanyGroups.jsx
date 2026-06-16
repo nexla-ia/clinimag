@@ -88,6 +88,10 @@ export default function CompanyGroups() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [readsMap, setReadsMap] = useState({})     // idgrupo → last_read_at ISO
+  const [readsLoaded, setReadsLoaded] = useState(false)
+  const [unreadCounts, setUnreadCounts] = useState({}) // idgrupo → number
+  const initialCountsDone = useRef(false)
   const [msgText, setMsgText] = useState('')
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -108,6 +112,66 @@ export default function CompanyGroups() {
   const recordTimerRef = useRef(null)
   const fileInputRef = useRef(null)
   selectedRef.current = selected
+
+  // Carrega leituras do usuário atual
+  useEffect(() => {
+    if (!instance || !session?.user?.email) return
+    supabase.from('conversation_reads')
+      .select('session_id, last_read_at')
+      .eq('instancia', instance)
+      .eq('user_email', session.user.email)
+      .then(({ data }) => {
+        if (data) {
+          const map = {}
+          data.forEach(r => { map[r.session_id] = r.last_read_at })
+          setReadsMap(map)
+        }
+        setReadsLoaded(true)
+      })
+  }, [instance, session?.user?.email])
+
+  // Calcula contagem inicial de não lidos nos grupos
+  useEffect(() => {
+    if (initialCountsDone.current || !readsLoaded || loading || !groups.length || !instance) return
+    initialCountsDone.current = true
+    const unread = groups.filter(g => {
+      const lr = readsMap[g.idgrupo]
+      return !lr || (g.lastTs && new Date(g.lastTs) > new Date(lr))
+    })
+    if (!unread.length) return
+    Promise.all(
+      unread.map(g =>
+        supabase.from(CONV_TABLE)
+          .select('id', { count: 'exact', head: true })
+          .eq('instancia', instance)
+          .eq('idgrupo', g.idgrupo)
+          .ilike('type', 'cliente')
+          .gt('created_at', readsMap[g.idgrupo] || '1970-01-01T00:00:00Z')
+          .then(({ count }) => [g.idgrupo, count || 0])
+      )
+    ).then(pairs => {
+      const counts = {}
+      pairs.forEach(([gid, cnt]) => { if (cnt > 0) counts[gid] = cnt })
+      setUnreadCounts(counts)
+    })
+  }, [readsLoaded, loading, groups, readsMap, instance])
+
+  function handleSelectGroup(g) {
+    setSelected(g)
+    if (unreadCounts[g.idgrupo]) {
+      setUnreadCounts(prev => { const n = { ...prev }; delete n[g.idgrupo]; return n })
+      const now = new Date().toISOString()
+      setReadsMap(prev => ({ ...prev, [g.idgrupo]: now }))
+      if (session?.user?.email) {
+        supabase.from('conversation_reads').upsert({
+          instancia: instance,
+          session_id: g.idgrupo,
+          user_email: session.user.email,
+          last_read_at: now,
+        }, { onConflict: 'instancia,session_id,user_email' }).then(() => {})
+      }
+    }
+  }
 
   useEffect(() => {
     if (!instance) return
@@ -173,6 +237,11 @@ export default function CompanyGroups() {
         (p) => {
           const row = p.new
           if (!row?.idgrupo) return
+          const incomingType = (row.type || '').toLowerCase()
+          const isClientMsg = incomingType === 'cliente' || incomingType === 'human'
+          if (isClientMsg && selectedRef.current?.idgrupo !== row.idgrupo) {
+            setUnreadCounts(prev => ({ ...prev, [row.idgrupo]: (prev[row.idgrupo] || 0) + 1 }))
+          }
           setGroups(prev => {
             const updated = {
               idgrupo: row.idgrupo,
@@ -401,11 +470,12 @@ export default function CompanyGroups() {
           )}
           {groups.map(g => {
             const isMuted = mutedGroups.includes(g.idgrupo)
+            const unread = unreadCounts[g.idgrupo] || 0
             return (
               <div
                 key={g.idgrupo}
-                className={`contact-item${selected?.idgrupo === g.idgrupo ? ' selected' : ''}`}
-                onClick={() => setSelected(g)}
+                className={`contact-item${selected?.idgrupo === g.idgrupo ? ' selected' : ''}${unread ? ' unread' : ''}`}
+                onClick={() => handleSelectGroup(g)}
                 onContextMenu={e => handleContextMenu(e, g)}
               >
                 <div style={{
@@ -422,12 +492,19 @@ export default function CompanyGroups() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: 13.5, color: isMuted ? 'var(--text-muted)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontWeight: unread ? 800 : 600, fontSize: 13.5, color: isMuted ? 'var(--text-muted)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {groupLabel(g)}
                     </span>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
-                      {formatTime(g.lastTs)}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                      <span style={{ fontSize: 11, color: unread ? '#2563EB' : 'var(--text-muted)', fontWeight: unread ? 700 : 400 }}>
+                        {formatTime(g.lastTs)}
+                      </span>
+                      {unread > 0 && (
+                        <div style={{ minWidth: 20, height: 20, borderRadius: 10, background: '#2563EB', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
+                          {unread > 99 ? '99+' : unread}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
                     {g.lastSenderRow && <strong style={{ fontWeight: 600 }}>{senderLabel(g.lastSenderRow)}: </strong>}

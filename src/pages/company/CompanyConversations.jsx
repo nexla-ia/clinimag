@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { MessageSquare, Bot, User, Users, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import './Company.css'
 
@@ -449,7 +449,6 @@ export default function CompanyConversations() {
         if (!error && data) {
           const seen = new Set()
           const unique = []
-          const seenGroups = new Map() // idgrupo → contact object
           // Indexa quem teve resposta de atendente humano em algum momento (só msgs individuais)
           const hasOutsideHuman = new Set()
           for (const row of data) {
@@ -461,40 +460,18 @@ export default function CompanyConversations() {
           }
           for (const row of data) {
             const sid = row.numero
-            if (!sid) continue
-
-            // Coleta grupos (idgrupo = ID do grupo; numero = quem enviou dentro do grupo)
-            if (row.idgrupo) {
-              if (!seenGroups.has(row.idgrupo)) {
-                seenGroups.set(row.idgrupo, {
-                  session_id: row.idgrupo,
-                  phone: formatPhone(row.idgrupo),
-                  lastTs: getTimestamp(row),
-                  isGroup: true,
-                })
-              }
-              continue
-            }
-
-            if (seen.has(sid)) continue
-            if (sid.includes('@g.us')) continue  // grupo sem idgrupo – ignora
+            if (!sid || seen.has(sid)) continue
+            if (sid.includes('@g.us')) continue  // ignora grupos do WhatsApp
+            if (row.idgrupo) continue            // mensagem de grupo → tela de grupos
             seen.add(sid)
             unique.push({
               session_id: sid,
               phone: formatPhone(sid),
               lastTs: getTimestamp(row),
               outsideAssumed: hasOutsideHuman.has(sid),
-              isGroup: false,
             })
           }
-          const groups = Array.from(seenGroups.values())
-          const combined = [...unique, ...groups].sort((a, b) => {
-            if (!a.lastTs && !b.lastTs) return 0
-            if (!a.lastTs) return 1
-            if (!b.lastTs) return -1
-            return new Date(b.lastTs) - new Date(a.lastTs)
-          })
-          setContacts(combined)
+          setContacts(unique)
         }
         setLoadingContacts(false)
       })
@@ -560,35 +537,12 @@ export default function CompanyConversations() {
           if (!row || isToolMessage(row)) return
           // Ignora mensagens que não são do WhatsApp (Instagram tem tela separada)
           if (row.aplicativo && row.aplicativo !== 'whatsapp') return
-          const incomingType = (row.type || '').toLowerCase()
-          const ts = getTimestamp(row)
-
-          // Mensagem de grupo
-          if (row.idgrupo) {
-            const gid = row.idgrupo
-            const isClientMsg = incomingType === 'cliente' || incomingType === 'human'
-            if (isClientMsg && selectedRef.current?.session_id !== gid) {
-              setUnreadCounts(prev => ({ ...prev, [gid]: (prev[gid] || 0) + 1 }))
-            }
-            setContacts(prev => {
-              const exists = prev.find(c => c.session_id === gid)
-              if (exists) return [{ ...exists, lastTs: ts }, ...prev.filter(c => c.session_id !== gid)]
-              return [{ session_id: gid, phone: formatPhone(gid), lastTs: ts, isGroup: true }, ...prev]
-            })
-            if (selectedRef.current?.session_id === gid) {
-              const sentNome = sentCacheRef.current.find(
-                s => s.content === getMessageContent(row) && (Date.now() - s.at) < 30000
-              )?.nome || null
-              setMessages(msgs => {
-                if (msgs.some(m => m.id === row.id)) return msgs
-                return [...msgs, { id: row.id, id_mensagem: row.id_mensagem || null, type: getMessageType(row), content: getMessageContent(row), base64: row.base64 || null, nome: sentNome || row.nome || null, ts }]
-              })
-            }
-            return
-          }
-
+          // Mensagem de grupo → tela de grupos, não toca aqui
+          if (row.idgrupo) return
           const sid = row.numero
           if (!sid || sid.includes('@g.us')) return
+          const incomingType = (row.type || '').toLowerCase()
+          const ts = getTimestamp(row)
 
           // Reabre ticket encerrado: remove do closed e limpa attendance
           setClosedMap(prev => {
@@ -613,7 +567,7 @@ export default function CompanyConversations() {
                 ...prev.filter(c => c.session_id !== sid)
               ]
             }
-            return [{ session_id: sid, phone: formatPhone(sid), lastTs: ts, outsideAssumed: isOutsideHuman, isGroup: false }, ...prev]
+            return [{ session_id: sid, phone: formatPhone(sid), lastTs: ts, outsideAssumed: isOutsideHuman }, ...prev]
           })
 
           if (selectedRef.current?.session_id === sid) {
@@ -663,17 +617,13 @@ export default function CompanyConversations() {
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
-    let msgQuery = supabase.from(CONV_TABLE).select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+    supabase.from(CONV_TABLE).select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
+      .eq('numero', selected.session_id)
+      .is('idgrupo', null)
       .or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .order('id', { ascending: false })
       .limit(MSG_PAGE)
-    if (selected.isGroup) {
-      msgQuery = msgQuery.eq('idgrupo', selected.session_id)
-    } else {
-      msgQuery = msgQuery.eq('numero', selected.session_id).is('idgrupo', null)
-    }
-    msgQuery
       .then(({ data, error }) => {
         if (!error && data) {
           const sorted = [...data].reverse()
@@ -698,19 +648,15 @@ export default function CompanyConversations() {
     if (!oldestId) return
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
-    let moreQuery = supabase.from(CONV_TABLE)
+    const { data, error } = await supabase.from(CONV_TABLE)
       .select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
+      .eq('numero', selected.session_id)
+      .is('idgrupo', null)
       .or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .lt('id', oldestId)
       .order('id', { ascending: false })
       .limit(MSG_PAGE)
-    if (selected.isGroup) {
-      moreQuery = moreQuery.eq('idgrupo', selected.session_id)
-    } else {
-      moreQuery = moreQuery.eq('numero', selected.session_id).is('idgrupo', null)
-    }
-    const { data, error } = await moreQuery
     if (!error && data) {
       const sorted = [...data].reverse()
       setHasMoreMsgs(data.length === MSG_PAGE)
@@ -1285,24 +1231,17 @@ export default function CompanyConversations() {
             const cliente = clientesMap[cleanNum]
             const displayName = saved?.nome || cliente?.nome || cliente?.pushname || null
             const nextAppt = futureAppts[cleanNum]
-            const groupLabel = c.isGroup ? (displayName || `Grupo ${c.phone.replace('@g.us', '').slice(-6)}`) : null
             return (
               <div
                 key={c.session_id}
                 className={`contact-item ${selected?.session_id === c.session_id ? 'selected' : ''} ${unreadCounts[c.session_id] ? 'unread' : ''}`}
                 onClick={() => handleSelectContact(c)}
                 onContextMenu={(e) => {
-                  if (c.isGroup) return
                   e.preventDefault()
                   setContextMenu({ x: e.clientX, y: e.clientY, contact: c })
                 }}
               >
                 {(() => {
-                  if (c.isGroup) return (
-                    <div className="contact-avatar" style={{ background: '#EDE9FE' }}>
-                      <Users size={14} style={{ color: '#7C3AED', opacity: 0.85 }} />
-                    </div>
-                  )
                   const contactPhoto = toImgSrc(saved?.photo) || toImgSrc(cliente?.foto)
                   return (
                     <div className="contact-avatar" style={contactPhoto ? { background: 'transparent', overflow: 'hidden' } : {}}>
@@ -1316,8 +1255,8 @@ export default function CompanyConversations() {
                 })()}
                 <div className="contact-info" style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                    <div className="contact-name" style={{ fontWeight: unreadCounts[c.session_id] ? 800 : (displayName || groupLabel) ? 600 : 400 }}>
-                      {groupLabel || displayName || c.phone}
+                    <div className="contact-name" style={{ fontWeight: unreadCounts[c.session_id] ? 800 : displayName ? 600 : 400 }}>
+                      {displayName || c.phone}
                     </div>
                     {displayName && (
                       <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.phone}</span>
@@ -1363,7 +1302,7 @@ export default function CompanyConversations() {
                       return myTags.length > 0 ? <TagList tags={myTags} size="xs" max={3} /> : null
                     })()}
                   </div>
-                  {tab === 'recepcao' && !c.isGroup && (
+                  {tab === 'recepcao' && (
                     <button
                       onClick={e => handleAssume(c, e)}
                       disabled={isAssuming}
@@ -1372,11 +1311,6 @@ export default function CompanyConversations() {
                       <Headset size={10} />
                       {isAssuming ? 'Assumindo...' : 'Assumir atendimento'}
                     </button>
-                  )}
-                  {c.isGroup && (
-                    <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:20, color:'#7C3AED', background:'#F5F3FF', border:'1px solid #DDD6FE', lineHeight:'16px', marginTop:3 }}>
-                      <Users size={9} /> Grupo
-                    </span>
                   )}
                 </div>
                 <div className="contact-meta">
