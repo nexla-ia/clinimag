@@ -15,6 +15,20 @@ function setMutedGroups(instance, arr) {
 
 const CONV_TABLE = 'mensagens_geral'
 
+const URL_REGEX = /(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+\.[^\s<>"]{2,})/gi
+
+function renderTextWithLinks(text, linkStyle) {
+  const parts = text.split(URL_REGEX)
+  return parts.map((part, i) => {
+    if (URL_REGEX.test(part)) {
+      URL_REGEX.lastIndex = 0
+      const href = part.startsWith('http') ? part : `https://${part}`
+      return <a key={i} href={href} target="_blank" rel="noreferrer noopener" style={linkStyle}>{part}</a>
+    }
+    return part
+  })
+}
+
 function formatTime(ts) {
   if (!ts) return ''
   const date = new Date(ts)
@@ -611,7 +625,13 @@ export default function CompanyGroups() {
                             style={{ maxWidth: 240, borderRadius: 8, display: 'block' }} />
                         )}
                         {(!media || media.type === 'pdf') && msg.mensagem && (
-                          <span>{msg.mensagem}</span>
+                          <span style={{ whiteSpace: 'pre-wrap' }}>
+                            {renderTextWithLinks(msg.mensagem, {
+                              color: (msg.type || '').toLowerCase() === 'atendente' || (msg.type || '').toLowerCase() === 'humano'
+                                ? 'rgba(255,255,255,0.9)' : '#2563EB',
+                              textDecoration: 'underline',
+                            })}
+                          </span>
                         )}
                       </div>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
