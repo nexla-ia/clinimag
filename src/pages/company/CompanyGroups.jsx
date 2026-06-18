@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
+import EmojiPicker from 'emoji-picker-react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check } from 'lucide-react'
@@ -122,11 +123,12 @@ export default function CompanyGroups() {
   const [groupInfo, setGroupInfo] = useState(null)
   const [groupInfoLoading, setGroupInfoLoading] = useState(false)
   const [groupInfoOpen, setGroupInfoOpen] = useState(false)
-  const [activeMember, setActiveMember] = useState(null)   // numero puro selecionado no painel
-  const [savingContact, setSavingContact] = useState(null) // numero que está sendo salvo
-  const [savedContact, setSavedContact] = useState(null)   // numero recém salvo (feedback)
+  const [activeMember, setActiveMember] = useState(null)
+  const [savingContact, setSavingContact] = useState(null)
+  const [savedContact, setSavedContact] = useState(null)
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
+  const [showEmoji, setShowEmoji] = useState(false)
   const bottomRef = useRef(null)
   const chatBodyRef = useRef(null)
   const skipScrollRef = useRef(false)
@@ -136,7 +138,18 @@ export default function CompanyGroups() {
   const recordStartRef = useRef(null)
   const recordTimerRef = useRef(null)
   const fileInputRef = useRef(null)
+  const emojiPickerRef = useRef(null)
   selectedRef.current = selected
+
+  // Fecha emoji picker ao clicar fora
+  useEffect(() => {
+    if (!showEmoji) return
+    function handleOutside(e) {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) setShowEmoji(false)
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [showEmoji])
 
   // Carrega leituras do usuário atual
   useEffect(() => {
@@ -905,7 +918,23 @@ export default function CompanyGroups() {
               )}
 
               {/* Input row */}
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+                {/* Emoji picker popup */}
+                {showEmoji && (
+                  <div ref={emojiPickerRef} style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, zIndex: 9999 }}>
+                    <EmojiPicker
+                      onEmojiClick={({ emoji }) => {
+                        setMsgText(prev => prev + emoji)
+                        setShowEmoji(false)
+                      }}
+                      searchPlaceholder="Buscar emoji..."
+                      skinTonesDisabled
+                      height={380}
+                      width={320}
+                      previewConfig={{ showPreview: false }}
+                    />
+                  </div>
+                )}
                 <input
                   className="nx-input chat-composer-input"
                   style={{ flex: 1 }}
@@ -918,6 +947,19 @@ export default function CompanyGroups() {
                 <input ref={fileInputRef} type="file" accept="image/*,application/pdf,video/*" style={{ display: 'none' }} onChange={handlePickFile} />
                 {!recording && !recordedAudio && !attachedFile && (
                   <>
+                    <button
+                      onClick={() => setShowEmoji(v => !v)}
+                      title="Emojis"
+                      style={{
+                        padding: '0 12px', flexShrink: 0,
+                        background: showEmoji ? '#FEF9C3' : '#fff',
+                        border: `1px solid ${showEmoji ? '#FDE047' : 'var(--border)'}`,
+                        borderRadius: 8, fontSize: 17, lineHeight: 1,
+                        cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+                      }}
+                    >
+                      😊
+                    </button>
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       title="Anexar imagem, PDF ou vídeo"
