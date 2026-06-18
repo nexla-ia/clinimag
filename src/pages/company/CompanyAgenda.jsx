@@ -9,7 +9,7 @@ import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '.
 import {
   Calendar, Plus, X, Pencil, Trash2, ChevronLeft, ChevronRight,
   Clock, User as UserIcon, Phone, ListChecks, CheckCircle2, XCircle, AlertCircle, Settings,
-  MessageSquare, History, Lock, Repeat, FileText
+  MessageSquare, History, Lock, Repeat, FileText, Users
 } from 'lucide-react'
 import './Company.css'
 
@@ -140,6 +140,7 @@ export default function CompanyAgenda() {
   const [appointments, setAppointments] = useState([])
   const [savedContacts, setSavedContacts] = useState([])
   const [chatContacts,  setChatContacts]  = useState([]) // contatos que já conversaram (de mensagens_geral)
+  const [availableGroups, setAvailableGroups] = useState([]) // grupos WhatsApp da instância
   const [professionals, setProfessionals] = useState([])
   const [procedures, setProcedures]   = useState([])
   const [insurancePlans, setInsurancePlans] = useState([])
@@ -168,6 +169,7 @@ export default function CompanyAgenda() {
   const [dragOverSlot, setDragOverSlot] = useState(null)
   const [ctxMenu, setCtxMenu] = useState(null) // { x, y, appt }
   const [confirmDeleteApptDirect, setConfirmDeleteApptDirect] = useState(null)
+  const [recipSearch, setRecipSearch] = useState('')
 
   // Carrega agendas + agendamentos + contatos
   useEffect(() => {
@@ -181,10 +183,12 @@ export default function CompanyAgenda() {
       supabase.from('insurance_plans').select('*').eq('instancia', instance).order('name'),
       supabase.from('procedure_prices').select('*'),
       // Números que já conversaram (mensagens_geral) — pega só os 500 mais recentes
-      // pra não puxar o banco inteiro; dedup vem no JS
       supabase.from('mensagens_geral').select('numero, created_at').eq('instancia', instance)
         .order('created_at', { ascending: false }).limit(500),
-    ]).then(([{ data: ag }, { data: sc }, { data: pros }, { data: procs }, { data: plans }, { data: prices }, { data: mg }]) => {
+      // Grupos da instância
+      supabase.from('mensagens_geral').select('idgrupo, nomegrupo').eq('instancia', instance)
+        .not('idgrupo', 'is', null).order('id', { ascending: false }).limit(10000),
+    ]).then(([{ data: ag }, { data: sc }, { data: pros }, { data: procs }, { data: plans }, { data: prices }, { data: mg }, { data: grps }]) => {
       if (ag) {
         setAgendas(ag)
         if (!selectedAgendaId && ag.length) setSelectedAgendaId(ag[0].id)
@@ -220,6 +224,17 @@ export default function CompanyAgenda() {
           })
         })
         setChatContacts(list)
+      }
+
+      if (grps) {
+        const seenG = new Set()
+        const groupList = []
+        for (const row of grps) {
+          if (!row.idgrupo || seenG.has(row.idgrupo)) continue
+          seenG.add(row.idgrupo)
+          groupList.push({ idgrupo: row.idgrupo, nomegrupo: row.nomegrupo || row.idgrupo.replace('@g.us', '') })
+        }
+        setAvailableGroups(groupList)
       }
 
       setLoading(false)
@@ -344,6 +359,7 @@ export default function CompanyAgenda() {
       agenda_id: selectedAgendaId,
       contact_nome: prefill.nome || '',
       contact_numero: prefill.numero || '',
+      extra_recipients: [],
       date: fmtDateInput(date),
       time: hhmm,
       duration_minutes: ag?.slot_minutes || 30,
@@ -405,6 +421,7 @@ export default function CompanyAgenda() {
     const { dateStr, timeStr } = toClinicTz(a.starts_at, tz)
     setApptModal({
       ...a,
+      extra_recipients: a.extra_recipients || [],
       date: dateStr,
       time: timeStr,
       _prevStatus: a.status,
@@ -526,6 +543,7 @@ export default function CompanyAgenda() {
     payload.professional_id = apptModal.professional_id || null
     payload.procedure_id = apptModal.procedure_id || null
     payload.insurance_plan_id = apptModal.insurance_plan_id || null
+    payload.extra_recipients = apptModal.extra_recipients?.length ? apptModal.extra_recipients : null
     payload.price = parseFloat(apptModal.price) || 0
     payload.payment_status = paymentStatus
     payload.paid_at = paidAt
@@ -1141,7 +1159,7 @@ export default function CompanyAgenda() {
           <div className="nx-card" style={{ width: '100%', maxWidth: 480, maxHeight: '90vh', overflow: 'auto' }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontWeight: 700, fontSize: 15 }}>{apptModal.id ? 'Editar agendamento' : 'Novo agendamento'}</div>
-              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setApptModal(null)}><X size={16} /></button>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => { setApptModal(null); setRecipSearch('') }}><X size={16} /></button>
             </div>
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
@@ -1318,6 +1336,113 @@ export default function CompanyAgenda() {
                   )
                 })()}
               </div>
+
+              {/* ── Destinatários extras (contatos adicionais ou grupos) ── */}
+              {(() => {
+                const extras = apptModal.extra_recipients || []
+                const recipMatches = (() => {
+                  const q = recipSearch.trim().toLowerCase()
+                  if (q.length < 2) return []
+                  const results = []
+                  // Contatos salvos
+                  savedContacts.filter(c => c.nome?.toLowerCase().includes(q)).slice(0, 4).forEach(c => {
+                    const num = normalizeWhatsAppNumber(c.numero)
+                    if (num && !extras.find(e => e.numero === num))
+                      results.push({ label: c.nome, sub: formatPhoneDisplay(num), numero: num })
+                  })
+                  // Grupos
+                  availableGroups.filter(g => g.nomegrupo.toLowerCase().includes(q)).slice(0, 4).forEach(g => {
+                    if (!extras.find(e => e.idgrupo === g.idgrupo))
+                      results.push({ label: g.nomegrupo, sub: g.idgrupo, idgrupo: g.idgrupo, isGroup: true })
+                  })
+                  return results.slice(0, 6)
+                })()
+
+                function addRecip(item) {
+                  setApptModal(p => ({
+                    ...p,
+                    extra_recipients: [...(p.extra_recipients || []), item.idgrupo
+                      ? { nome: item.label, idgrupo: item.idgrupo }
+                      : { nome: item.label, numero: item.numero }
+                    ],
+                  }))
+                  setRecipSearch('')
+                }
+                function removeRecip(idx) {
+                  setApptModal(p => ({ ...p, extra_recipients: p.extra_recipients.filter((_, i) => i !== idx) }))
+                }
+
+                return (
+                  <div>
+                    <label style={labelStyle}>Também notificar (opcional)</label>
+                    {extras.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                        {extras.map((e, i) => (
+                          <span key={i} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            background: e.idgrupo ? '#F5F3FF' : '#EFF6FF',
+                            border: `1px solid ${e.idgrupo ? '#DDD6FE' : '#BFDBFE'}`,
+                            borderRadius: 20, padding: '3px 10px 3px 8px',
+                            fontSize: 12, fontWeight: 600,
+                            color: e.idgrupo ? '#7C3AED' : '#1D4ED8',
+                          }}>
+                            {e.idgrupo ? <Users size={11} /> : <Phone size={11} />}
+                            {e.nome}
+                            <button type="button" onClick={() => removeRecip(i)} style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              padding: 0, display: 'inline-flex', color: 'inherit', opacity: 0.6,
+                            }}><X size={11} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ position: 'relative' }}>
+                      <input className="nx-input" placeholder="Buscar contato ou grupo para adicionar…"
+                        value={recipSearch}
+                        onChange={e => setRecipSearch(e.target.value)}
+                        style={{ fontSize: 12 }}
+                      />
+                      {recipMatches.length > 0 && (
+                        <div style={{
+                          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                          background: '#fff', border: '1px solid var(--border)',
+                          borderRadius: 8, overflow: 'hidden', zIndex: 100,
+                          boxShadow: '0 4px 12px rgba(15,23,42,0.10)',
+                        }}>
+                          {recipMatches.map((item, i) => (
+                            <button key={i} type="button" onClick={() => addRecip(item)} style={{
+                              width: '100%', textAlign: 'left', padding: '8px 10px',
+                              background: 'transparent', border: 'none',
+                              borderBottom: '1px solid #F1F5F9', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                              <span style={{
+                                width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                                background: item.isGroup ? '#EDE9FE' : '#EFF6FF',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                {item.isGroup
+                                  ? <Users size={12} color="#7C3AED" />
+                                  : <Phone size={12} color="#2563EB" />}
+                              </span>
+                              <span style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {item.label}
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.isGroup ? 'Grupo' : item.sub}</div>
+                              </span>
+                              <Plus size={13} color="#6B7280" style={{ flexShrink: 0 }} />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={labelStyle}>Data</label>
