@@ -537,7 +537,7 @@ export default function CompanyGroups() {
       const res = await fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instancia: instance, apikey: apiInstancia, idgrupo: selected.idgrupo }),
+        body: JSON.stringify({ instancia: instance, apikey: apiInstancia, idgrupo: selected.idgrupo, evento: 'mencao' }),
       })
       const data = await res.json()
       setMentionMembers(Array.isArray(data) ? data : [])
