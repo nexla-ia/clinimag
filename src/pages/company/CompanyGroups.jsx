@@ -453,9 +453,26 @@ export default function CompanyGroups() {
           sender_email: session?.user?.email,
           company: session?.company?.name,
           ai_enabled: false,
-          ...(/@\d+/.test(text) ? { evento: 'mencao' } : {}),
         }),
       }).catch(e => console.warn('webhook grupo:', e))
+
+      // Disparo separado para menções
+      if (/@\d+/.test(text)) {
+        fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            evento:    'mencao',
+            instancia: instance,
+            apikey:    apiInstancia,
+            idgrupo:   selected.idgrupo,
+            nomegrupo: selected.nomegrupo || null,
+            mensagem:  text,
+            sender_name:  session?.user?.name,
+            sender_email: session?.user?.email,
+          }),
+        }).catch(e => console.warn('webhook mencao:', e))
+      }
     } finally {
       setSending(false)
     }
