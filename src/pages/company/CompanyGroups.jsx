@@ -647,48 +647,51 @@ export default function CompanyGroups() {
                     <div style={{ padding: '16px', fontSize: 13, color: '#DC2626' }}>{groupInfo.error}</div>
                   )}
                   {!groupInfoLoading && groupInfo && !groupInfo.error && (() => {
-                    // O n8n pode retornar os membros em vários formatos — tenta normalizar
-                    const members = Array.isArray(groupInfo)
-                      ? groupInfo
-                      : Array.isArray(groupInfo.members)
-                        ? groupInfo.members
-                        : Array.isArray(groupInfo.participants)
-                          ? groupInfo.participants
-                          : []
+                    const members = Array.isArray(groupInfo) ? groupInfo : []
                     if (members.length === 0) return (
                       <div style={{ padding: '16px', fontSize: 13, color: 'var(--text-muted)' }}>Nenhum integrante retornado.</div>
                     )
-                    return members.map((m, i) => {
-                      const nome = m.nome || m.name || m.pushName || m.pushname || null
-                      const numero = (m.numero || m.number || m.id || m.jid || '').replace(/@.*$/, '')
-                      const isAdmin = m.admin === true || m.admin === 'admin' || m.admin === 'superadmin' || m.isAdmin
+                    // Admins primeiro
+                    const sorted = [...members].sort((a, b) => {
+                      const aA = !!a.admin; const bA = !!b.admin
+                      return bA - aA
+                    })
+                    return sorted.map((m, i) => {
+                      const numero = (m.phoneNumber || '').replace(/@.*$/, '')
+                      const isAdmin = !!m.admin
+                      const isSuperAdmin = m.admin === 'superadmin'
+                      const initials = numero.slice(-4)
                       return (
                         <div key={i} style={{
                           display: 'flex', alignItems: 'center', gap: 10,
                           padding: '9px 16px', borderBottom: '1px solid #F8FAFC',
                         }}>
                           <div style={{
-                            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                            background: isAdmin ? '#EDE9FE' : '#F1F5F9',
+                            width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                            background: isSuperAdmin ? '#FEF3C7' : isAdmin ? '#EDE9FE' : '#F1F5F9',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 12, fontWeight: 700,
-                            color: isAdmin ? '#7C3AED' : '#6B7280',
+                            fontSize: 11, fontWeight: 700,
+                            color: isSuperAdmin ? '#92400E' : isAdmin ? '#7C3AED' : '#6B7280',
                           }}>
-                            {nome ? nome[0].toUpperCase() : <Phone size={13} />}
+                            <Phone size={13} />
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            {nome && (
-                              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {nome}
-                              </div>
-                            )}
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                              {numero || '—'}
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              +{numero}
                             </div>
                           </div>
-                          {isAdmin && (
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#7C3AED', background: '#EDE9FE', border: '1px solid #DDD6FE', borderRadius: 99, padding: '2px 7px', flexShrink: 0 }}>
-                              Admin
+                          {isAdmin ? (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, borderRadius: 99, padding: '2px 7px', flexShrink: 0,
+                              color: isSuperAdmin ? '#92400E' : '#7C3AED',
+                              background: isSuperAdmin ? '#FEF3C7' : '#EDE9FE',
+                              border: `1px solid ${isSuperAdmin ? '#FDE68A' : '#DDD6FE'}`,
+                            }}>
+                              {isSuperAdmin ? 'Dono' : 'Admin'}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: '#6B7280', background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 99, padding: '2px 7px', flexShrink: 0 }}>
+                              Membro
                             </span>
                           )}
                         </div>
