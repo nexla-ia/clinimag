@@ -106,6 +106,7 @@ export default function AdmCompanyDetail() {
       evolutionUrl: company.evolution_url || '',
       numeroBase: company.numero_base || '',
       timezone: company.timezone || '-03:00',
+      modules: company.modules || {},
     })
     setCompanyErr('')
     setCompanyModal(true)
@@ -140,6 +141,7 @@ export default function AdmCompanyDetail() {
       evolution_url: companyForm.evolutionUrl?.trim().replace(/\/+$/, '') || null,
       numero_base: companyForm.numeroBase?.trim() || null,
       timezone: companyForm.timezone || '-03:00',
+      modules: Object.keys(companyForm.modules || {}).length > 0 ? companyForm.modules : null,
     }
     const { error } = await supabase.from('companies').update(updates).eq('id', company.id)
     setSaving(false)
@@ -667,6 +669,90 @@ export default function AdmCompanyDetail() {
                   </div>
                 </div>
               </div>
+              {/* ─── Módulos personalizados ──────────────────────────── */}
+              {(() => {
+                const MODULES = [
+                  { key: 'conversas',  label: 'Conversas',      desc: 'Chat WhatsApp/atendimento' },
+                  { key: 'instagram',  label: 'Instagram',       desc: 'Atendimento pelo Instagram' },
+                  { key: 'grupos',     label: 'Grupos',          desc: 'Chat de grupos WhatsApp' },
+                  { key: 'contatos',   label: 'Pacientes',       desc: 'Cadastro de contatos/pacientes' },
+                  { key: 'agenda',     label: 'Agenda',          desc: 'Agendamentos e lembretes' },
+                  { key: 'kanban',     label: 'Kanban',          desc: 'Atividades e quadro kanban' },
+                  { key: 'financeiro', label: 'Financeiro',      desc: 'Orçamentos e pagamentos' },
+                  { key: 'catalogo',   label: 'Catálogo Clínico', desc: 'Procedimentos e profissionais' },
+                  { key: 'alertas',    label: 'Alertas',         desc: 'Notificações automáticas' },
+                  { key: 'metricas',   label: 'Métricas',        desc: 'Dashboard de desempenho' },
+                ]
+                const mods = companyForm.modules || {}
+                const allDefault = Object.keys(mods).length === 0
+                const toggle = key => setCompanyForm(p => {
+                  const cur = p.modules || {}
+                  const next = { ...cur, [key]: !cur[key] }
+                  // Remove chaves que são true (padrão) para manter objeto limpo
+                  if (next[key] === true) delete next[key]
+                  return { ...p, modules: next }
+                })
+                return (
+                  <div style={{
+                    background: 'linear-gradient(135deg, #EFF6FF 0%, #F0FDF4 100%)',
+                    border: '1.5px solid #BFDBFE', borderRadius: 10, padding: '14px 16px',
+                    display: 'flex', flexDirection: 'column', gap: 12,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#1E40AF' }}>
+                        Módulos do pacote
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCompanyForm(p => ({ ...p, modules: {} }))}
+                        style={{
+                          fontSize: 11, padding: '3px 10px', borderRadius: 6,
+                          border: '1px solid #BFDBFE', background: '#fff',
+                          color: '#1D4ED8', cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >
+                        {allDefault ? '✓ Todos habilitados' : 'Restaurar padrão'}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#1E40AF', opacity: .7, marginTop: -6 }}>
+                      Desative os módulos que este cliente não tem no pacote contratado.
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {MODULES.map(m => {
+                        const enabled = mods[m.key] !== false
+                        return (
+                          <label key={m.key} style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
+                            border: `1.5px solid ${enabled ? '#86EFAC' : '#FCA5A5'}`,
+                            background: enabled ? '#F0FDF4' : '#FFF1F2',
+                            transition: 'all .15s',
+                          }}>
+                            <div style={{
+                              width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                              border: `2px solid ${enabled ? '#16A34A' : '#DC2626'}`,
+                              background: enabled ? '#16A34A' : 'transparent',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }} onClick={() => toggle(m.key)}>
+                              {enabled && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                            </div>
+                            <div style={{ minWidth: 0 }} onClick={() => toggle(m.key)}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: enabled ? '#15803D' : '#DC2626' }}>
+                                {m.label}
+                              </div>
+                              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>
+                                {m.desc}
+                              </div>
+                            </div>
+                            <input type="checkbox" checked={enabled} onChange={() => toggle(m.key)} style={{ display: 'none' }} />
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
+
               <div>
                 <label style={labelStyle}>URL Digisac <span style={{ fontWeight: 400, textTransform: 'none' }}>(deixe vazio se não usa)</span></label>
                 <input className="nx-input" placeholder="Ex: https://suaempresa.digisac.com.br" value={companyForm.digisacUrl}
