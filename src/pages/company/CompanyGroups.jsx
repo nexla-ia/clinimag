@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell } from 'lucide-react'
+import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import './Company.css'
 
@@ -117,6 +117,9 @@ export default function CompanyGroups() {
   const [contextMenu, setContextMenu] = useState(null) // { x, y, group }
   const [tagFilter, setTagFilter] = useState([])
   const { tagsOf, assignments: tagAssignments } = useContactTags(instance)
+  const [groupInfo, setGroupInfo] = useState(null)   // { members: [...] } retornado pelo webhook
+  const [groupInfoLoading, setGroupInfoLoading] = useState(false)
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false)
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
   const bottomRef = useRef(null)
@@ -175,6 +178,8 @@ export default function CompanyGroups() {
 
   function handleSelectGroup(g) {
     setSelected(g)
+    setGroupInfoOpen(false)
+    setGroupInfo(null)
     if (unreadCounts[g.idgrupo]) {
       setUnreadCounts(prev => { const n = { ...prev }; delete n[g.idgrupo]; return n })
       const now = new Date().toISOString()
@@ -463,6 +468,31 @@ export default function CompanyGroups() {
     setContextMenu({ x: e.clientX, y: e.clientY, group })
   }
 
+  async function fetchGroupInfo() {
+    if (groupInfoLoading || !selected) return
+    setGroupInfoLoading(true)
+    setGroupInfoOpen(true)
+    setGroupInfo(null)
+    try {
+      const res = await fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idgrupo:     selected.idgrupo,
+          nomegrupo:   selected.nomegrupo || groupLabel(selected),
+          instancia:   instance,
+          api_instancia: session?.company?.api_instancia,
+        }),
+      })
+      const data = await res.json()
+      setGroupInfo(data)
+    } catch (e) {
+      setGroupInfo({ error: 'Não foi possível carregar os dados do grupo.' })
+    } finally {
+      setGroupInfoLoading(false)
+    }
+  }
+
   const hasSelected = !!selected
 
   const tagMatch = buildTagFilter(tagFilter, tagAssignments)
@@ -542,7 +572,7 @@ export default function CompanyGroups() {
       </div>
 
       {/* Painel de mensagens */}
-      <div className="chat-panel">
+      <div className="chat-panel" style={{ position: 'relative' }}>
         {!selected ? (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--text-muted)' }}>
             <Users size={40} strokeWidth={1.2} />
@@ -565,14 +595,22 @@ export default function CompanyGroups() {
                 }}>
                   <Users size={17} color="#4F46E5" />
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <button
+                  onClick={fetchGroupInfo}
+                  title="Ver integrantes do grupo"
+                  style={{
+                    minWidth: 0, background: 'none', border: 'none', padding: 0,
+                    cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
                     {groupLabel(selected)}
+                    <ChevronRight size={14} color="#6B7280" style={{ flexShrink: 0 }} />
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    {selected.idgrupo}
+                  <div style={{ fontSize: 11, color: '#2563EB' }}>
+                    Ver integrantes
                   </div>
-                </div>
+                </button>
               </div>
               <TagPicker
                 instancia={instance}
@@ -581,6 +619,96 @@ export default function CompanyGroups() {
                 anchor="bottom-right"
               />
             </div>
+
+            {/* Painel de integrantes do grupo */}
+            {groupInfoOpen && (
+              <div style={{
+                position: 'absolute', top: 0, right: 0, bottom: 0,
+                width: 280, background: '#fff', borderLeft: '1px solid var(--border)',
+                display: 'flex', flexDirection: 'column', zIndex: 20,
+                boxShadow: '-4px 0 16px rgba(15,23,42,0.08)',
+              }}>
+                <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>Integrantes</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{groupLabel(selected)}</div>
+                  </div>
+                  <button onClick={() => setGroupInfoOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
+                    <X size={16} />
+                  </button>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+                  {groupInfoLoading && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '32px 16px', color: 'var(--text-muted)' }}>
+                      <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span style={{ fontSize: 13 }}>Buscando integrantes…</span>
+                    </div>
+                  )}
+                  {!groupInfoLoading && groupInfo?.error && (
+                    <div style={{ padding: '16px', fontSize: 13, color: '#DC2626' }}>{groupInfo.error}</div>
+                  )}
+                  {!groupInfoLoading && groupInfo && !groupInfo.error && (() => {
+                    // O n8n pode retornar os membros em vários formatos — tenta normalizar
+                    const members = Array.isArray(groupInfo)
+                      ? groupInfo
+                      : Array.isArray(groupInfo.members)
+                        ? groupInfo.members
+                        : Array.isArray(groupInfo.participants)
+                          ? groupInfo.participants
+                          : []
+                    if (members.length === 0) return (
+                      <div style={{ padding: '16px', fontSize: 13, color: 'var(--text-muted)' }}>Nenhum integrante retornado.</div>
+                    )
+                    return members.map((m, i) => {
+                      const nome = m.nome || m.name || m.pushName || m.pushname || null
+                      const numero = (m.numero || m.number || m.id || m.jid || '').replace(/@.*$/, '')
+                      const isAdmin = m.admin === true || m.admin === 'admin' || m.admin === 'superadmin' || m.isAdmin
+                      return (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '9px 16px', borderBottom: '1px solid #F8FAFC',
+                        }}>
+                          <div style={{
+                            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                            background: isAdmin ? '#EDE9FE' : '#F1F5F9',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 12, fontWeight: 700,
+                            color: isAdmin ? '#7C3AED' : '#6B7280',
+                          }}>
+                            {nome ? nome[0].toUpperCase() : <Phone size={13} />}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {nome && (
+                              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {nome}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                              {numero || '—'}
+                            </div>
+                          </div>
+                          {isAdmin && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#7C3AED', background: '#EDE9FE', border: '1px solid #DDD6FE', borderRadius: 99, padding: '2px 7px', flexShrink: 0 }}>
+                              Admin
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })
+                  })()}
+                </div>
+                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
+                  <button onClick={fetchGroupInfo} disabled={groupInfoLoading} style={{
+                    width: '100%', padding: '8px', border: '1px solid var(--border)',
+                    borderRadius: 8, background: '#fff', fontSize: 12, fontWeight: 600,
+                    color: 'var(--text-secondary)', cursor: groupInfoLoading ? 'default' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}>
+                    {groupInfoLoading ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Atualizando…</> : '↻ Atualizar lista'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div ref={chatBodyRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 2 }}>
               {!loadingMsgs && hasMoreMsgs && (
