@@ -478,10 +478,9 @@ export default function CompanyGroups() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          idgrupo:     selected.idgrupo,
-          nomegrupo:   selected.nomegrupo || groupLabel(selected),
-          instancia:   instance,
-          api_instancia: session?.company?.api_instancia,
+          instancia: instance,
+          apikey:    apiInstancia,
+          jid:       selected.idgrupo,
         }),
       })
       const data = await res.json()
