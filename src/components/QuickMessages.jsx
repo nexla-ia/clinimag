@@ -86,7 +86,7 @@ export default function QuickMessages({ instancia, onSelect }) {
         <div
           ref={popoverRef}
           style={{
-            position: 'absolute', bottom: 'calc(100% + 8px)', left: 0,
+            position: 'absolute', bottom: 'calc(100% + 8px)', right: 0,
             width: 320, maxHeight: 420, background: '#fff',
             border: '1px solid var(--border)', borderRadius: 12,
             boxShadow: '0 8px 32px rgba(15,23,42,0.13)',
