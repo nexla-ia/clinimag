@@ -1221,6 +1221,45 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
       .slice(0, 8)
   }, [filtered])
 
+  // ── Meta Ads ────────────────────────────────────────────────────────────────
+  const adPagos     = useMemo(() => filtered.filter(l => !!l.ad_click_id), [filtered])
+  const adOrganicos = useMemo(() => filtered.filter(l => !l.ad_click_id), [filtered])
+
+  const adConversaoPagos = adPagos.length
+    ? (leadsWithAppt.filter(l => !!l.ad_click_id && l.appts.length > 0).length / adPagos.length * 100)
+    : 0
+
+  const adTopCampanhas = useMemo(() => {
+    const map = {}
+    adPagos.forEach(l => {
+      const k = l.ad_title || l.ad_headline || '(sem nome)'
+      if (!map[k]) map[k] = { nome: k, total: 0, plataforma: l.ad_platform || '' }
+      map[k].total++
+    })
+    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 5)
+  }, [adPagos])
+
+  const PERIODOS = [
+    { label: 'Madrugada', icon: '🌙', range: [0, 6] },
+    { label: 'Manhã',     icon: '☀️', range: [6, 12] },
+    { label: 'Tarde',     icon: '🌤️', range: [12, 18] },
+    { label: 'Noite',     icon: '🌆', range: [18, 24] },
+  ]
+  const adPorPeriodo = useMemo(() => {
+    return PERIODOS.map(p => {
+      const [h0, h1] = p.range
+      const inRange = l => {
+        const h = new Date(l.created_at).getHours()
+        return h >= h0 && h < h1
+      }
+      return {
+        ...p,
+        pagos: adPagos.filter(inRange).length,
+        organicos: adOrganicos.filter(inRange).length,
+      }
+    })
+  }, [adPagos, adOrganicos])
+
   function fmtAge(ts) {
     const ms = Date.now() - new Date(ts).getTime()
     const hours = Math.floor(ms / 3600000)
@@ -1433,6 +1472,111 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
           )}
         </div>
       </div>
+
+      {/* ── Meta Ads ─────────────────────────────────────────────────────── */}
+      {(adPagos.length > 0 || adOrganicos.length > 0) && (
+        <div style={{ marginTop: 14 }}>
+          {/* header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg,#1877F2,#E1306C)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.17 6.35L14.5 11.5h2l-4 5.5V13h-2l4-5.5v1.85h-1.83z"/></svg>
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>Meta Ads · Pago × Orgânico</div>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94A3B8' }}>{adPagos.length + adOrganicos.length} leads no período</span>
+          </div>
+
+          {/* 3 KPI cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12, marginBottom: 14 }}>
+            {[
+              { label: 'Leads pagos',      value: adPagos.length,     sub: `${totalLeads ? Math.round(adPagos.length/totalLeads*100) : 0}% do total`, color: '#1877F2', bg: '#EFF6FF', border: '#BFDBFE' },
+              { label: 'Leads orgânicos',  value: adOrganicos.length, sub: `${totalLeads ? Math.round(adOrganicos.length/totalLeads*100) : 0}% do total`, color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
+              { label: 'Conversão pago',   value: `${adConversaoPagos.toFixed(0)}%`, sub: 'pagos → agendamento', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
+            ].map(c => (
+              <div key={c.label} className="nx-card" style={{ padding: '14px 16px', border: `1px solid ${c.border}`, background: c.bg }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.value}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: c.color, marginTop: 4 }}>{c.label}</div>
+                <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>{c.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* barra pago × orgânico */}
+          {(adPagos.length + adOrganicos.length) > 0 && (() => {
+            const tot = adPagos.length + adOrganicos.length
+            const pctPago = (adPagos.length / tot * 100).toFixed(1)
+            const pctOrg  = (adOrganicos.length / tot * 100).toFixed(1)
+            return (
+              <div className="nx-card" style={{ padding: '1rem 1.25rem', marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, marginBottom: 6 }}>
+                  <span style={{ color: '#1877F2' }}>⬤ Pago {pctPago}%</span>
+                  <span style={{ color: '#16A34A' }}>Orgânico {pctOrg}% ⬤</span>
+                </div>
+                <div style={{ height: 10, borderRadius: 8, overflow: 'hidden', display: 'flex', background: '#F1F5F9' }}>
+                  <div style={{ width: `${pctPago}%`, background: 'linear-gradient(90deg,#1877F2,#3B9EFF)', transition: 'width 0.4s' }} />
+                  <div style={{ flex: 1, background: 'linear-gradient(90deg,#22C55E,#16A34A)', transition: 'width 0.4s' }} />
+                </div>
+              </div>
+            )
+          })()}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* Top campanhas */}
+            <div className="nx-card" style={{ padding: '1.25rem' }}>
+              <SectionTitle icon={BarChart2} text="Top campanhas · criativo" right={`${adTopCampanhas.length} campanhas`} />
+              {adTopCampanhas.length === 0 ? <Empty /> : adTopCampanhas.map((c, i) => {
+                const maxC = adTopCampanhas[0].total
+                const colors = ['#1877F2','#3B82F6','#60A5FA','#93C5FD','#BFDBFE']
+                return (
+                  <div key={c.nome} style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600, color: '#0F172A', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>
+                        <span style={{ fontSize: 10, color: '#94A3B8', marginRight: 4 }}>#{i+1}</span>{c.nome}
+                      </span>
+                      <span style={{ fontWeight: 700, color: colors[i], flexShrink: 0 }}>{c.total}</span>
+                    </div>
+                    <div style={{ height: 6, background: '#F1F5F9', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${(c.total/maxC)*100}%`, background: colors[i], borderRadius: 10, transition: 'width 0.3s' }} />
+                    </div>
+                    {c.plataforma && (
+                      <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>{c.plataforma}</div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Quando os leads chegam */}
+            <div className="nx-card" style={{ padding: '1.25rem' }}>
+              <SectionTitle icon={BarChart2} text="Quando os leads chegam" right="pago × orgânico" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {adPorPeriodo.map(p => {
+                  const tot = p.pagos + p.organicos
+                  const pctPago = tot ? Math.round(p.pagos / tot * 100) : 0
+                  return (
+                    <div key={p.label} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 13, marginBottom: 2 }}>{p.icon} <span style={{ fontWeight: 700, color: '#0F172A', fontSize: 12 }}>{p.label}</span></div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: '#0F172A', lineHeight: 1.1 }}>{tot}</div>
+                      <div style={{ fontSize: 10, color: '#64748B', marginTop: 4 }}>leads no período</div>
+                      {tot > 0 && (
+                        <div style={{ marginTop: 6 }}>
+                          <div style={{ height: 5, borderRadius: 6, overflow: 'hidden', display: 'flex', background: '#E2E8F0' }}>
+                            <div style={{ width: `${pctPago}%`, background: '#1877F2', transition: 'width 0.3s' }} />
+                            <div style={{ flex: 1, background: '#22C55E' }} />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, marginTop: 3, color: '#94A3B8', fontWeight: 600 }}>
+                            <span style={{ color: '#1877F2' }}>{p.pagos} pago</span>
+                            <span style={{ color: '#16A34A' }}>{p.organicos} org.</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
