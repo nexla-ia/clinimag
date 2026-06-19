@@ -220,6 +220,8 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   const [professionals, setProfessionals] = useState([])
   const [procedures, setProcedures]     = useState([])
   const [insurancePlans, setInsurancePlans] = useState([])
+  const [finTx, setFinTx]               = useState([])
+  const [finCats, setFinCats]           = useState([])
 
   async function load() {
     if (!instance) return
@@ -238,6 +240,9 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       supabase.from('professionals').select('*').eq('instancia', instance),
       supabase.from('procedures').select('*').eq('instancia', instance),
       supabase.from('insurance_plans').select('*').eq('instancia', instance),
+      supabase.from('financial_transactions').select('id,tipo,valor,status,categoria_id,vencimento,descricao,contact_nome,forma_pagamento').eq('instancia', instance)
+        .gte('vencimento', `${new Date().getFullYear()-1}-01-01`).lte('vencimento', `${new Date().getFullYear()+1}-12-31`),
+      supabase.from('financial_categories').select('id,nome,tipo,cor').in('instancia', [instance, '_default_']),
     ]
     if (contactsTable) queries.push(supabase.from(contactsTable).select('*').eq('instancia', instance))
 
@@ -256,7 +261,9 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     setProfessionals(results[10].data || [])
     setProcedures(results[11].data || [])
     setInsurancePlans(results[12].data || [])
-    const leadsData = contactsTable ? (results[13].data || []) : []
+    setFinTx(results[13].data || [])
+    setFinCats(results[14].data || [])
+    const leadsData = contactsTable ? (results[15].data || []) : []
     setLeads(leadsData)
     setLastRefresh(new Date())
     setLoading(false)
@@ -401,7 +408,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       {tab === 'atendimento' && <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />}
       {tab === 'equipe'      && <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />}
       {tab === 'agenda'      && <AgendaTab      {...{ appts, range, period, loading }} />}
-      {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, range, period, loading }} />}
+      {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />}
       {tab === 'leads'       && <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />}
       {tab === 'atividades'  && <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />}
 
@@ -980,7 +987,16 @@ function FinTooltip({ active, payload, label }) {
   )
 }
 
-function FinanceiroTab({ appts, professionals, procedures, insurancePlans, range, period, loading }) {
+function addMonthsFin(cmStr, n) {
+  const [y,m] = cmStr.split('-').map(Number)
+  const d = new Date(y, m-1+n, 1)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+}
+const MON_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+function monthLblFin(s) { return MON_PT[+s.split('-')[1]-1] }
+function cmStrFin() { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
+
+function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }) {
   const { from, to } = range
   const inRange = appts.filter(a => inPeriod(a.starts_at, from, to))
 
@@ -1168,6 +1184,145 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, range
           </div>
         )}
       </div>
+
+      {/* ── Módulo Financeiro (financial_transactions) ── */}
+      {finTx.length > 0 && (() => {
+        const todayStr = new Date().toISOString().slice(0, 10)
+        const cm = cmStrFin()
+        const catMap = {}; finCats.forEach(c => { catMap[c.id] = c })
+
+        // Filtra lançamentos pelo período selecionado (ou tudo se 'todos')
+        const txPeriod = finTx.filter(t => {
+          if (!from && !to) return true
+          const v = t.vencimento || ''
+          return v >= (from ? from.toISOString().slice(0,10) : '0') && v <= (to ? to.toISOString().slice(0,10) : '9')
+        })
+
+        const recPagas  = txPeriod.filter(t => t.tipo==='receita' && t.status==='pago').reduce((s,t)=>s+parseFloat(t.valor||0),0)
+        const despPagas = txPeriod.filter(t => t.tipo==='despesa' && t.status==='pago').reduce((s,t)=>s+parseFloat(t.valor||0),0)
+        const recPend   = txPeriod.filter(t => t.tipo==='receita' && t.status==='pendente').reduce((s,t)=>s+parseFloat(t.valor||0),0)
+        const despPend  = txPeriod.filter(t => t.tipo==='despesa' && t.status==='pendente').reduce((s,t)=>s+parseFloat(t.valor||0),0)
+        const saldo     = recPagas - despPagas
+        const inadimpl  = finTx.filter(t => t.tipo==='receita' && t.status==='pendente' && (t.vencimento||'') < todayStr).reduce((s,t)=>s+parseFloat(t.valor||0),0)
+
+        // Últimos 6 meses (financial_transactions)
+        const months6 = Array.from({length:6},(_,i)=>{
+          const m = addMonthsFin(cm, i-5)
+          const tx = finTx.filter(t => (t.vencimento||'').startsWith(m) && t.status!=='cancelado')
+          let rec=0,desp=0,recR=0,despR=0
+          tx.forEach(t=>{const v=parseFloat(t.valor||0);if(t.tipo==='receita'){rec+=v;if(t.status==='pago')recR+=v}else{desp+=v;if(t.status==='pago')despR+=v}})
+          return {month: monthLblFin(m), rec, desp, recR, despR, saldo:recR-despR, isCurrent: m===cm}
+        })
+        const hasMonthData = months6.some(m=>m.rec>0||m.desp>0)
+
+        // Top categorias de receita no período
+        const byCatRec = {}
+        txPeriod.filter(t=>t.tipo==='receita'&&t.status!=='cancelado').forEach(t=>{
+          const k=t.categoria_id||'__sem__'
+          if(!byCatRec[k]) byCatRec[k]={nome:catMap[k]?.nome||'Sem categoria',cor:catMap[k]?.cor||'#059669',val:0}
+          byCatRec[k].val+=parseFloat(t.valor||0)
+        })
+        const catRec = Object.values(byCatRec).sort((a,b)=>b.val-a.val).slice(0,5)
+        const maxCat = Math.max(1,...catRec.map(c=>c.val))
+
+        // Top categorias de despesa
+        const byCatDesp = {}
+        txPeriod.filter(t=>t.tipo==='despesa'&&t.status!=='cancelado').forEach(t=>{
+          const k=t.categoria_id||'__sem__'
+          if(!byCatDesp[k]) byCatDesp[k]={nome:catMap[k]?.nome||'Sem categoria',cor:catMap[k]?.cor||'#E11D48',val:0}
+          byCatDesp[k].val+=parseFloat(t.valor||0)
+        })
+        const catDesp = Object.values(byCatDesp).sort((a,b)=>b.val-a.val).slice(0,5)
+        const maxCatD = Math.max(1,...catDesp.map(c=>c.val))
+
+        return (
+          <div style={{ marginTop: 20 }}>
+            {/* Separador */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+              <div style={{flex:1, height:1, background:'#E2E8F0'}} />
+              <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 12px',background:'#0F172A',borderRadius:20}}>
+                <DollarSign size={11} color="#fff"/>
+                <span style={{fontSize:10,fontWeight:700,color:'#fff',letterSpacing:'0.08em',textTransform:'uppercase'}}>Módulo Financeiro · lançamentos</span>
+              </div>
+              <div style={{flex:1, height:1, background:'#E2E8F0'}} />
+            </div>
+
+            {/* KPIs financeiros */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(165px,1fr))',gap:12,marginBottom:14}}>
+              {[
+                {label:'Receita recebida',value:recPagas,  color:'#059669',bg:'#ECFDF5',icon:TrendingUp},
+                {label:'Despesa paga',    value:despPagas, color:'#E11D48',bg:'#FFF1F2',icon:TrendingUp},
+                {label:'Saldo do período',value:saldo,     color:saldo>=0?'#2563EB':'#E11D48',bg:saldo>=0?'#EFF6FF':'#FFF1F2',icon:DollarSign},
+                {label:'A receber',       value:recPend,   color:'#0891B2',bg:'#ECFEFF',icon:Clock},
+                {label:'A pagar',         value:despPend,  color:'#D97706',bg:'#FFFBEB',icon:Clock},
+                {label:'Inadimplência',   value:inadimpl,  color:'#DC2626',bg:'#FEF2F2',icon:AlertCircle},
+              ].map(k=>(
+                <div key={k.label} className="nx-card" style={{padding:'12px 14px',display:'flex',alignItems:'flex-start',gap:10,borderLeft:`3px solid ${k.color}`}}>
+                  <div style={{width:30,height:30,borderRadius:8,background:k.bg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                    <k.icon size={14} color={k.color}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9.5,fontWeight:700,color:'#94A3B8',textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:3}}>{k.label}</div>
+                    <div style={{fontSize:15,fontWeight:800,color:k.color,lineHeight:1}}>{fmtMoney(k.value)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Trend 6 meses + categorias */}
+            <div style={{display:'grid',gridTemplateColumns:'1.2fr 0.8fr 0.8fr',gap:14}}>
+              {/* Bar chart 6 meses */}
+              <div className="nx-card" style={{padding:'1.25rem'}}>
+                <SectionTitle icon={BarChart2} text="Receita × Despesa · 6 meses" right="lançamentos" />
+                {!hasMonthData ? <Empty /> : (
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={months6} margin={{top:4,right:4,left:-20,bottom:0}} barGap={2} barCategoryGap="35%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false}/>
+                      <XAxis dataKey="month" tick={{fontSize:9,fill:'#94A3B8'}} axisLine={false} tickLine={false}/>
+                      <YAxis tick={{fontSize:9,fill:'#94A3B8'}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}k`:v} width={36}/>
+                      <ReTooltip content={<FinTooltip />}/>
+                      <Bar dataKey="recR"  name="Receita"  fill="#059669" radius={[3,3,0,0]}/>
+                      <Bar dataKey="despR" name="Despesa"  fill="#E11D48" radius={[3,3,0,0]}/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Categorias receita */}
+              <div className="nx-card" style={{padding:'1.25rem'}}>
+                <SectionTitle icon={TrendingUp} text="Receitas por categoria" right={periodLabel(period)}/>
+                {catRec.length===0 ? <Empty/> : catRec.map((c,i)=>(
+                  <div key={i} style={{marginBottom:9}}>
+                    <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:3}}>
+                      <span style={{fontWeight:600,color:'#0F172A',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100}}>{c.nome}</span>
+                      <span style={{fontWeight:700,color:c.cor,flexShrink:0,marginLeft:6}}>{fmtMoney(c.val)}</span>
+                    </div>
+                    <div style={{height:5,background:'#F1F5F9',borderRadius:6,overflow:'hidden'}}>
+                      <div style={{height:'100%',width:`${(c.val/maxCat)*100}%`,background:c.cor,borderRadius:6,transition:'width 0.4s'}}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Categorias despesa */}
+              <div className="nx-card" style={{padding:'1.25rem'}}>
+                <SectionTitle icon={XCircle} text="Despesas por categoria" right={periodLabel(period)}/>
+                {catDesp.length===0 ? <Empty/> : catDesp.map((c,i)=>(
+                  <div key={i} style={{marginBottom:9}}>
+                    <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:3}}>
+                      <span style={{fontWeight:600,color:'#0F172A',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100}}>{c.nome}</span>
+                      <span style={{fontWeight:700,color:c.cor,flexShrink:0,marginLeft:6}}>{fmtMoney(c.val)}</span>
+                    </div>
+                    <div style={{height:5,background:'#F1F5F9',borderRadius:6,overflow:'hidden'}}>
+                      <div style={{height:'100%',width:`${(c.val/maxCatD)*100}%`,background:c.cor,borderRadius:6,transition:'width 0.4s'}}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
