@@ -871,7 +871,6 @@ export default function CompanyCRM() {
         const c = contacts.find(x => x.id === panel.id) || panel
         const stage = stages.find(s => s.id === c.stage_id)
         const temp = TEMP[c.temperatura] || TEMP.frio
-        const [tagInput, setTagInput] = [useRef(''), null]
 
         return (
           <div style={{
