@@ -34,10 +34,10 @@ CREATE TABLE IF NOT EXISTS public.financial_transactions (
   parcela_atual   integer     DEFAULT 1,
   total_parcelas  integer     DEFAULT 1,
   grupo_parcelas  uuid,                          -- UUID compartilhado entre parcelas do mesmo lançamento
-  contact_id      uuid        REFERENCES public.saved_contacts(id) ON DELETE SET NULL,
+  contact_id      uuid,
   contact_nome    text,
-  appointment_id  uuid        REFERENCES public.appointments(id) ON DELETE SET NULL,
-  orcamento_id    uuid        REFERENCES public.orcamentos(id) ON DELETE SET NULL,
+  appointment_id  uuid,
+  orcamento_id    uuid,
   centro_custo    text,
   observacoes     text,
   created_by      text,
