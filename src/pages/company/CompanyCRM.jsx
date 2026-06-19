@@ -397,15 +397,6 @@ export default function CompanyCRM() {
     setPanelNote('')
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
-  if (loading) return (
-    <div style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'60vh',gap:10,color:C.muted }}>
-      <Loader2 size={20} style={{ animation:'spin 1s linear infinite' }} />
-      <span style={{ fontSize:14 }}>Carregando CRM...</span>
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-    </div>
-  )
-
   async function saveList() {
     if (!listModal?.nome?.trim()) return
     setSavingList(true)
@@ -459,6 +450,15 @@ export default function CompanyCRM() {
   const totalLeads = filteredContacts.length
   const quentes    = filteredContacts.filter(c => c.temperatura === 'quente').length
   const staleCount = staleLeads.length
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'60vh',gap:10,color:C.muted }}>
+      <Loader2 size={20} style={{ animation:'spin 1s linear infinite' }} />
+      <span style={{ fontSize:14 }}>Carregando CRM...</span>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
 
   return (
     <div style={{ height:'calc(100vh - 64px)', display:'flex', flexDirection:'column', overflow:'hidden', background: C.bg, fontFamily:'"Inter",system-ui,sans-serif' }}>
