@@ -29,7 +29,7 @@ DECLARE
   v_stage_pos integer;
   v_cur_pos   integer;
 BEGIN
-  v_phone := regexp_replace(COALESCE(NEW.patient_phone,''), '[^0-9]', '', 'g');
+  v_phone := regexp_replace(COALESCE(NEW.contact_numero,''), '[^0-9]', '', 'g');
   IF v_phone = '' THEN RETURN NEW; END IF;
 
   SELECT * INTO v_contact
