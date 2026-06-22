@@ -323,6 +323,70 @@ export default function CompanyPatientDetail() {
     const updates = { status: newStatus, ...(newStatus === 'aprovado' ? { approved_at: new Date().toISOString() } : {}) }
     await supabase.from('orcamentos').update(updates).eq('id', orcId)
     setOrcamentos(prev => prev.map(o => o.id === orcId ? { ...o, ...updates } : o))
+
+    // Ao aprovar: gera lançamentos no financeiro (a receber) se ainda não existirem
+    if (newStatus === 'aprovado') {
+      const { count } = await supabase.from('financial_transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('orcamento_id', orcId)
+      if (count > 0) return // já foi gerado anteriormente
+
+      const orc = orcamentos.find(o => o.id === orcId)
+      if (!orc) return
+      const items = orc.orcamento_items || []
+      const subtotal = items.reduce((s, it) => s + Number(it.valor || 0), 0)
+      const desconto = Number(orc.desconto || 0)
+      const total = subtotal - desconto
+      const entrada = Number(orc.entrada || 0)
+      const nParcelas = Math.max(1, Number(orc.parcelas || 1))
+      const valorParcela = (total - entrada) / nParcelas
+      const grupoId = crypto.randomUUID()
+      const today = new Date()
+      const isoDate = (d) => d.toISOString().split('T')[0]
+      const procedDesc = items.map(it => it.procedimento).filter(Boolean).join(', ') || 'Orçamento aprovado'
+      const patNome = patient?.nome || patient?.numero || null
+
+      const rows = []
+
+      if (entrada > 0) {
+        rows.push({
+          instancia: instance, tipo: 'receita',
+          descricao: `Entrada — ${procedDesc}`,
+          valor: entrada, status: 'pendente',
+          vencimento: isoDate(today),
+          parcela_atual: 0, total_parcelas: nParcelas,
+          grupo_parcelas: grupoId,
+          contact_id: orc.contact_id, contact_nome: patNome,
+          orcamento_id: orcId,
+          created_by: session?.user?.name || session?.user?.email || null,
+        })
+      }
+
+      for (let i = 0; i < nParcelas; i++) {
+        const venc = new Date(today)
+        venc.setMonth(venc.getMonth() + i + (entrada > 0 ? 1 : 0))
+        rows.push({
+          instancia: instance, tipo: 'receita',
+          descricao: nParcelas > 1
+            ? `${procedDesc} (${i + 1}/${nParcelas})`
+            : procedDesc,
+          valor: valorParcela, status: 'pendente',
+          vencimento: isoDate(venc),
+          parcela_atual: i + 1, total_parcelas: nParcelas,
+          grupo_parcelas: grupoId,
+          contact_id: orc.contact_id, contact_nome: patNome,
+          orcamento_id: orcId,
+          created_by: session?.user?.name || session?.user?.email || null,
+        })
+      }
+
+      if (rows.length > 0) {
+        const { error } = await supabase.from('financial_transactions').insert(rows)
+        if (!error) {
+          alert(`✅ ${rows.length} lançamento(s) criado(s) no Financeiro como "a receber".`)
+        }
+      }
+    }
   }
 
   function startEdit() {
