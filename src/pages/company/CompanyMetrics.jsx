@@ -1665,7 +1665,7 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
                         <span style={{ color: '#94A3B8', fontSize: 11 }}>{phone}</span>
                         <span style={{ color: '#94A3B8', fontSize: 11 }}>{dias}d</span>
                         {l.hasAppt && <span style={{ fontSize: 10, fontWeight: 700, background: '#F0FDF4', color: '#16A34A', borderRadius: 4, padding: '2px 6px' }}>Agendou</span>}
-                        <button onClick={e => { e.stopPropagation(); navigate('/painel/conversas?numero=' + phone) }}
+                        <button onClick={e => { e.stopPropagation(); navigate('/painel/conversas?contact=' + phone) }}
                           style={{ fontSize: 11, fontWeight: 600, background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>
                           Ver conversa →
                         </button>
