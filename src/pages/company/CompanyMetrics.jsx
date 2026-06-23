@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import LimitReachedModal from '../../components/LimitReachedModal'
@@ -1334,6 +1335,8 @@ function cleanPhone(p) {
 
 function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable }) {
   const { from, to } = range
+  const navigate = useNavigate()
+  const [drillOrigin, setDrillOrigin] = useState(null)
   if (!contactsTable) {
     return <div className="nx-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Tabela de contatos não configurada.</div>
   }
@@ -1351,22 +1354,37 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
     return map
   }, [appts])
 
+  // Detecta agendamento por palavras-chave nas mensagens enviadas pelo sistema/IA
+  const msgApptPhones = useMemo(() => {
+    const KEYWORDS = /agendad[oa]|agendamento\s+confirm|hor[aá]rio\s+(foi\s+)?(marcad|confirm|agendad)|seu\s+hor[aá]rio|consulta\s+agendad/i
+    const s = new Set()
+    msgs.forEach(m => {
+      const t = (m.type || '').toLowerCase()
+      if (t !== 'ia' && t !== 'humano' && t !== 'bot') return
+      if (KEYWORDS.test(m.mensagem || '')) {
+        s.add(cleanPhone(m.numero))
+      }
+    })
+    return s
+  }, [msgs])
+
   // Index leads → appointments
   const leadsWithAppt = useMemo(() => {
     return filtered.map(l => {
       const phone = cleanPhone(l.numero)
       const myAppts = apptsByPhone[phone] || []
+      const hasAppt = myAppts.length > 0 || msgApptPhones.has(phone)
       const concluded = myAppts.filter(a => a.status === 'concluido')
       const revenue = concluded.reduce((s, a) => s + Number(a.price || 0), 0)
-      return { ...l, appts: myAppts, concluded: concluded.length, revenue }
+      return { ...l, appts: myAppts, hasAppt, concluded: concluded.length, revenue }
     })
-  }, [filtered, apptsByPhone])
+  }, [filtered, apptsByPhone, msgApptPhones])
 
   const totalLeads    = filtered.length
   const comContato    = filtered.filter(l => l.primeiro_contato === 'sim').length
   const semResposta   = filtered.filter(l => l.primeiro_contato === 'sim' && !l.ultima_mensagem).length
   const comUltimaMsg  = filtered.filter(l => !!l.ultima_mensagem).length
-  const agendaram     = leadsWithAppt.filter(l => l.appts.length > 0).length
+  const agendaram     = leadsWithAppt.filter(l => l.hasAppt).length
   const concluiram    = leadsWithAppt.filter(l => l.concluded > 0).length
   const receitaTotal  = leadsWithAppt.reduce((s, l) => s + l.revenue, 0)
   const conversao     = totalLeads ? (agendaram / totalLeads * 100) : 0
@@ -1401,7 +1419,7 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
       const k = normalizeOrigem(l.origem)
       if (!map[k]) map[k] = { name: k, total: 0, agendaram: 0, concluidas: 0, receita: 0 }
       map[k].total++
-      if (l.appts.length > 0) map[k].agendaram++
+      if (l.hasAppt) map[k].agendaram++
       map[k].concluidas += l.concluded
       map[k].receita += l.revenue
     })
@@ -1459,7 +1477,7 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
   const adOrganicos = useMemo(() => filtered.filter(l => !l.ad_click_id), [filtered])
 
   const adConversaoPagos = adPagos.length
-    ? (leadsWithAppt.filter(l => !!l.ad_click_id && l.appts.length > 0).length / adPagos.length * 100)
+    ? (leadsWithAppt.filter(l => !!l.ad_click_id && l.hasAppt).length / adPagos.length * 100)
     : 0
 
   const adTopCampanhas = useMemo(() => {
@@ -1608,8 +1626,9 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
             {origens.map((o, i) => {
               const conv = o.total ? (o.agendaram / o.total * 100) : 0
               const color = ORIGEM_COLORS[i % ORIGEM_COLORS.length]
+              const isSelected = drillOrigin === o.name
               return (
-                <div key={o.name} style={{ display: 'grid', gridTemplateColumns: '1.5fr 80px 100px 100px 120px 1fr', gap: 8, padding: '10px 12px', alignItems: 'center', borderBottom: '1px solid #F8FAFC', fontSize: 12.5 }}>
+                <div key={o.name} onClick={() => setDrillOrigin(isSelected ? null : o.name)} style={{ display: 'grid', gridTemplateColumns: '1.5fr 80px 100px 100px 120px 1fr', gap: 8, padding: '10px 12px', alignItems: 'center', borderBottom: '1px solid #F8FAFC', fontSize: 12.5, cursor: 'pointer', background: isSelected ? '#EFF6FF' : undefined, transition: 'background 0.15s' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
                     {o.name}
@@ -1630,6 +1649,32 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
                 </div>
               )
             })}
+            {drillOrigin && (() => {
+              const drillLeads = leadsWithAppt.filter(l => normalizeOrigem(l.origem) === drillOrigin)
+              return (
+                <div style={{ marginTop: 12, borderTop: '1px solid #F1F5F9', paddingTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#64748B', marginBottom: 8 }}>
+                    {drillOrigin} — {drillLeads.length} leads
+                  </div>
+                  {drillLeads.map(l => {
+                    const phone = cleanPhone(l.numero)
+                    const dias = Math.floor((Date.now() - new Date(l.created_at)) / 86400000)
+                    return (
+                      <div key={l.id || l.numero} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid #F8FAFC', fontSize: 12 }}>
+                        <span style={{ flex: 1, fontWeight: 600 }}>{l.nome || phone}</span>
+                        <span style={{ color: '#94A3B8', fontSize: 11 }}>{phone}</span>
+                        <span style={{ color: '#94A3B8', fontSize: 11 }}>{dias}d</span>
+                        {l.hasAppt && <span style={{ fontSize: 10, fontWeight: 700, background: '#F0FDF4', color: '#16A34A', borderRadius: 4, padding: '2px 6px' }}>Agendou</span>}
+                        <button onClick={e => { e.stopPropagation(); navigate('/painel/conversas?numero=' + phone) }}
+                          style={{ fontSize: 11, fontWeight: 600, background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>
+                          Ver conversa →
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
