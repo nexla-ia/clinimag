@@ -38,11 +38,20 @@ VALUES (
 ) ON CONFLICT (id) DO NOTHING;
 
 -- Política de storage: acesso público para leitura, qualquer um pode fazer upload (auth via DB)
-CREATE POLICY IF NOT EXISTS "prontuario_public_read"
-  ON storage.objects FOR SELECT USING (bucket_id = 'prontuario');
+DO $$ BEGIN
+  CREATE POLICY "prontuario_public_read"
+    ON storage.objects FOR SELECT USING (bucket_id = 'prontuario');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY IF NOT EXISTS "prontuario_upload"
-  ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'prontuario');
+DO $$ BEGIN
+  CREATE POLICY "prontuario_upload"
+    ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'prontuario');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY IF NOT EXISTS "prontuario_delete"
-  ON storage.objects FOR DELETE USING (bucket_id = 'prontuario');
+DO $$ BEGIN
+  CREATE POLICY "prontuario_delete"
+    ON storage.objects FOR DELETE USING (bucket_id = 'prontuario');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
