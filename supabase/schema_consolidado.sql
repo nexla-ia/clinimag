@@ -1,5 +1,5 @@
 -- ==============================================================
--- CLINISAC — Schema Consolidado
+-- MED MAG — Schema Consolidado
 -- Gerado em: 2026-06-23
 -- Para usar: Cole tudo no Supabase SQL Editor de um projeto novo
 -- ==============================================================
@@ -4099,7 +4099,7 @@ BEGIN
       'api_instancia', r.api_instancia,
       'company',       r.company_name,
       'sender_name',   'Sistema (Lembrete automático)',
-      'sender_email',  'sistema@clinisac'
+      'sender_email',  'sistema@medmag'
     );
 
     BEGIN
@@ -4142,7 +4142,7 @@ UPDATE public.mensagens_geral
 -- Migration: Cleanup de segurança e schema
 --
 -- 1. Dropa 5 tabelas legadas n8n_chat_histories_* (lixo do banco antigo,
---    não usadas pelo Clinisac).
+--    não usadas pelo Med Mag).
 -- 2. Habilita RLS em public.mensagens com policy permissive (mesmo padrão
 --    do resto do schema — segurança via anon key + custom auth).
 -- 3. Remove índice duplicado companies_instance_unique (redundante com
@@ -4375,7 +4375,7 @@ BEGIN
       'api_instancia', r.api_instancia,
       'company',       r.company_name,
       'sender_name',   'Sistema (Lembrete automático)',
-      'sender_email',  'sistema@clinisac'
+      'sender_email',  'sistema@medmag'
     );
 
     BEGIN
@@ -4918,7 +4918,7 @@ BEGIN
       'api_instancia', r.api_instancia,
       'company',       r.company_name,
       'sender_name',   'Sistema (Lembrete automático)',
-      'sender_email',  'sistema@clinisac'
+      'sender_email',  'sistema@medmag'
     );
 
     BEGIN
@@ -4964,7 +4964,7 @@ BEGIN
         'api_instancia', r.api_instancia,
         'company',       r.company_name,
         'sender_name',   'Sistema (Lembrete automático)',
-        'sender_email',  'sistema@clinisac',
+        'sender_email',  'sistema@medmag',
         'ai_enabled',    false
       );
 
@@ -5072,7 +5072,7 @@ BEGIN
       'message', msg, 'session_id', session_id, 'phone', r.contact_numero,
       'instancia', r.instancia, 'api_instancia', r.api_instancia,
       'company', r.company_name,
-      'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@clinisac'
+      'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@medmag'
     );
     BEGIN
       PERFORM net.http_post(
@@ -5104,7 +5104,7 @@ BEGIN
         'idgrupo', r.reminder_group_id,
         'instancia', r.instancia, 'api_instancia', r.api_instancia,
         'company', r.company_name,
-        'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@clinisac',
+        'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@medmag',
         'ai_enabled', false
       );
       BEGIN
@@ -5144,7 +5144,7 @@ BEGIN
           'session_id', recip_idgrupo, 'number', recip_idgrupo, 'idgrupo', recip_idgrupo,
           'instancia', r.instancia, 'api_instancia', r.api_instancia,
           'company', r.company_name,
-          'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@clinisac',
+          'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@medmag',
           'ai_enabled', false
         );
 
@@ -5171,7 +5171,7 @@ BEGIN
           'message', recip_msg, 'session_id', session_id, 'phone', recip_numero,
           'instancia', r.instancia, 'api_instancia', r.api_instancia,
           'company', r.company_name,
-          'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@clinisac'
+          'sender_name', 'Sistema (Lembrete automático)', 'sender_email', 'sistema@medmag'
         );
       ELSE
         CONTINUE;

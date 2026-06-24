@@ -5,18 +5,6 @@
 export const UPDATES = [
   {
     date: '2026-05-12',
-    title: 'Nova identidade — Med Mag com cara nova e tagline oficial',
-    type: 'improvement',
-    tags: ['Marca'],
-    items: [
-      'Trocamos o logo monograma cobre pelo símbolo novo: bolha de conversa branca dentro de um círculo com gradient verde → violeta → azul, com uma linha de pulso azul cortando — representa SAC + saúde + inteligência num só lugar.',
-      'O "Sac" do nome agora aparece em azul sempre que escrevemos "Med Mag" — fica fácil pra quem vê de longe identificar nossa marca.',
-      'Slogan oficial: "O SAC inteligente da sua clínica". Vocês vão ver essa frase aparecendo na landing, no login, em cantinhos discretos da plataforma — lembrando o porquê de tudo isso existir.',
-      'Favicon, splash, painel, e-mails: tudo no símbolo novo. Quando vocês adicionarem o atalho da plataforma no celular, o ícone aparece bonitinho na tela inicial.',
-    ],
-  },
-  {
-    date: '2026-05-12',
     title: 'Lembretes automáticos de agendamento — WhatsApp avisa o paciente sozinho',
     type: 'feature',
     tags: ['Agenda', 'WhatsApp', 'Automação'],
@@ -246,17 +234,6 @@ export const UPDATES = [
   },
   {
     date: '2026-04-28',
-    title: 'A nossa cara nova chegou',
-    type: 'improvement',
-    tags: ['Marca'],
-    items: [
-      'Vocês reparam que o logo MM em cobre apareceu por todos os cantos? Sim, é a nossa identidade oficial agora — pensamos numa cara mais sóbria, sem perder a vivacidade do produto.',
-      'A frase "O SAC inteligente da sua clínica" virou nossa tagline oficial. Vocês vão ver ela aparecendo em pontos discretos, lembrando o porquê de tudo isso existir.',
-      'O nome "Med Mag" continua o mesmo — só ficou mais bonito em cima do monograma novo.',
-    ],
-  },
-  {
-    date: '2026-04-28',
     title: 'Mais coisas chegando — Instagram, IA criativa e análise de laudos',
     type: 'feature',
     tags: ['Em breve'],
@@ -265,18 +242,6 @@ export const UPDATES = [
       'A IA também vai virar criadora de conteúdo: ela escreve legenda, sugere imagem e agenda os posts da clínica de vocês.',
       'E para a parte clínica de verdade: vocês recebem o laudo no chat, a IA lê, resume e prepara a triagem para o médico. Economia real de tempo da equipe.',
       'Tudo isso vai aparecendo aos poucos, com o badge "Em breve" no menu. Quem quiser entrar na waitlist do Instagram já pode pela aba dele.',
-    ],
-  },
-  {
-    date: '2026-04-28',
-    title: 'Página inicial nova para mostrar o produto pro mundo',
-    type: 'feature',
-    tags: ['Marketing'],
-    items: [
-      'Repaginamos a página inicial (clinisacatendimento.com) para vocês compartilharem com confiança. Tipografia nova, cores vivas, mais espaço para o produto respirar.',
-      'O hero ficou mais limpo, os números agora têm contexto ("média dos clientes nos últimos 6 meses") e os planos têm uma comparação justa: secretária CLT custa R$ 3.500+/mês.',
-      'Adicionamos uma seção falando sobre LGPD e segurança — algo que clínica grande sempre pergunta antes de fechar.',
-      'Vocês podem mandar o link da landing pros pacientes que perguntam "como funciona esse sistema de vocês?". Vai vender por vocês.',
     ],
   },
   {
