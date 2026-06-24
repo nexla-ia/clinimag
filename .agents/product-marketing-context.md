@@ -8,7 +8,7 @@
 **Product category:** Plataforma de atendimento e gestão para clínicas (vertical healthcare).
 **Product type:** SaaS multi-tenant.
 **Business model:** Assinatura mensal por empresa, 3 planos (Starter R$297 atual / Pro R$597 atual / Business sob medida). Sem cobrança por mensagem. Cancela quando quiser.
-**Brand wordmark:** CliniSac — tagline "O SAC inteligente da sua clínica".
+**Brand wordmark:** Med Mag — tagline "O SAC inteligente da sua clínica".
 
 ## Target Audience
 **Target companies:** Clínicas médicas e odontológicas (consultórios solo até grupos com 50+ profissionais), com volume relevante de atendimento via WhatsApp e que dependem de secretária(s) pra agendar. Inclui também consultórios com franquia/multi-unidade.

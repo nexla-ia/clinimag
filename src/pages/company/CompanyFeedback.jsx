@@ -140,7 +140,7 @@ export default function CompanyFeedback() {
             {firstName}.
           </h1>
           <p className="fb-hero-sub">
-            O CliniSac evolui com vocês. Manda sugestão, reporta bug, deixa elogio
+            O Med Mag evolui com vocês. Manda sugestão, reporta bug, deixa elogio
             ou dúvida — a gente lê tudo, responde e prioriza com base no que mais aparece.
             <span className="fb-hero-sub-italic"> sem rodeios, sem formulário robô.</span>
           </p>
@@ -413,7 +413,7 @@ function FeedbackDetail({ f, onBack }) {
           <>
             <div className="fb-detail-intro" style={{ marginTop: 22 }}>
               <Sparkles size={14} style={{ color: '#0891B2' }} />
-              <span>Resposta do time CliniSac</span>
+              <span>Resposta do time Med Mag</span>
             </div>
             <div className="fb-detail-response">{f.adm_response}</div>
           </>

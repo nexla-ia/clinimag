@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "CliniSac — API de Integração",
+    "name": "Med Mag — API de Integração",
     "description": "Coleção para integração de IA (n8n, Make, scripts próprios). Todos os requests são POST /rest/v1/rpc/{function} com body JSON — nenhum parâmetro fica exposto na URL. Pra ativar, rodar supabase/migrations/20260430_api_rpc.sql.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
@@ -596,7 +596,7 @@
     },
     {
       "name": "Evolution API (envio de WhatsApp)",
-      "description": "Envio efetivo de mensagens via Evolution API. NÃO faz parte da API CliniSac — exposto aqui pra completude do fluxo.",
+      "description": "Envio efetivo de mensagens via Evolution API. NÃO faz parte da API Med Mag — exposto aqui pra completude do fluxo.",
       "item": [
         {
           "name": "Status da instância",

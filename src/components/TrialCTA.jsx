@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-const WA_URL = 'https://wa.me/556999300101?text=Ol%C3%A1!%20Quero%20testar%20o%20CliniSac%20gratuitamente%20por%2014%20dias!'
+const WA_URL = 'https://wa.me/556999300101?text=Ol%C3%A1!%20Quero%20testar%20o%20Med%20Mag%20gratuitamente%20por%2014%20dias!'
 
 function WhatsAppIcon() {
   return (
@@ -151,7 +151,7 @@ export default function TrialCTA({ compact = false }) {
               marginBottom: 5,
               letterSpacing: '-0.01em',
             }}>
-              Teste grátis o CliniSac.
+              Teste grátis o Med Mag.
             </div>
             <div style={{
               fontSize: 11.5,

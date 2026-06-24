@@ -114,7 +114,7 @@ export default function SupportWidget({ session, open, onClose, onUnreadChange }
               )}
               <div className="sw-header-info">
                 <div className="sw-header-title">
-                  {view === 'chat' ? (activeTicket?.subject || 'Chamado') : view === 'new' ? 'Conta pra gente' : 'Suporte CliniSac'}
+                  {view === 'chat' ? (activeTicket?.subject || 'Chamado') : view === 'new' ? 'Conta pra gente' : 'Suporte Med Mag'}
                 </div>
                 <div className="sw-header-sub">
                   {view === 'chat'

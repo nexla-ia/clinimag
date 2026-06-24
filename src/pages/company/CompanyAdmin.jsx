@@ -400,7 +400,7 @@ export default function CompanyAdmin() {
   const displayPrice = session?.company?.plan_price_override ?? planDef.price
 
   const upgradeTarget = planName === 'Starter' ? 'Pro' : planName === 'Pro' ? 'Business' : null
-  const upgradeWhatsApp = `https://wa.me/5561999999999?text=${encodeURIComponent(`Olá! Quero fazer upgrade do meu plano CliniSac (atual: ${planName}${upgradeTarget ? ` → ${upgradeTarget}` : ''}). Empresa: ${session?.company?.name || ''}`)}`
+  const upgradeWhatsApp = `https://wa.me/5561999999999?text=${encodeURIComponent(`Olá! Quero fazer upgrade do meu plano Med Mag (atual: ${planName}${upgradeTarget ? ` → ${upgradeTarget}` : ''}). Empresa: ${session?.company?.name || ''}`)}`
 
   // Helper pra renderizar uma mini stat com barra de progresso
   function PlanStat({ icon: Icon, label, used, total }) {

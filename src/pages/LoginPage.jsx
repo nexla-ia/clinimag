@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Eye, EyeOff, Loader2, ArrowLeft, Sparkles, Calendar, Bot, MessageSquare } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Sparkles, Calendar, Bot, MessageSquare } from 'lucide-react'
 import BrandMark from '../components/BrandMark'
 import TrialCTA from '../components/TrialCTA'
 import './LoginPage.css'
@@ -35,18 +35,13 @@ export default function LoginPage() {
 
   return (
     <div className="login-root">
-      {/* Botão voltar */}
-      <Link to="/" className="login-back">
-        <ArrowLeft size={14} /> Voltar para o site
-      </Link>
-
       <div className="login-shell">
         {/* COLUNA ESQUERDA — branding */}
         <div className="login-left">
           <Link to="/" className="login-brand">
             <BrandMark size={32} color="#0F0E1B" strokeWidth={1.6} />
             <div className="login-brand-text">
-              <span>Clini<span style={{ color: '#2563EB' }}>Sac</span></span>
+              <span>Med <span style={{ color: '#2563EB' }}>Mag</span></span>
               <small>O SAC inteligente da sua clínica</small>
             </div>
           </Link>
@@ -116,7 +111,7 @@ export default function LoginPage() {
 
             <div className="login-field">
               <label className="login-label">E-mail</label>
-              <input className="login-input" type="email" name="email" placeholder={tab === 'adm' ? 'admin@clinisac.com' : 'usuario@empresa.com'} value={form.email} onChange={handleChange} autoComplete="email" />
+              <input className="login-input" type="email" name="email" placeholder={tab === 'adm' ? 'admin@medmag.com' : 'usuario@empresa.com'} value={form.email} onChange={handleChange} autoComplete="email" />
             </div>
 
             <div className="login-field">
@@ -139,7 +134,7 @@ export default function LoginPage() {
               {loading ? <><Loader2 size={15} className="spin" /> Verificando...</> : tab === 'adm' ? 'Acesso administrativo' : 'Entrar no painel'}
             </button>
 
-            <div className="login-footer">CliniSac v2.0 · Plataforma exclusiva · Acesso restrito</div>
+            <div className="login-footer">Med Mag v2.0 · Plataforma exclusiva · Acesso restrito</div>
           </form>
 
           {/* Trial CTA — visível somente no tab empresa */}

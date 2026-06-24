@@ -1,12 +1,12 @@
 /**
- * BrandMark — Logo CliniSac
+ * BrandMark — Logo Med Mag
  * Círculo com gradiente verde→violet→azul + bolha de chat com pulse line.
  * Props 'color' e 'strokeWidth' são ignoradas (mantidas só por backwards-compat
  * com chamadas antigas no codebase).
  */
 export default function BrandMark({ size = 32 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-label="CliniSac">
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-label="Med Mag">
       <defs>
         <linearGradient id="cs-ring" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%"  stopColor="#10B981" />

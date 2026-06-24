@@ -904,7 +904,7 @@ function InstagramLockedScreen({ company }) {
     const userName = session?.user?.name || 'Cliente'
     const subject  = 'Liberação do Instagram Direct'
     const message  =
-      `Olá, time da CliniSac! 👋\n\n` +
+      `Olá, time da Med Mag! 👋\n\n` +
       `Sou da clínica ${company?.name || ''} e gostaria de liberar o ` +
       `Instagram Direct na plataforma.\n\n` +
       `Podemos avançar com o setup (Meta Business API + n8n)?`

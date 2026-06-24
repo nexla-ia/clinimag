@@ -94,11 +94,11 @@ export default function CompanyAlerts() {
 
   useEffect(() => {
     if (unreadCount > 0) {
-      document.title = `(${unreadCount}) Alertas — CliniSac`
+      document.title = `(${unreadCount}) Alertas — Med Mag`
     } else {
-      document.title = 'CliniSac'
+      document.title = 'Med Mag'
     }
-    return () => { document.title = 'CliniSac' }
+    return () => { document.title = 'Med Mag' }
   }, [unreadCount])
 
   useEffect(() => {

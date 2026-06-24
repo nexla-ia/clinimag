@@ -2,7 +2,6 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import LoginPage from './pages/LoginPage'
-import Landing from './pages/Landing'
 import AdmLayout from './pages/adm/AdmLayout'
 import AdmDashboard from './pages/adm/AdmDashboard'
 import AdmCompanies from './pages/adm/AdmCompanies'
@@ -47,16 +46,12 @@ function PrivateCompany({ children }) {
   return children
 }
 
-function RootRedirect() {
-  return <Landing />
-}
-
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<RootRedirect />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage />} />
 
           <Route path="/adm" element={<PrivateAdm><AdmLayout /></PrivateAdm>}>

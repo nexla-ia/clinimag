@@ -344,7 +344,7 @@ const MODULES = [
     emoji: '🛡️',
     title: 'Segurança & Privacidade',
     subtitle: 'O que a gente vê, o que a gente nunca vê',
-    intro: 'A aba Segurança existe pra deixar transparente como a CliniSac trata os dados de vocês e dos pacientes. Quando paciente perguntar "pra onde vai meu dado?", vocês têm a resposta dentro da plataforma.',
+    intro: 'A aba Segurança existe pra deixar transparente como a Med Mag trata os dados de vocês e dos pacientes. Quando paciente perguntar "pra onde vai meu dado?", vocês têm a resposta dentro da plataforma.',
     steps: [
       {
         title: 'Nove pilares navegáveis',
@@ -362,7 +362,7 @@ const MODULES = [
       },
       {
         title: 'LGPD na prática',
-        desc: 'Vocês são o controlador dos dados dos pacientes; a CliniSac é só operadora. Cada paciente tem direito de pedir acesso, exportação ou exclusão dos próprios dados — vocês podem fazer isso direto na ficha do paciente.',
+        desc: 'Vocês são o controlador dos dados dos pacientes; a Med Mag é só operadora. Cada paciente tem direito de pedir acesso, exportação ou exclusão dos próprios dados — vocês podem fazer isso direto na ficha do paciente.',
       },
       {
         title: 'Plano de incidente',

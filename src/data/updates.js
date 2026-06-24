@@ -5,12 +5,12 @@
 export const UPDATES = [
   {
     date: '2026-05-12',
-    title: 'Nova identidade — CliniSac com cara nova e tagline oficial',
+    title: 'Nova identidade — Med Mag com cara nova e tagline oficial',
     type: 'improvement',
     tags: ['Marca'],
     items: [
       'Trocamos o logo monograma cobre pelo símbolo novo: bolha de conversa branca dentro de um círculo com gradient verde → violeta → azul, com uma linha de pulso azul cortando — representa SAC + saúde + inteligência num só lugar.',
-      'O "Sac" do nome agora aparece em azul sempre que escrevemos "CliniSac" — fica fácil pra quem vê de longe identificar nossa marca.',
+      'O "Sac" do nome agora aparece em azul sempre que escrevemos "Med Mag" — fica fácil pra quem vê de longe identificar nossa marca.',
       'Slogan oficial: "O SAC inteligente da sua clínica". Vocês vão ver essa frase aparecendo na landing, no login, em cantinhos discretos da plataforma — lembrando o porquê de tudo isso existir.',
       'Favicon, splash, painel, e-mails: tudo no símbolo novo. Quando vocês adicionarem o atalho da plataforma no celular, o ícone aparece bonitinho na tela inicial.',
     ],
@@ -252,7 +252,7 @@ export const UPDATES = [
     items: [
       'Vocês reparam que o logo MM em cobre apareceu por todos os cantos? Sim, é a nossa identidade oficial agora — pensamos numa cara mais sóbria, sem perder a vivacidade do produto.',
       'A frase "O SAC inteligente da sua clínica" virou nossa tagline oficial. Vocês vão ver ela aparecendo em pontos discretos, lembrando o porquê de tudo isso existir.',
-      'O nome "CliniSac" continua o mesmo — só ficou mais bonito em cima do monograma novo.',
+      'O nome "Med Mag" continua o mesmo — só ficou mais bonito em cima do monograma novo.',
     ],
   },
   {

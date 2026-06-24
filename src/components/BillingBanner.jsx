@@ -1,7 +1,7 @@
 import { Calendar, AlertTriangle, AlertOctagon, Phone } from 'lucide-react'
 import { computeBillingStatus, BILLING_STATUS, fmtDateBR, fmtMoney } from '../lib/billing'
 
-const WHATSAPP_LINK = 'https://wa.me/5561999999999?text=Ol%C3%A1!%20Quero%20pagar%20a%20mensalidade%20da%20CliniSac.'
+const WHATSAPP_LINK = 'https://wa.me/5561999999999?text=Ol%C3%A1!%20Quero%20pagar%20a%20mensalidade%20da%20Med%20Mag.'
 
 export default function BillingBanner({ company }) {
   const { status, dueDate, daysUntilDue, daysOverdue, graceDays } = computeBillingStatus(company)

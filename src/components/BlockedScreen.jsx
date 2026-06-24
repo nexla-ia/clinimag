@@ -2,7 +2,7 @@ import { Lock, Phone, LogOut } from 'lucide-react'
 import { fmtMoney, fmtDateBR } from '../lib/billing'
 import BrandMark from './BrandMark'
 
-const WHATSAPP_LINK = 'https://wa.me/5561999999999?text=Ol%C3%A1!%20Minha%20conta%20CliniSac%20foi%20bloqueada%20por%20pagamento%20em%20atraso.%20Quero%20regularizar.'
+const WHATSAPP_LINK = 'https://wa.me/5561999999999?text=Ol%C3%A1!%20Minha%20conta%20Med%20Mag%20foi%20bloqueada%20por%20pagamento%20em%20atraso.%20Quero%20regularizar.'
 
 export default function BlockedScreen({ company, onLogout }) {
   const amount = company?.billing_amount
@@ -26,7 +26,7 @@ export default function BlockedScreen({ company, onLogout }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <BrandMark size={28} color="#C9A074" strokeWidth={1.6} />
-          <span style={{ fontWeight: 700, fontSize: 16, color: '#C9A074' }}>Clini<span style={{ color: '#60A5FA' }}>Sac</span></span>
+          <span style={{ fontWeight: 700, fontSize: 16, color: '#C9A074' }}>Med <span style={{ color: '#60A5FA' }}>Mag</span></span>
         </div>
         {onLogout && (
           <button onClick={onLogout} style={{
