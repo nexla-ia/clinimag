@@ -2,7 +2,6 @@ import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { LogOut } from 'lucide-react'
-import BrandMark from './BrandMark'
 import './Sidebar.css'
 
 export default function Sidebar({ links, role }) {
@@ -17,11 +16,8 @@ export default function Sidebar({ links, role }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <BrandMark size={36} color="#C9A074" strokeWidth={1.5} />
-        <div>
-          <div className="sidebar-brand-name">Med <span style={{ color: '#2563EB' }}>Mag</span></div>
-          <div className="sidebar-brand-tag">{role === 'adm' ? 'ADM Global' : 'Painel'}</div>
-        </div>
+        <img src="/lohomed.png" alt="Med Mag" className="sidebar-logo" />
+        <div className="sidebar-brand-tag">{role === 'adm' ? 'ADM Global' : 'Painel'}</div>
       </div>
 
       <nav className="sidebar-nav">

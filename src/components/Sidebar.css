@@ -23,6 +23,12 @@
   flex: 1;
 }
 
+.sidebar-logo {
+  height: 40px;
+  width: auto;
+  flex-shrink: 0;
+}
+
 .sidebar-brand-name {
   font-family: var(--font-display);
   font-weight: 700;

@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff, Loader2, Sparkles, Calendar, Bot, MessageSquare } from 'lucide-react'
-import BrandMark from '../components/BrandMark'
 import TrialCTA from '../components/TrialCTA'
 import './LoginPage.css'
 
@@ -39,9 +38,8 @@ export default function LoginPage() {
         {/* COLUNA ESQUERDA — branding */}
         <div className="login-left">
           <Link to="/" className="login-brand">
-            <BrandMark size={32} color="#0F0E1B" strokeWidth={1.6} />
+            <img src="/lohomed.png" alt="Med Mag" className="login-logo" />
             <div className="login-brand-text">
-              <span>Med <span style={{ color: '#2563EB' }}>Mag</span></span>
               <small>O SAC inteligente da sua clínica</small>
             </div>
           </Link>

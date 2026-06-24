@@ -88,6 +88,11 @@
   z-index: 2;
   width: fit-content;
 }
+.login-logo {
+  height: 58px;
+  width: auto;
+  display: block;
+}
 .login-brand-text {
   display: flex;
   flex-direction: column;
