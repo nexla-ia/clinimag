@@ -11,7 +11,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict xyjy8hxYz2pqAQTfpeMwmCc1FTSfeImbSK2lFPLsDJbMSiIqaSnfAUqPqNFGqxt
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 18.3
@@ -2883,7 +2882,6 @@ ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict xyjy8hxYz2pqAQTfpeMwmCc1FTSfeImbSK2lFPLsDJbMSiIqaSnfAUqPqNFGqxt
 
 
 
