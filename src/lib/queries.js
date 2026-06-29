@@ -71,6 +71,30 @@ export async function fetchConversaContatos(instancia) {
   return out
 }
 
+// CompanyGroups: lista de grupos de uma instância, última msg de cada.
+// Shape: [{ idgrupo, nomegrupo, mensagem, numero, nome, created_at, horaLastMessage }]
+// ordenado pela mensagem mais recente. O componente mapeia para seu formato.
+export async function fetchGruposLista(instancia) {
+  const { data, error } = await supabase.rpc('api_grupos_lista', { p_instancia: instancia })
+  if (!error && data) return data
+  // Fallback: baixa e deduplica client-side (comportamento antigo)
+  const { data: rows } = await supabase
+    .from('mensagens_geral')
+    .select('id, idgrupo, nomegrupo, mensagem, numero, nome, "horaLastMessage", created_at')
+    .eq('instancia', instancia)
+    .not('idgrupo', 'is', null)
+    .order('id', { ascending: false })
+    .limit(20000)
+  const seen = new Set()
+  const out = []
+  for (const row of rows || []) {
+    if (!row.idgrupo || seen.has(row.idgrupo)) continue
+    seen.add(row.idgrupo)
+    out.push(row)
+  }
+  return out
+}
+
 // AdmOperacao: estatísticas de mensagens de uma instância desde sinceISO.
 // Retorna { total, byType: { cliente, ia, humano, tool } }.
 export async function fetchOperacaoMsgStats(instancia, sinceISO) {

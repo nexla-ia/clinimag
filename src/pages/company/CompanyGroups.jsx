@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { fetchGruposLista } from '../../lib/queries'
 import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
@@ -234,27 +235,17 @@ export default function CompanyGroups() {
   useEffect(() => {
     if (!instance) return
     setLoading(true)
-    supabase.from(CONV_TABLE)
-      .select('id, idgrupo, nomegrupo, mensagem, numero, nome, "horaLastMessage", created_at')
-      .eq('instancia', instance)
-      .not('idgrupo', 'is', null)
-      .order('id', { ascending: false })
-      .limit(20000)
-      .then(({ data, error }) => {
-        if (error || !data) { setLoading(false); return }
-        const seen = new Set()
-        const unique = []
-        for (const row of data) {
-          if (!row.idgrupo || seen.has(row.idgrupo)) continue
-          seen.add(row.idgrupo)
-          unique.push({
-            idgrupo: row.idgrupo,
-            nomegrupo: row.nomegrupo || null,
-            lastMsg: row.mensagem || '',
-            lastTs: parseTs(row),
-            lastSenderRow: row,
-          })
-        }
+    // Lista de grupos já agregada no servidor (RPC) — antes baixava até
+    // 20.000 mensagens só para deduplicar por grupo no cliente.
+    fetchGruposLista(instance)
+      .then((rows) => {
+        const unique = (rows || []).map((row) => ({
+          idgrupo: row.idgrupo,
+          nomegrupo: row.nomegrupo || null,
+          lastMsg: row.mensagem || '',
+          lastTs: parseTs(row),
+          lastSenderRow: row,
+        }))
         setGroups(unique)
         setLoading(false)
       })
