@@ -21,7 +21,11 @@ export default function Sidebar({ links, role }) {
       </div>
 
       <nav className="sidebar-nav">
-        {links.map(link => link.onClick
+        {links.map(link => link.section
+          ? (
+            <div key={`sec-${link.section}`} className="sidebar-section">{link.section}</div>
+          )
+          : link.onClick
           ? (
             <button
               key={link.key || link.label}

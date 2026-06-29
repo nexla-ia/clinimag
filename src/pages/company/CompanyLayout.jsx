@@ -132,34 +132,45 @@ export default function CompanyLayout() {
   const mods = session?.company?.modules || {}
   const mod = key => mods[key] !== false  // true por padrão
 
-  const links = [
-    ...(mod('conversas') ? [{ to: '/painel/conversas', icon: MessageSquare, label: 'Conversas',
-      badge: activeCount > 0 ? activeCount : null, badgeColor: 'cyan' }] : []),
-    ...(aiEnabled && mod('conversas') ? [{ to: '/painel/historico', icon: History, label: 'Conversas IA' }] : []),
-    ...(mod('instagram') ? [{ to: '/painel/instagram', icon: Instagram, label: 'Instagram' }] : []),
-    ...(mod('grupos') ? [{ to: '/painel/grupos', icon: Users, label: 'Grupos',
-      badge: groupUnread > 0 ? groupUnread : null, badgeColor: 'cyan' }] : []),
-    ...(mod('contatos') ? [{ to: '/painel/contatos', icon: Contact2, label: 'Pacientes' }] : []),
-    ...(mod('agenda') ? [{ to: '/painel/agenda', icon: Calendar, label: 'Agenda' }] : []),
-    ...(mod('kanban') ? [{ to: '/painel/atividades', icon: Kanban, label: 'Kanban' }] : []),
-    ...(isAdmin && mod('financeiro') ? [{ to: '/painel/financeiro', icon: DollarSign, label: 'Financeiro' }] : []),
-    ...(isAdmin && mod('crm') ? [{ to: '/painel/crm', icon: GitMerge, label: 'CRM' }] : []),
-    ...(mod('alertas') ? [{ to: '/painel/alertas', icon: BellRing, label: 'Alertas',
-      badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' }] : []),
-    { to: '/painel/tutorial',  icon: GraduationCap, label: 'Tutorial' },
-    { to: '/painel/novidades', icon: Sparkles,      label: 'Novidades',
-      badge: hasNewUpdate ? 'Novo' : null, badgeColor: 'violet' },
-    { to: '/painel/seguranca', icon: ShieldCheck,   label: 'Segurança' },
-    { to: '/painel/feedback',  icon: MessageSquareHeart, label: 'Feedback' },
-    ...(isAdmin ? [
-      ...(mod('metricas') ? [{ to: '/painel/metricas', icon: BarChart2, label: 'Métricas' }] : []),
-      ...(mod('catalogo') ? [{ to: '/painel/catalogo', icon: Stethoscope, label: 'Catálogo Clínico' }] : []),
-      { to: '/painel/admin', icon: Settings2, label: 'Administração' },
-    ] : []),
-    { key: 'suporte', icon: Headset, label: 'Suporte',
-      onClick: () => setSupportOpen(true), active: supportOpen,
-      badge: supportUnread > 0 ? supportUnread : null, badgeColor: 'amber' },
+  // Menus agrupados por contexto. Grupos vazios (por módulo desativado) somem.
+  const groups = [
+    { title: 'Atendimento', items: [
+      ...(mod('conversas') ? [{ to: '/painel/conversas', icon: MessageSquare, label: 'Conversas',
+        badge: activeCount > 0 ? activeCount : null, badgeColor: 'cyan' }] : []),
+      ...(aiEnabled && mod('conversas') ? [{ to: '/painel/historico', icon: History, label: 'Conversas IA' }] : []),
+      ...(mod('instagram') ? [{ to: '/painel/instagram', icon: Instagram, label: 'Instagram' }] : []),
+      ...(mod('grupos') ? [{ to: '/painel/grupos', icon: Users, label: 'Grupos',
+        badge: groupUnread > 0 ? groupUnread : null, badgeColor: 'cyan' }] : []),
+      ...(mod('alertas') ? [{ to: '/painel/alertas', icon: BellRing, label: 'Alertas',
+        badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' }] : []),
+    ] },
+    { title: 'Gestão', items: [
+      ...(mod('contatos') ? [{ to: '/painel/contatos', icon: Contact2, label: 'Pacientes' }] : []),
+      ...(mod('agenda') ? [{ to: '/painel/agenda', icon: Calendar, label: 'Agenda' }] : []),
+      ...(mod('kanban') ? [{ to: '/painel/atividades', icon: Kanban, label: 'Kanban' }] : []),
+      ...(isAdmin && mod('crm') ? [{ to: '/painel/crm', icon: GitMerge, label: 'CRM' }] : []),
+      ...(isAdmin && mod('financeiro') ? [{ to: '/painel/financeiro', icon: DollarSign, label: 'Financeiro' }] : []),
+      ...(isAdmin && mod('catalogo') ? [{ to: '/painel/catalogo', icon: Stethoscope, label: 'Catálogo Clínico' }] : []),
+    ] },
+    { title: 'Análise', items: [
+      ...(isAdmin && mod('metricas') ? [{ to: '/painel/metricas', icon: BarChart2, label: 'Métricas' }] : []),
+    ] },
+    { title: 'Conta & Ajuda', items: [
+      ...(isAdmin ? [{ to: '/painel/admin', icon: Settings2, label: 'Administração' }] : []),
+      { to: '/painel/seguranca', icon: ShieldCheck, label: 'Segurança' },
+      { to: '/painel/tutorial', icon: GraduationCap, label: 'Tutorial' },
+      { to: '/painel/novidades', icon: Sparkles, label: 'Novidades',
+        badge: hasNewUpdate ? 'Novo' : null, badgeColor: 'violet' },
+      { to: '/painel/feedback', icon: MessageSquareHeart, label: 'Feedback' },
+      { key: 'suporte', icon: Headset, label: 'Suporte',
+        onClick: () => setSupportOpen(true), active: supportOpen,
+        badge: supportUnread > 0 ? supportUnread : null, badgeColor: 'amber' },
+    ] },
   ]
+
+  const links = groups
+    .filter(g => g.items.length)
+    .flatMap(g => [{ section: g.title }, ...g.items])
 
   if (blocked) {
     return <BlockedScreen company={session?.company} onLogout={logout} />
