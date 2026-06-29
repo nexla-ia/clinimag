@@ -101,9 +101,9 @@ export default function AdmQualidade() {
 
   useEffect(() => { loadAll() }, [period])
 
-  // Auto-refresh a cada 60s
+  // Auto-refresh a cada 60s (pausa em background)
   useEffect(() => {
-    const id = setInterval(loadAll, 60000)
+    const id = setInterval(() => { if (!document.hidden) loadAll() }, 60000)
     return () => clearInterval(id)
   }, [period])
 

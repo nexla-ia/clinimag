@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
-import EmojiPicker from 'emoji-picker-react'
+// Carregado sob demanda: o bundle do emoji-picker (~300KB) só baixa ao abrir o picker.
+const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
@@ -2017,17 +2018,19 @@ export default function CompanyConversations() {
                   {/* Emoji picker popup */}
                   {showEmoji && (
                     <div ref={emojiPickerRef} style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, zIndex: 9999 }}>
-                      <EmojiPicker
-                        onEmojiClick={({ emoji }) => {
-                          setMsgText(prev => prev + emoji)
-                          setShowEmoji(false)
-                        }}
-                        searchPlaceholder="Buscar emoji..."
-                        skinTonesDisabled
-                        height={380}
-                        width={320}
-                        previewConfig={{ showPreview: false }}
-                      />
+                      <Suspense fallback={<div style={{ width: 320, height: 380, background: '#fff', border: '1px solid var(--border)', borderRadius: 8 }} />}>
+                        <EmojiPicker
+                          onEmojiClick={({ emoji }) => {
+                            setMsgText(prev => prev + emoji)
+                            setShowEmoji(false)
+                          }}
+                          searchPlaceholder="Buscar emoji..."
+                          skinTonesDisabled
+                          height={380}
+                          width={320}
+                          previewConfig={{ showPreview: false }}
+                        />
+                      </Suspense>
                     </div>
                   )}
                   <input

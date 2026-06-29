@@ -122,10 +122,10 @@ export default function AdmDashboard() {
     if (db.companies?.length) loadAll()
   }, [db.companies?.length])
 
-  // Polling de status do WhatsApp a cada 30 segundos
+  // Polling de status do WhatsApp a cada 30 segundos (pausa em background)
   useEffect(() => {
     if (!db.companies?.length) return
-    const id = setInterval(checkAllInstances, 30000)
+    const id = setInterval(() => { if (!document.hidden) checkAllInstances() }, 30000)
     return () => clearInterval(id)
   }, [db.companies?.length])
 

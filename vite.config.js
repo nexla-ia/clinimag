@@ -10,5 +10,17 @@ export default defineConfig({
     commonjsOptions: {
       include: [/recharts/, /node_modules/],
     },
+    rollupOptions: {
+      output: {
+        // Separa as libs pesadas em chunks próprios: melhora cache de longo
+        // prazo e tira peso do bundle inicial (login).
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          charts: ['recharts'],
+          emoji: ['emoji-picker-react'],
+          supabase: ['@supabase/supabase-js'],
+        },
+      },
+    },
   },
 })

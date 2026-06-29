@@ -152,7 +152,7 @@ export default function CompanyAdmin() {
   useEffect(() => {
     if (!evolutionUrl || !instance || !apiKey) return
     fetchState()
-    const t = setInterval(fetchState, 8000)
+    const t = setInterval(() => { if (!document.hidden) fetchState() }, 8000)
     return () => clearInterval(t)
   }, [evolutionUrl, instance, apiKey])
 
