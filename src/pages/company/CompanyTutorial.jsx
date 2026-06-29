@@ -7,7 +7,7 @@ import {
   Mic, Paperclip, FileText, Trophy, Inbox, Users, Flag, Clock, ShieldCheck,
   Camera, Cake, Heart, Instagram, UserPlus, UserCheck, ClipboardList,
   TrendingUp, AlertCircle, MessageSquareHeart, Lock, EyeOff, Database, Send,
-  GitMerge, DollarSign, Flame, Filter, Receipt, Repeat, AtSign, BellOff,
+  GitMerge, DollarSign, Flame, Filter, Receipt, Repeat, AtSign, BellOff, Trash2,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -142,16 +142,26 @@ const MODULES = [
     emoji: '🎯',
     title: 'CRM',
     subtitle: 'O funil de vendas da clínica',
-    intro: 'Um quadro de pipeline pra acompanhar cada lead — do "acabou de chamar" até "virou paciente fiel". Cada etapa é uma coluna, e você arrasta o lead conforme ele avança.',
+    intro: 'Um quadro de pipeline pra acompanhar cada lead — do "acabou de chamar" até "virou paciente fiel". Todo número novo que fala com a clínica vira lead sozinho; você arrasta entre as etapas conforme ele avança.',
     steps: [
+      {
+        title: 'O lead entra sozinho',
+        desc: 'Quando um número novo manda mensagem pela primeira vez, a plataforma cria o lead automaticamente na etapa "Novo Lead" — já com a origem (WhatsApp/Instagram) e o nome preenchidos. Você não perde ninguém que chega.',
+        chips: [{ icon: Zap, label: 'Captura automática' }],
+      },
       {
         title: 'Visualize o funil em colunas',
         desc: 'As etapas ficam lado a lado: Novo Lead → Primeiro Contato → Agendou → Compareceu → Retorno → Fidelizado (e Perdido). Lê da esquerda pra direita pra entender em que pé tá cada pessoa.',
       },
       {
-        title: 'Cadastre um lead',
-        desc: 'Botão "Novo Lead": nome e telefone, origem (WhatsApp, Instagram, Google, Indicação...) e temperatura (Frio / Morno / Quente). Ele entra na primeira etapa.',
+        title: 'Ou cadastre na mão',
+        desc: 'Quer adicionar alguém manualmente? Botão "Novo Lead": nome e telefone, origem (WhatsApp, Instagram, Google, Indicação...) e temperatura (Frio / Morno / Quente). Entra na primeira etapa também.',
         chips: [{ icon: UserPlus, label: 'Novo lead' }, { icon: Flame, label: 'Temperatura' }],
+      },
+      {
+        title: 'Remova o que não interessa',
+        desc: 'Como todo número novo vira lead, vai entrar engano, fornecedor e número errado. Abre o lead e clica em "Remover" (com confirmação) pra manter o funil limpo.',
+        chips: [{ icon: Trash2, label: 'Remover' }],
       },
       {
         title: 'Arraste pra mover de etapa',
@@ -178,7 +188,7 @@ const MODULES = [
         chips: [{ icon: Zap, label: 'Automático' }],
       },
     ],
-    tip: 'A origem do lead vem da detecção automática das Conversas — então o funil já nasce sabendo de onde a pessoa veio. Cruze isso com a aba Listas pra ver qual canal traz lead que realmente vira paciente.',
+    tip: 'Como o lead nasce sozinho quando o contato fala pela primeira vez, o funil captura 100% de quem chega — mas também entra ruído. Use o botão Remover pra limpar e a aba Listas pra focar só nos que importam.',
     cta: { label: 'Abrir CRM', to: '/painel/crm' },
   },
   {
