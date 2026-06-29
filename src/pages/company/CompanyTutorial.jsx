@@ -7,6 +7,7 @@ import {
   Mic, Paperclip, FileText, Trophy, Inbox, Users, Flag, Clock, ShieldCheck,
   Camera, Cake, Heart, Instagram, UserPlus, UserCheck, ClipboardList,
   TrendingUp, AlertCircle, MessageSquareHeart, Lock, EyeOff, Database, Send,
+  GitMerge, DollarSign, Flame, Filter, Receipt, Repeat, AtSign, BellOff,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -132,6 +133,53 @@ const MODULES = [
     ],
     tip: 'Use a aba Saúde pra registrar alergias, condições crônicas e medicações em uso — esses campos ficam visíveis no Resumo da ficha, ajudando profissionais a tomar decisão rápida durante o atendimento.',
     cta: { label: 'Abrir Pacientes', to: '/painel/contatos' },
+  },
+  {
+    key: 'crm',
+    icon: GitMerge,
+    color: '#4F46E5',
+    bg: '#E0E7FF',
+    emoji: '🎯',
+    title: 'CRM',
+    subtitle: 'O funil de vendas da clínica',
+    intro: 'Um quadro de pipeline pra acompanhar cada lead — do "acabou de chamar" até "virou paciente fiel". Cada etapa é uma coluna, e você arrasta o lead conforme ele avança.',
+    steps: [
+      {
+        title: 'Visualize o funil em colunas',
+        desc: 'As etapas ficam lado a lado: Novo Lead → Primeiro Contato → Agendou → Compareceu → Retorno → Fidelizado (e Perdido). Lê da esquerda pra direita pra entender em que pé tá cada pessoa.',
+      },
+      {
+        title: 'Cadastre um lead',
+        desc: 'Botão "Novo Lead": nome e telefone, origem (WhatsApp, Instagram, Google, Indicação...) e temperatura (Frio / Morno / Quente). Ele entra na primeira etapa.',
+        chips: [{ icon: UserPlus, label: 'Novo lead' }, { icon: Flame, label: 'Temperatura' }],
+      },
+      {
+        title: 'Arraste pra mover de etapa',
+        desc: 'Segura o card e arrasta pra próxima coluna. A plataforma registra a mudança com data e hora sozinha — você não precisa anotar nada.',
+      },
+      {
+        title: 'Veja a timeline completa do lead',
+        desc: 'Clica no lead e abre um painel com tudo num lugar só: notas, mensagens do WhatsApp, agendamentos (com status e valor), lançamentos financeiros e tarefas do Kanban ligadas a ele.',
+        chips: [{ icon: History, label: 'Timeline' }, { icon: MessageSquare, label: 'WhatsApp' }],
+      },
+      {
+        title: 'Pegue os leads parados na aba Alertas',
+        desc: 'Cada etapa tem um tempo máximo. Quando um lead passa disso, ele aparece em vermelho na aba "Alertas" — perfeito pra reativar contato que esfriou antes de perder a venda.',
+        chips: [{ icon: AlertCircle, label: 'Leads travados' }],
+      },
+      {
+        title: 'Crie listas salvas pra segmentar',
+        desc: 'Na aba "Listas", monta filtros combinando temperatura, etapa, dias parado, origem, tag e responsável. Salva e reusa — ex: "Quentes prestes a agendar".',
+        chips: [{ icon: Filter, label: 'Filtros salvos' }],
+      },
+      {
+        title: 'Deixa a automação trabalhar',
+        desc: 'A regra "Agenda → Agendou" move o lead automaticamente pra etapa "Agendou" quando você marca uma consulta pra ele. Menos clique, funil sempre atualizado.',
+        chips: [{ icon: Zap, label: 'Automático' }],
+      },
+    ],
+    tip: 'A origem do lead vem da detecção automática das Conversas — então o funil já nasce sabendo de onde a pessoa veio. Cruze isso com a aba Listas pra ver qual canal traz lead que realmente vira paciente.',
+    cta: { label: 'Abrir CRM', to: '/painel/crm' },
   },
   {
     key: 'agenda',
@@ -264,6 +312,49 @@ const MODULES = [
     cta: { label: 'Ver teaser', to: '/painel/instagram' },
   },
   {
+    key: 'grupos',
+    icon: Users,
+    color: '#0EA5E9',
+    bg: '#E0F2FE',
+    emoji: '👥',
+    title: 'Grupos',
+    subtitle: 'Conversas de grupo do WhatsApp',
+    intro: 'A central dos grupos de WhatsApp da clínica. Responde no grupo, vê os integrantes, menciona quem precisa e silencia o que não importa — tudo de dentro da plataforma.',
+    steps: [
+      {
+        title: 'Abra um grupo',
+        desc: 'Na lista da esquerda os grupos aparecem com a última mensagem. Clica num pra carregar a conversa. O número azul mostra quantas mensagens não lidas — ao abrir, zera sozinho.',
+        chips: [{ icon: BellRing, label: 'Não lidas' }],
+      },
+      {
+        title: 'Mande texto, áudio, mídia ou emoji',
+        desc: 'Mesmo composer das Conversas: digita e Enter, grava áudio no microfone, anexa imagem/PDF/vídeo no clipe, ou abre o seletor de emoji.',
+        chips: [{ icon: Mic, label: 'Áudio' }, { icon: Paperclip, label: 'Anexo' }],
+      },
+      {
+        title: 'Mencione um integrante',
+        desc: 'Digita @ no campo e aparece a lista de membros (admins destacados). Clica no nome e a menção é inserida — o membro é notificado.',
+        chips: [{ icon: AtSign, label: 'Menção' }],
+      },
+      {
+        title: 'Veja e salve os integrantes',
+        desc: 'Clica em "Ver integrantes" e abre o painel com todos os membros e seus papéis (Dono / Admin / Membro). De lá dá pra "Conversar" 1-a-1 ou "Salvar" o número como paciente.',
+        chips: [{ icon: Users, label: 'Membros' }, { icon: UserPlus, label: 'Salvar' }],
+      },
+      {
+        title: 'Silencie o que distrai',
+        desc: 'Botão direito num grupo → "Silenciar grupo" (aparece o ícone de sino cortado). Botão direito de novo → "Ativar notificações". Foque só nos grupos que importam.',
+        chips: [{ icon: BellOff, label: 'Silenciar' }],
+      },
+      {
+        title: 'Carregue o histórico',
+        desc: 'A conversa abre com as 50 mensagens mais recentes. "Carregar mensagens anteriores" no topo traz mais — e mensagens novas chegam em tempo real enquanto você está na tela.',
+      },
+    ],
+    tip: 'Grupos com mensagem não lida sobem pro topo da lista automaticamente. Combine com o silenciar pra deixar só o que precisa de atenção brilhando lá em cima.',
+    cta: { label: 'Abrir Grupos', to: '/painel/grupos' },
+  },
+  {
     key: 'metricas',
     icon: BarChart3,
     color: '#059669',
@@ -335,6 +426,49 @@ const MODULES = [
     ],
     tip: 'No agendamento, ao escolher procedimento + convênio, o valor é preenchido automaticamente. Se o paciente pagar diferente, é só editar no campo.',
     cta: { label: 'Abrir Catálogo', to: '/painel/catalogo' },
+  },
+  {
+    key: 'financeiro',
+    icon: DollarSign,
+    color: '#059669',
+    bg: '#D1FAE5',
+    emoji: '💰',
+    title: 'Financeiro',
+    subtitle: 'Caixa, contas e inadimplência',
+    intro: 'O controle financeiro completo da clínica: o que entra, o que sai, o que está por receber e quem está devendo. Visível só pra quem é Admin.',
+    steps: [
+      {
+        title: 'Comece pela Visão Geral',
+        desc: 'Cards de receita, despesa e resultado do ano, inadimplência, a receber e a pagar do mês. Logo abaixo, gráfico de receita × despesa dos últimos 6 meses e as receitas por categoria.',
+        chips: [{ icon: TrendingUp, label: 'KPIs do ano' }],
+      },
+      {
+        title: 'Lance uma receita ou despesa',
+        desc: 'Botão "Novo lançamento": descrição, valor, vencimento, categoria, paciente e forma de pagamento (PIX, cartão, boleto, convênio...). Nasce como "Pendente".',
+        chips: [{ icon: Receipt, label: 'Lançamento' }],
+      },
+      {
+        title: 'Dê baixa quando o dinheiro entrar',
+        desc: 'No "A Receber", clica no check verde da linha e o status vira "Pago" — o valor passa a contar no recebido do mês na hora.',
+        chips: [{ icon: Check, label: 'Marcar pago' }],
+      },
+      {
+        title: 'Parcele ou torne recorrente',
+        desc: 'No lançamento, ligue "Parcelado" (até 24x) e a plataforma cria as parcelas com datas e "(1/3)", "(2/3)"... sozinha. Ou ligue "Recorrente" pra repetir todo mês.',
+        chips: [{ icon: Repeat, label: 'Parcela / recorrência' }],
+      },
+      {
+        title: 'Cobre quem está devendo',
+        desc: 'A aba "Inadimplência" agrupa as receitas vencidas por faixa de atraso (1–30, 31–60, 61–90, 90+ dias), com contato e dias em atraso — sua lista de cobrança pronta.',
+        chips: [{ icon: AlertCircle, label: 'Vencidos por faixa' }],
+      },
+      {
+        title: 'Feche o mês com o DRE',
+        desc: 'A aba "DRE" mostra receita, despesa e resultado mês a mês no ano, com análise por categoria. O "Fluxo de Caixa" compara o previsto com o realizado pra você planejar os próximos meses.',
+      },
+    ],
+    tip: 'Sempre preencha o nome do paciente no lançamento: assim a receita/despesa também aparece na timeline do lead no CRM, ligando o financeiro a quem gerou o atendimento.',
+    cta: { label: 'Abrir Financeiro', to: '/painel/financeiro' },
   },
   {
     key: 'seguranca',
@@ -518,7 +652,7 @@ export default function CompanyTutorial() {
   const visibleModules = useMemo(() => {
     return MODULES.filter(m => {
       if (m.key === 'historico' && !aiEnabled) return false
-      if ((m.key === 'admin' || m.key === 'catalogo') && !isAdmin) return false
+      if (['admin', 'catalogo', 'financeiro', 'crm'].includes(m.key) && !isAdmin) return false
       return true
     })
   }, [isAdmin, aiEnabled])
