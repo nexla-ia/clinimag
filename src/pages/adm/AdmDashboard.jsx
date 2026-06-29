@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { fetchDashboardMsgStats } from '../../lib/queries'
 import {
   Building2, Users, MessageSquare, AlertTriangle, Activity, Wifi, WifiOff,
   Calendar, BarChart3, Clock, TrendingUp, RefreshCw, Sparkles, Bot,
@@ -39,8 +40,9 @@ export default function AdmDashboard() {
   const navigate = useNavigate()
 
   const [data, setData] = useState({
-    msgs: [], convs: [], atts: [], appts: [], plans: [], saved: [], alerts: [],
+    convs: [], atts: [], appts: [], plans: [], saved: [], alerts: [],
   })
+  const [msgStats, setMsgStats] = useState({ byInstance: {}, hours: Array(24).fill(0) })
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(null)
   const [evolutionStatuses, setEvolutionStatuses] = useState({}) // instance → 'open'|'close'|'unknown'
@@ -92,8 +94,9 @@ export default function AdmDashboard() {
     const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString()
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
 
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
     const [msgs, convs, atts, appts, saved, alerts] = await Promise.all([
-      supabase.from('mensagens_geral').select('id, instancia, type, created_at').gte('created_at', sevenDaysAgo).limit(50000),
+      fetchDashboardMsgStats(sevenDaysAgo, tz),
       supabase.from('conversations').select('id, instancia, closed_at').gte('closed_at', thirtyDaysAgo),
       supabase.from('attendances').select('numero, instancia'),
       supabase.from('appointments').select('id, instancia, status, starts_at, payment_status, price').gte('starts_at', thirtyDaysAgo),
@@ -101,8 +104,8 @@ export default function AdmDashboard() {
       supabase.from('alerts').select('id, instancia, resolved'),
     ])
 
+    setMsgStats(msgs)
     setData({
-      msgs:   msgs.data || [],
       convs:  convs.data || [],
       atts:   atts.data || [],
       appts:  appts.data || [],
@@ -133,13 +136,9 @@ export default function AdmDashboard() {
   const companyStats = useMemo(() => {
     return db.companies.map(c => {
       const inst = c.instance
-      const msgs7d   = data.msgs.filter(m => m.instancia === inst).length
-      const msgsToday = data.msgs.filter(m => {
-        if (m.instancia !== inst || !m.created_at) return false
-        const d = new Date(m.created_at)
-        const today = new Date(); today.setHours(0,0,0,0)
-        return d >= today
-      }).length
+      const instStats = msgStats.byInstance[inst]
+      const msgs7d   = instStats?.total || 0
+      const msgsToday = instStats?.today || 0
       const convs30 = data.convs.filter(co => co.instancia === inst).length
       const activeAtts = data.atts.filter(a => a.instancia === inst).length
       const apptsList = data.appts.filter(a => a.instancia === inst)
@@ -147,13 +146,13 @@ export default function AdmDashboard() {
       const revenue = apptsList.filter(a => a.payment_status === 'pago').reduce((s, a) => s + Number(a.price || 0), 0)
       const savedCt = data.saved.filter(s => s.instancia === inst).length
       const alertsPending = data.alerts.filter(a => a.instancia === inst && !a.resolved).length
-      const lastMsg = data.msgs.filter(m => m.instancia === inst).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]?.created_at
+      const lastMsg = instStats?.lastMsg
       const wppState = evolutionStatuses[inst] || 'unknown'
       const activeUsers = (c.users || []).filter(u => u.active).length
 
       return { ...c, msgs7d, msgsToday, convs30, activeAtts, apptsTotal, revenue, savedCt, alertsPending, lastMsg, wppState, activeUsers }
     })
-  }, [db.companies, data, evolutionStatuses])
+  }, [db.companies, data, msgStats, evolutionStatuses])
 
   // ─── KPIs globais ─────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
@@ -189,15 +188,7 @@ export default function AdmDashboard() {
   }, [db.companies])
 
   // ─── Heatmap de mensagens (24h por dia) ───────────────────────────────────
-  const hoursMap = useMemo(() => {
-    const arr = Array(24).fill(0)
-    data.msgs.forEach(m => {
-      if (!m.created_at) return
-      const d = new Date(m.created_at)
-      arr[d.getHours()]++
-    })
-    return arr
-  }, [data.msgs])
+  const hoursMap = msgStats.hours
   const maxHour = Math.max(...hoursMap, 1)
 
   // ─── Top 5 empresas por volume de mensagens ──────────────────────────────

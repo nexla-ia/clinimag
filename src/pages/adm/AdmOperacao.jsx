@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { fetchOperacaoMsgStats } from '../../lib/queries'
 import {
   Building2, Users, Stethoscope, ClipboardList, ShieldCheck, Calendar,
   CircleDollarSign, RefreshCw, TrendingUp, Award, Crown, Cake, Activity,
@@ -51,7 +52,7 @@ export default function AdmOperacao() {
   const [users, setUsers]           = useState([])
   const [kanbanCards, setKanbanCards] = useState([])
   const [alerts, setAlerts]         = useState([])
-  const [msgs, setMsgs]             = useState([])
+  const [msgStats, setMsgStats]     = useState({ total: 0, byType: { cliente: 0, ia: 0, humano: 0, tool: 0 } })
 
   const company = companies.find(c => c.id === selected)
 
@@ -70,7 +71,7 @@ export default function AdmOperacao() {
       supabase.from('users').select('id, name, email, role, active').eq('company_id', company.id),
       supabase.from('kanban_cards').select('id, instancia, priority, due_date').eq('instancia', company.instance),
       supabase.from('alerts').select('id, instancia, resolved, created_at').eq('instancia', company.instance),
-      supabase.from('mensagens_geral').select('id, type, created_at').eq('instancia', company.instance).gte('created_at', thirty).limit(20000),
+      fetchOperacaoMsgStats(company.instance, thirty),
     ])
     setPacientes(pat.data || [])
     setPros(pr.data || [])
@@ -80,7 +81,7 @@ export default function AdmOperacao() {
     setUsers(us.data || [])
     setKanbanCards(kc.data || [])
     setAlerts(al.data || [])
-    setMsgs(mg.data || [])
+    setMsgStats(mg || { total: 0, byType: { cliente: 0, ia: 0, humano: 0, tool: 0 } })
     setLoading(false)
   }
 
@@ -149,11 +150,7 @@ export default function AdmOperacao() {
     return [...appts].sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at)).slice(0, 12)
   }, [appts])
 
-  const msgsByType = useMemo(() => {
-    const m = { cliente: 0, ia: 0, humano: 0, tool: 0 }
-    msgs.forEach(x => { const t = (x.type || '').toLowerCase(); if (m[t] !== undefined) m[t]++ })
-    return m
-  }, [msgs])
+  const msgsByType = msgStats.byType
 
   if (!company) {
     return (
@@ -257,7 +254,7 @@ export default function AdmOperacao() {
         <div className="opx-mini">
           <div className="opx-mini-icon" style={{ background: '#EDE9FE', color: '#7C3AED' }}><MessageSquare size={14} /></div>
           <div>
-            <div className="opx-mini-num">{fmtNumber(msgs.length)}</div>
+            <div className="opx-mini-num">{fmtNumber(msgStats.total)}</div>
             <div className="opx-mini-lbl">Mensagens 30d</div>
           </div>
         </div>

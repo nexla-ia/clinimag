@@ -31,3 +31,72 @@ export async function fetchDistinctGrupos(instancia) {
     .limit(20000)
   return rows || []
 }
+
+const OP_TYPES = ['cliente', 'ia', 'humano', 'tool']
+
+// AdmOperacao: estatísticas de mensagens de uma instância desde sinceISO.
+// Retorna { total, byType: { cliente, ia, humano, tool } }.
+export async function fetchOperacaoMsgStats(instancia, sinceISO) {
+  const { data, error } = await supabase.rpc('api_operacao_msg_stats', {
+    p_instancia: instancia, p_since: sinceISO,
+  })
+  if (!error && data) {
+    const byType = { cliente: 0, ia: 0, humano: 0, tool: 0 }
+    let total = 0
+    data.forEach(r => {
+      const n = Number(r.total) || 0
+      total += n
+      if (byType[r.type] !== undefined) byType[r.type] = n
+    })
+    return { total, byType }
+  }
+  // Fallback: agrega client-side (comportamento antigo)
+  const { data: rows } = await supabase
+    .from('mensagens_geral')
+    .select('id, type')
+    .eq('instancia', instancia)
+    .gte('created_at', sinceISO)
+    .limit(20000)
+  const byType = { cliente: 0, ia: 0, humano: 0, tool: 0 }
+  ;(rows || []).forEach(x => { const t = (x.type || '').toLowerCase(); if (byType[t] !== undefined) byType[t]++ })
+  return { total: (rows || []).length, byType }
+}
+
+// AdmDashboard: agregados de mensagens na janela (sinceISO) no timezone tz.
+// Retorna { byInstance: { [inst]: { total, today, lastMsg } }, hours: number[24] }.
+export async function fetchDashboardMsgStats(sinceISO, tz) {
+  const [statsRes, hoursRes] = await Promise.all([
+    supabase.rpc('api_adm_msg_stats', { p_since: sinceISO, p_tz: tz }),
+    supabase.rpc('api_adm_msg_hours', { p_since: sinceISO, p_tz: tz }),
+  ])
+  if (!statsRes.error && !hoursRes.error) {
+    const byInstance = {}
+    ;(statsRes.data || []).forEach(r => {
+      byInstance[r.instancia] = { total: Number(r.total) || 0, today: Number(r.today) || 0, lastMsg: r.last_msg }
+    })
+    const hours = Array(24).fill(0)
+    ;(hoursRes.data || []).forEach(r => { hours[r.hour] = Number(r.total) || 0 })
+    return { byInstance, hours }
+  }
+  // Fallback: agrega client-side no timezone local do browser (comportamento antigo)
+  const { data: rows } = await supabase
+    .from('mensagens_geral')
+    .select('id, instancia, type, created_at')
+    .gte('created_at', sinceISO)
+    .limit(50000)
+  const byInstance = {}
+  const hours = Array(24).fill(0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  ;(rows || []).forEach(m => {
+    const inst = m.instancia
+    if (!byInstance[inst]) byInstance[inst] = { total: 0, today: 0, lastMsg: null }
+    byInstance[inst].total++
+    if (m.created_at) {
+      const d = new Date(m.created_at)
+      if (d >= today) byInstance[inst].today++
+      hours[d.getHours()]++
+      if (!byInstance[inst].lastMsg || m.created_at > byInstance[inst].lastMsg) byInstance[inst].lastMsg = m.created_at
+    }
+  })
+  return { byInstance, hours }
+}
