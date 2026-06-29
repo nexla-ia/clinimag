@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { fetchDistinctGrupos } from '../../lib/queries'
 import ConfirmModal from '../../components/ConfirmModal'
 import LimitReachedModal from '../../components/LimitReachedModal'
 import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '../../lib/planLimits'
@@ -188,9 +189,8 @@ export default function CompanyAgenda() {
       supabase.from('mensagens_geral').select('numero, created_at').eq('instancia', instance)
         .order('created_at', { ascending: false }).limit(500),
       // Grupos da instância
-      supabase.from('mensagens_geral').select('idgrupo, nomegrupo').eq('instancia', instance)
-        .not('idgrupo', 'is', null).order('id', { ascending: false }).limit(10000),
-    ]).then(([{ data: ag }, { data: sc }, { data: pros }, { data: procs }, { data: plans }, { data: prices }, { data: mg }, { data: grps }]) => {
+      fetchDistinctGrupos(instance),
+    ]).then(([{ data: ag }, { data: sc }, { data: pros }, { data: procs }, { data: plans }, { data: prices }, { data: mg }, grps]) => {
       if (ag) {
         setAgendas(ag)
         if (!selectedAgendaId && ag.length) setSelectedAgendaId(ag[0].id)

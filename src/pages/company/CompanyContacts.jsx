@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { fetchDistinctNumeros } from '../../lib/queries'
 import ConfirmModal from '../../components/ConfirmModal'
 import {
   Users, Search, Pencil, Trash2, X, Plus, Phone, Copy, Check, MessageSquare,
@@ -62,8 +63,8 @@ export default function CompanyContacts() {
     Promise.all([
       supabase.from('saved_contacts').select('*').eq('instancia', instance).order('nome', { ascending: true }),
       supabase.from('insurance_plans').select('id, name').eq('instancia', instance).eq('active', true).order('name'),
-      supabase.from('mensagens_geral').select('numero').eq('instancia', instance).limit(5000),
-    ]).then(([{ data: pat }, { data: plans }, { data: msgs }]) => {
+      fetchDistinctNumeros(instance),
+    ]).then(([{ data: pat }, { data: plans }, msgs]) => {
       if (pat) setPatients(pat)
       if (plans) setInsurancePlans(plans)
       if (msgs) {

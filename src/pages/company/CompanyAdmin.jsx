@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { fetchDistinctGrupos } from '../../lib/queries'
 import ConfirmModal from '../../components/ConfirmModal'
 import LimitReachedModal from '../../components/LimitReachedModal'
 import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit, PLAN_DEFAULTS, UNLIMITED } from '../../lib/planLimits'
@@ -94,13 +95,8 @@ export default function CompanyAdmin() {
   useEffect(() => {
     const inst = session?.company?.instance
     if (!inst) return
-    supabase.from('mensagens_geral')
-      .select('idgrupo, nomegrupo')
-      .eq('instancia', inst)
-      .not('idgrupo', 'is', null)
-      .order('id', { ascending: false })
-      .limit(20000)
-      .then(({ data }) => {
+    fetchDistinctGrupos(inst)
+      .then((data) => {
         if (!data) return
         const seen = new Set()
         const groups = []
