@@ -32,7 +32,44 @@ export async function fetchDistinctGrupos(instancia) {
   return rows || []
 }
 
-const OP_TYPES = ['cliente', 'ia', 'humano', 'tool']
+// CompanyConversations: contatos únicos (WhatsApp) de uma instância.
+// Shape: [{ numero, created_at, horaLastMessage, outside_assumed }] ordenado
+// pela mensagem mais recente. O componente mapeia para o formato de contato.
+export async function fetchConversaContatos(instancia) {
+  const { data, error } = await supabase.rpc('api_conversas_contatos', { p_instancia: instancia })
+  if (!error && data) return data
+  // Fallback: baixa as mensagens e deduplica client-side (comportamento antigo)
+  const { data: rows } = await supabase
+    .from('mensagens_geral')
+    .select('id, numero, idgrupo, type, "horaLastMessage", created_at')
+    .eq('instancia', instancia)
+    .or('aplicativo.eq.whatsapp,aplicativo.is.null')
+    .order('id', { ascending: false })
+    .limit(50000)
+  const all = rows || []
+  const hasOutsideHuman = new Set()
+  for (const row of all) {
+    if (row.idgrupo) continue
+    const t = (row.type || '').toLowerCase()
+    if ((t === 'atendente' || t === 'humano') && row.numero) hasOutsideHuman.add(row.numero)
+  }
+  const seen = new Set()
+  const out = []
+  for (const row of all) {
+    const sid = row.numero
+    if (!sid || seen.has(sid)) continue
+    if (sid.includes('@g.us')) continue
+    if (row.idgrupo) continue
+    seen.add(sid)
+    out.push({
+      numero: sid,
+      created_at: row.created_at,
+      horaLastMessage: row.horaLastMessage,
+      outside_assumed: hasOutsideHuman.has(sid),
+    })
+  }
+  return out
+}
 
 // AdmOperacao: estatísticas de mensagens de uma instância desde sinceISO.
 // Retorna { total, byType: { cliente, ia, humano, tool } }.

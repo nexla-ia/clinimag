@@ -5,6 +5,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { fetchConversaContatos } from '../../lib/queries'
 import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
@@ -486,39 +487,17 @@ export default function CompanyConversations() {
   useEffect(() => {
     if (!instance) return
     setLoadingContacts(true)
-    supabase.from(CONV_TABLE).select('id, numero, idgrupo, type, "horaLastMessage", created_at')
-      .eq('instancia', instance)
-      .or('aplicativo.eq.whatsapp,aplicativo.is.null')
-      .order('id', { ascending: false })
-      .limit(50000)
-      .then(({ data, error }) => {
-        if (!error && data) {
-          const seen = new Set()
-          const unique = []
-          // Indexa quem teve resposta de atendente humano em algum momento (só msgs individuais)
-          const hasOutsideHuman = new Set()
-          for (const row of data) {
-            if (row.idgrupo) continue
-            const t = (row.type || '').toLowerCase()
-            if ((t === 'atendente' || t === 'humano') && row.numero) {
-              hasOutsideHuman.add(row.numero)
-            }
-          }
-          for (const row of data) {
-            const sid = row.numero
-            if (!sid || seen.has(sid)) continue
-            if (sid.includes('@g.us')) continue  // ignora grupos do WhatsApp
-            if (row.idgrupo) continue            // mensagem de grupo → tela de grupos
-            seen.add(sid)
-            unique.push({
-              session_id: sid,
-              phone: formatPhone(sid),
-              lastTs: getTimestamp(row),
-              outsideAssumed: hasOutsideHuman.has(sid),
-            })
-          }
-          setContacts(unique)
-        }
+    // Contatos únicos vêm já agregados do servidor (RPC) — antes baixava
+    // até 50.000 mensagens só para deduplicar no cliente.
+    fetchConversaContatos(instance)
+      .then((rows) => {
+        const unique = (rows || []).map((r) => ({
+          session_id: r.numero,
+          phone: formatPhone(r.numero),
+          lastTs: getTimestamp(r),
+          outsideAssumed: r.outside_assumed,
+        }))
+        setContacts(unique)
         setLoadingContacts(false)
       })
   }, [instance])
