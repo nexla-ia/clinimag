@@ -55,8 +55,9 @@ BEGIN
   ORDER BY posicao ASC
   LIMIT 1;
 
-  -- Nome e origem: aproveita o cadastro do paciente se existir
-  SELECT nome, origem INTO v_nome, v_origem
+  -- Nome e origem: aproveita o cadastro do paciente se existir.
+  -- (saved_contacts usa referral_source como origem, não 'origem')
+  SELECT nome, referral_source INTO v_nome, v_origem
   FROM public.saved_contacts
   WHERE instancia = NEW.instancia
     AND regexp_replace(numero, '[^0-9]', '', 'g') = v_phone
@@ -74,6 +75,11 @@ BEGIN
     (NEW.instancia, v_phone, v_nome, v_origem, v_stage, v_funnel, 'frio', now())
   ON CONFLICT (instancia, phone) DO NOTHING;
 
+  RETURN NEW;
+
+-- Blindagem: a criação de lead é acessória e NUNCA pode bloquear a gravação
+-- da mensagem. Qualquer erro aqui é ignorado e a mensagem entra normalmente.
+EXCEPTION WHEN OTHERS THEN
   RETURN NEW;
 END;
 $$;
