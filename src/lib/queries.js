@@ -41,7 +41,7 @@ export async function fetchConversaContatos(instancia) {
   // Fallback: baixa as mensagens e deduplica client-side (comportamento antigo)
   const { data: rows } = await supabase
     .from('mensagens_geral')
-    .select('id, numero, idgrupo, type, "horaLastMessage", created_at')
+    .select('id, numero, idgrupo, type, mensagem, "horaLastMessage", created_at')
     .eq('instancia', instancia)
     .or('aplicativo.eq.whatsapp,aplicativo.is.null')
     .order('id', { ascending: false })
@@ -66,6 +66,7 @@ export async function fetchConversaContatos(instancia) {
       created_at: row.created_at,
       horaLastMessage: row.horaLastMessage,
       outside_assumed: hasOutsideHuman.has(sid),
+      preview: (row.mensagem || '').trim(),
     })
   }
   return out

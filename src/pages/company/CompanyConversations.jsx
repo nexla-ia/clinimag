@@ -189,6 +189,7 @@ export default function CompanyConversations() {
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [search, setSearch]           = useState('')
   const [tagFilter, setTagFilter]     = useState([])
+  const [onlyUnread, setOnlyUnread]   = useState(false)
   const { tagsOf, assignments: tagAssignments } = useContactTags(instance)
   const [selected, setSelected]       = useState(null)
   const [messages, setMessages]       = useState([])
@@ -226,9 +227,18 @@ export default function CompanyConversations() {
   const recordTimerRef   = useRef(null)
   const recordStartRef   = useRef(0)
   const fileInputRef     = useRef(null)
+  const composerRef      = useRef(null)
   const bottomRef    = useRef(null)
   const chatBodyRef  = useRef(null)
   const skipScrollRef = useRef(false)
+
+  // Auto-cresce o composer conforme digita (até ~5 linhas), tipo WhatsApp
+  useEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+  }, [msgText])
   const selectedRef  = useRef(null)
   const sentCacheRef = useRef([])
   const autoCloseDone = useRef(false)
@@ -496,6 +506,7 @@ export default function CompanyConversations() {
           phone: formatPhone(r.numero),
           lastTs: getTimestamp(r),
           outsideAssumed: r.outside_assumed,
+          preview: r.preview || '',
         }))
         setContacts(unique)
         setLoadingContacts(false)
@@ -583,16 +594,17 @@ export default function CompanyConversations() {
             setUnreadCounts(prev => ({ ...prev, [sid]: (prev[sid] || 0) + 1 }))
           }
 
+          const newPreview = (row.mensagem || '').trim() || (row.base64 ? '📎 Mídia' : '')
           setContacts(prev => {
             const exists = prev.find(c => c.session_id === sid)
             const isOutsideHuman = incomingType === 'atendente' || incomingType === 'humano'
             if (exists) {
               return [
-                { ...exists, lastTs: ts, outsideAssumed: exists.outsideAssumed || isOutsideHuman },
+                { ...exists, lastTs: ts, outsideAssumed: exists.outsideAssumed || isOutsideHuman, preview: newPreview || exists.preview },
                 ...prev.filter(c => c.session_id !== sid)
               ]
             }
-            return [{ session_id: sid, phone: formatPhone(sid), lastTs: ts, outsideAssumed: isOutsideHuman }, ...prev]
+            return [{ session_id: sid, phone: formatPhone(sid), lastTs: ts, outsideAssumed: isOutsideHuman, preview: newPreview }, ...prev]
           })
 
           if (selectedRef.current?.session_id === sid) {
@@ -1238,6 +1250,7 @@ export default function CompanyConversations() {
       return phoneMatch || nameMatch
     })
     .filter(c => tagMatch(c.phone))
+    .filter(c => !onlyUnread || unreadCounts[c.session_id] > 0)
   const isClosed = selected ? closed.has(selected.session_id) : false
 
   return (
@@ -1282,8 +1295,23 @@ export default function CompanyConversations() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <TagFilter instancia={instance} value={tagFilter} onChange={setTagFilter} />
+            <button
+              type="button"
+              onClick={() => setOnlyUnread(v => !v)}
+              title="Mostrar só conversas não lidas"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit',
+                background: onlyUnread ? '#2563EB' : '#fff',
+                color: onlyUnread ? '#fff' : 'var(--text-secondary)',
+                border: `1px solid ${onlyUnread ? '#2563EB' : 'var(--border)'}`,
+              }}
+            >
+              <Inbox size={13} /> Não lidas
+            </button>
           </div>
         </div>
 
@@ -1373,6 +1401,17 @@ export default function CompanyConversations() {
                       <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, color: rs.color, background: rs.bg, border: `1px solid ${rs.border}`, lineHeight: '16px' }}>{rs.label}</span>
                     )}
                   </div>
+                  {c.preview && (
+                    <div style={{
+                      fontSize: 12,
+                      color: unreadCounts[c.session_id] ? 'var(--text-primary)' : 'var(--text-muted)',
+                      fontWeight: unreadCounts[c.session_id] ? 600 : 400,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      maxWidth: '100%', marginTop: 2,
+                    }}>
+                      {c.preview}
+                    </div>
+                  )}
                   {tab === 'recepcao' && (
                     <button
                       onClick={e => handleAssume(c, e)}
@@ -2012,18 +2051,25 @@ export default function CompanyConversations() {
                       </Suspense>
                     </div>
                   )}
-                  <input
+                  <textarea
+                    ref={composerRef}
+                    rows={1}
                     className="nx-input chat-composer-input"
-                    style={{ flex: 1 }}
+                    style={{ flex: 1, resize: 'none', minHeight: 38, maxHeight: 120, overflowY: 'auto', lineHeight: 1.4, fontFamily: 'inherit' }}
                     placeholder={
                       !canRespond(selected) ? "Conversa está com outro atendente — você não pode responder"
                       : recordedAudio ? "Mensagem opcional para acompanhar o áudio..."
                       : attachedFile ? "Mensagem opcional para acompanhar o arquivo..."
-                      : "Digite uma mensagem..."
+                      : "Digite uma mensagem...  (Shift+Enter pula linha)"
                     }
                     value={msgText}
                     onChange={e => setMsgText(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSend()
+                      }
+                    }}
                     disabled={sending || recording || !canRespond(selected)}
                   />
                   <input
