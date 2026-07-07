@@ -724,27 +724,35 @@ export default function CompanyConversations() {
 
   async function handleDeleteMessage(msg) {
     if (!msg?.id_mensagem) {
-      alert('Não é possível apagar: esta mensagem não tem identificador do WhatsApp.')
+      setToast({ message: 'Não dá pra apagar: mensagem ainda sem identificador do WhatsApp.', color: '#DC2626' })
+      setTimeout(() => setToast(null), 3500)
       return
     }
-    // Dispara o webhook que apaga de fato no WhatsApp (via n8n)
+    const payload = {
+      id_mensagem: msg.id_mensagem,
+      fromMe: String(msg.type !== 'cliente'),   // atendente/IA = "true", cliente = "false"
+      api: apiInstancia || '',
+      instancia: instance || '',
+    }
+    console.log('[apagarmeg] enviando webhook:', payload)
+    // Envia como form-urlencoded (requisição "simples") para NÃO disparar o
+    // preflight CORS — assim a requisição chega no n8n mesmo que o webhook não
+    // devolva cabeçalho CORS. Os campos chegam em body.* no n8n.
     try {
       await fetch('https://n8n.nexladesenvolvimento.com.br/webhook/apagarmeg', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id_mensagem: msg.id_mensagem,
-          fromMe: msg.type !== 'cliente',   // atendente/IA = true, cliente = false
-          api: apiInstancia,
-          instancia: instance,
-        }),
+        body: new URLSearchParams(payload),
+        keepalive: true,
       })
     } catch (e) {
-      console.error('Falha ao chamar webhook de apagar mensagem', e)
+      // O request costuma ser entregue mesmo quando o fetch rejeita (CORS na resposta)
+      console.warn('[apagarmeg] fetch rejeitou (provável CORS na resposta; o request foi enviado):', e)
     }
     // Marca como apagada (persistente) e risca na tela
     await supabase.from(CONV_TABLE).update({ apagada: true }).eq('id', msg.id)
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, apagada: true } : m))
+    setToast({ message: 'Mensagem apagada.', color: '#16A34A' })
+    setTimeout(() => setToast(null), 2500)
   }
 
   useEffect(() => {
