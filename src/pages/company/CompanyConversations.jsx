@@ -723,13 +723,20 @@ export default function CompanyConversations() {
   }
 
   async function handleDeleteMessage(msg) {
-    if (!msg?.id_mensagem) {
-      setToast({ message: 'Não dá pra apagar: mensagem ainda sem identificador do WhatsApp.', color: '#DC2626' })
+    // A mensagem recém-enviada pode ainda não ter id_mensagem (o n8n preenche
+    // alguns segundos depois). Se faltar no estado local, busca no banco.
+    let idMsg = msg?.id_mensagem
+    if (!idMsg && msg?.id) {
+      const { data } = await supabase.from(CONV_TABLE).select('id_mensagem').eq('id', msg.id).maybeSingle()
+      idMsg = data?.id_mensagem || null
+    }
+    if (!idMsg) {
+      setToast({ message: 'A mensagem ainda está sincronizando. Tente de novo em alguns segundos.', color: '#D97706' })
       setTimeout(() => setToast(null), 3500)
       return
     }
     const payload = {
-      id_mensagem: msg.id_mensagem,
+      id_mensagem: idMsg,
       fromMe: String(msg.type !== 'cliente'),   // atendente/IA = "true", cliente = "false"
       api: apiInstancia || '',
       instancia: instance || '',
@@ -1167,6 +1174,8 @@ export default function CompanyConversations() {
               .update({ id_mensagem: msgId })
               .eq('id', row.id)
               .then(() => {})
+            // Propaga pro estado local pra lixeira aparecer sem precisar recarregar
+            setMessages(prev => prev.map(m => m.id === row.id ? { ...m, id_mensagem: msgId } : m))
           }
         })
         .catch(e => console.warn('webhook envio:', e))
@@ -1975,7 +1984,7 @@ export default function CompanyConversations() {
                           <Pencil size={10} />
                         </button>
                       )}
-                      {msg.id_mensagem && !msg.apagada && editingMsgId !== msg.id && (
+                      {!msg.apagada && editingMsgId !== msg.id && (
                         <button
                           onClick={() => setConfirmDelMsg(msg)}
                           title="Apagar mensagem"
