@@ -544,3 +544,92 @@
   }
   .chat-banner-long { display: none; }
 }
+
+/* ═══ Administração (painel company) — layout ═════════════════════════════
+   Estas classes existiam só no Adm.css (que o painel company não carrega),
+   então a tela de Administração ficava sem estilo. Definidas aqui, escopadas
+   em .company-admin, com container centralizado e ritmo entre seções. */
+.company-admin .page-body {
+  max-width: 960px;
+  margin: 0 auto 1.75rem;
+  padding: 0 2rem;
+}
+.company-admin .page-body:first-of-type { padding-top: 1.5rem; }
+
+.company-admin .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0.875rem;
+}
+.company-admin .section-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* Tabela de dados (Usuários) */
+.company-admin .data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.company-admin .data-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #F8FAFC;
+  white-space: nowrap;
+}
+.company-admin .data-table th:first-child { border-radius: var(--radius-md) 0 0 0; }
+.company-admin .data-table th:last-child  { border-radius: 0 var(--radius-md) 0 0; text-align: right; }
+.company-admin .data-table td {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid #F1F5F9;
+  vertical-align: middle;
+}
+.company-admin .data-table tr:last-child td { border-bottom: none; }
+.company-admin .data-table tr:hover td { background: #F8FAFC; }
+.company-admin .td-name { color: var(--text-primary) !important; font-weight: 600; }
+
+/* Coluna de ações da tabela */
+.company-admin .data-table td:last-child { text-align: right; white-space: nowrap; }
+.company-admin .table-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.company-admin .table-action + .table-action { margin-left: 6px; }
+.company-admin .table-action:hover {
+  border-color: #BFDBFE;
+  color: #2563EB;
+  background: #EFF6FF;
+}
+.company-admin .table-action.danger:hover {
+  border-color: #FECACA;
+  color: #DC2626;
+  background: #FEF2F2;
+}
+
+@media (max-width: 900px) {
+  .company-admin .page-body { padding: 0 1rem; }
+  .company-admin .data-table { display: block; overflow-x: auto; }
+}

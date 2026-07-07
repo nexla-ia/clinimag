@@ -437,7 +437,7 @@ export default function CompanyAdmin() {
   }
 
   return (
-    <div className="page-enter">
+    <div className="page-enter company-admin">
       {/* ─── Plano e cobrança (card hero) ──────────────────────────────── */}
       <div className="page-body">
         <div className="section-header">
