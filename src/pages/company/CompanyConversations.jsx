@@ -9,6 +9,7 @@ import { fetchConversaContatos } from '../../lib/queries'
 import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
+import ConfirmModal from '../../components/ConfirmModal'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -215,6 +216,7 @@ export default function CompanyConversations() {
   const [saveContactModal, setSaveContactModal] = useState(null) // { numero, nome, notes }
   const [savingContact, setSavingContact] = useState(false)
   const [editingMsgId, setEditingMsgId]   = useState(null)
+  const [confirmDelMsg, setConfirmDelMsg] = useState(null)
   const [editingText, setEditingText]     = useState('')
   const [savingEdit, setSavingEdit]       = useState(false)
   const [showEmoji, setShowEmoji]         = useState(false)
@@ -619,6 +621,7 @@ export default function CompanyConversations() {
                 type: getMessageType(row),
                 content: getMessageContent(row),
                 base64: row.base64 || null,
+                apagada: false,
                 nome: sentNome || row.nome || null,
                 ts,
               }]
@@ -654,7 +657,7 @@ export default function CompanyConversations() {
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
-    supabase.from(CONV_TABLE).select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+    supabase.from(CONV_TABLE).select('id, id_mensagem, numero, nome, type, mensagem, base64, apagada, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('numero', selected.session_id)
       .is('idgrupo', null)
@@ -671,6 +674,7 @@ export default function CompanyConversations() {
             type: getMessageType(r),
             content: getMessageContent(r),
             base64: r.base64 || null,
+            apagada: r.apagada || false,
             nome: r.nome || null,
             ts: getTimestamp(r),
           })))
@@ -686,7 +690,7 @@ export default function CompanyConversations() {
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
     const { data, error } = await supabase.from(CONV_TABLE)
-      .select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+      .select('id, id_mensagem, numero, nome, type, mensagem, base64, apagada, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('numero', selected.session_id)
       .is('idgrupo', null)
@@ -703,6 +707,7 @@ export default function CompanyConversations() {
         type: getMessageType(r),
         content: getMessageContent(r),
         base64: r.base64 || null,
+        apagada: r.apagada || false,
         nome: r.nome || null,
         ts: getTimestamp(r),
       }))
@@ -715,6 +720,31 @@ export default function CompanyConversations() {
       })
     }
     setLoadingMoreMsgs(false)
+  }
+
+  async function handleDeleteMessage(msg) {
+    if (!msg?.id_mensagem) {
+      alert('Não é possível apagar: esta mensagem não tem identificador do WhatsApp.')
+      return
+    }
+    // Dispara o webhook que apaga de fato no WhatsApp (via n8n)
+    try {
+      await fetch('https://n8n.nexladesenvolvimento.com.br/webhook/apagarmeg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_mensagem: msg.id_mensagem,
+          fromMe: msg.type !== 'cliente',   // atendente/IA = true, cliente = false
+          api: apiInstancia,
+          instancia: instance,
+        }),
+      })
+    } catch (e) {
+      console.error('Falha ao chamar webhook de apagar mensagem', e)
+    }
+    // Marca como apagada (persistente) e risca na tela
+    await supabase.from(CONV_TABLE).update({ apagada: true }).eq('id', msg.id)
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, apagada: true } : m))
   }
 
   useEffect(() => {
@@ -1902,7 +1932,7 @@ export default function CompanyConversations() {
                                 </div>
                               </div>
                             ) : displayContent ? (
-                              <span style={{ whiteSpace: 'pre-wrap' }}>
+                              <span style={{ whiteSpace: 'pre-wrap', ...(msg.apagada ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>
                                 {renderTextWithLinks(displayContent, {
                                   color: isAtendente ? 'rgba(255,255,255,0.9)' : '#2563EB',
                                   textDecoration: 'underline',
@@ -1910,12 +1940,17 @@ export default function CompanyConversations() {
                                 })}
                               </span>
                             ) : null}
+                            {msg.apagada && (
+                              <div style={{ fontSize: 10.5, fontStyle: 'italic', opacity: 0.7, marginTop: displayContent ? 4 : 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <Trash2 size={10} /> mensagem apagada
+                              </div>
+                            )}
                           </div>
                         )
                       })()}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end', gap: 5 }}>
-                      {isAtendente && !msg.base64 && editingMsgId !== msg.id && (
+                      {isAtendente && !msg.base64 && !msg.apagada && editingMsgId !== msg.id && (
                         <button
                           onClick={() => { setEditingMsgId(msg.id); setEditingText(msg.content || '') }}
                           title="Editar mensagem"
@@ -1930,6 +1965,23 @@ export default function CompanyConversations() {
                           onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}
                         >
                           <Pencil size={10} />
+                        </button>
+                      )}
+                      {msg.id_mensagem && !msg.apagada && editingMsgId !== msg.id && (
+                        <button
+                          onClick={() => setConfirmDelMsg(msg)}
+                          title="Apagar mensagem"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 18, height: 18, borderRadius: 4, border: 'none',
+                            background: 'transparent', cursor: 'pointer',
+                            color: '#DC2626', opacity: 0.5, padding: 0,
+                            transition: 'opacity 0.15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                          onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
+                        >
+                          <Trash2 size={10} />
                         </button>
                       )}
                       {msg.ts && (
@@ -2275,6 +2327,17 @@ export default function CompanyConversations() {
           {toast.message}
         </div>
       , document.body)}
+
+      <ConfirmModal
+        open={!!confirmDelMsg}
+        variant="danger"
+        title="Apagar mensagem?"
+        message="A mensagem será apagada no WhatsApp e ficará riscada aqui. Não dá pra desfazer."
+        confirmLabel="Apagar"
+        cancelLabel="Cancelar"
+        onConfirm={() => { const m = confirmDelMsg; setConfirmDelMsg(null); handleDeleteMessage(m) }}
+        onCancel={() => setConfirmDelMsg(null)}
+      />
 
       {transferModal && createPortal(
         <div style={{
