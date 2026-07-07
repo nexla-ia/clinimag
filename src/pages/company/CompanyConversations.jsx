@@ -735,11 +735,17 @@ export default function CompanyConversations() {
       setTimeout(() => setToast(null), 3500)
       return
     }
+    const contactDigits = (selected?.session_id || '').replace(/\D/g, '')
     const payload = {
       id_mensagem: idMsg,
       fromMe: String(msg.type !== 'cliente'),   // atendente/IA = "true", cliente = "false"
       api: apiInstancia || '',
       instancia: instance || '',
+      // Número da conversa (contato) — é o que vai no remoteJid do Evolution numa DM
+      numero: contactDigits,
+      remoteJid: contactDigits ? `${contactDigits}@s.whatsapp.net` : '',
+      // Número da própria empresa (instância) — caso o fluxo precise
+      numero_empresa: session?.company?.numero_base || '',
     }
     console.log('[apagarmeg] enviando webhook:', payload)
     // Envia como form-urlencoded (requisição "simples") para NÃO disparar o
