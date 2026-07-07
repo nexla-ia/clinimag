@@ -629,6 +629,18 @@ export default function CompanyConversations() {
           }
         }
       )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: CONV_TABLE, filter: `instancia=eq.${instance}` },
+        (p) => {
+          const row = p.new
+          if (!row) return
+          // Só interessa se for a conversa aberta (ex.: cliente apagou → apagada=true)
+          if (selectedRef.current?.session_id !== row.numero) return
+          setMessages(prev => prev.map(m => m.id === row.id
+            ? { ...m, apagada: !!row.apagada, id_mensagem: row.id_mensagem || m.id_mensagem }
+            : m))
+        }
+      )
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [instance])
@@ -1965,7 +1977,7 @@ export default function CompanyConversations() {
                             ) : null}
                             {msg.apagada && (
                               <div style={{ fontSize: 10.5, fontStyle: 'italic', opacity: 0.7, marginTop: displayContent ? 4 : 0, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <Trash2 size={10} /> mensagem apagada
+                                <Trash2 size={10} /> {isCliente ? 'mensagem apagada pelo cliente' : 'mensagem apagada'}
                               </div>
                             )}
                           </div>
