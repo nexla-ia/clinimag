@@ -629,16 +629,16 @@ export default function CompanyConversations() {
           }
         }
       )
+      // Filtra só UPDATEs de exclusão (apagada=true) — dispara apenas quando
+      // alguém apaga (raro), não em todo envio. Mantém o realtime leve.
       .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: CONV_TABLE, filter: `instancia=eq.${instance}` },
+        { event: 'UPDATE', schema: 'public', table: CONV_TABLE, filter: 'apagada=eq.true' },
         (p) => {
           const row = p.new
-          if (!row) return
-          // Só interessa se for a conversa aberta (ex.: cliente apagou → apagada=true)
+          if (!row || !row.apagada) return
+          // Só age na conversa aberta (isso já restringe à instância certa)
           if (selectedRef.current?.session_id !== row.numero) return
-          setMessages(prev => prev.map(m => m.id === row.id
-            ? { ...m, apagada: !!row.apagada, id_mensagem: row.id_mensagem || m.id_mensagem }
-            : m))
+          setMessages(prev => prev.map(m => m.id === row.id ? { ...m, apagada: true } : m))
         }
       )
       .subscribe()
