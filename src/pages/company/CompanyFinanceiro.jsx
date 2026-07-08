@@ -84,6 +84,7 @@ function daysDiff(ds) {
 const pct = (a,b) => b > 0 ? ((a/b)*100).toFixed(1)+'%' : '—'
 
 const FORMAS = ['PIX','Dinheiro','Cartão Débito','Cartão Crédito','Boleto','Convênio','Transferência','Cheque']
+const TIPO_LABEL = { corrente: 'Conta corrente', poupanca: 'Poupança', caixa: 'Caixa', outro: 'Outro' }
 const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
 // ─── Custom recharts tooltip ──────────────────────────────────────────────────
@@ -161,10 +162,12 @@ function NavBtn({ onClick, children }) {
   )
 }
 
-function TxRow({ tx, catMap, onPaid, onEdit, onDelete, showDays, last }) {
+function TxRow({ tx, catMap, bankMap, onPaid, onEdit, onDelete, showDays, last }) {
   const cat = catMap[tx.categoria_id]
   const over = isOverdue(tx.vencimento, tx.status)
   const days = showDays ? daysDiff(tx.vencimento) : null
+  const bank = bankMap?.[tx.bank_account_id]
+  const juros = parseFloat(tx.juros) || 0
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: over ? '#FFF7ED' : C.card, borderBottom: last ? 'none' : `1px solid ${C.border}`, transition: 'background 0.1s' }}
       onMouseEnter={e => { if (!over) e.currentTarget.style.background = C.bg }}
@@ -182,6 +185,13 @@ function TxRow({ tx, catMap, onPaid, onEdit, onDelete, showDays, last }) {
           {tx.centro_custo && <span>· {tx.centro_custo}</span>}
           {tx.forma_pagamento && <span style={{ background: '#F1F5F9', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 600 }}>{tx.forma_pagamento}</span>}
         </div>
+        {tx.status === 'pago' && (bank || tx.pagamento_at || juros > 0) && (
+          <div style={{ fontSize: 10.5, color: C.emerald, marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', ...sora }}>
+            {tx.pagamento_at && <span>✓ pago {fmtDateBR(tx.pagamento_at)}</span>}
+            {bank && <span style={{ color: C.slate }}>🏦 {bank.nome}</span>}
+            {juros > 0 && <span style={{ color: C.rose }}>+ juros {fmtBRL(juros)}</span>}
+          </div>
+        )}
       </div>
       <div style={{ textAlign: 'center', minWidth: 86, flexShrink: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: over ? '#D97706' : C.slate, ...mono }}>{fmtDateBR(tx.vencimento)}</div>
@@ -212,6 +222,7 @@ export default function CompanyFinanceiro() {
   const [tab, setTab] = useState('visaogeral')
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
+  const [bankAccounts, setBankAccounts] = useState([])
   const [loading, setLoading] = useState(true)
 
   const [filterMonth, setFilterMonth] = useState(currentMonthStr())
@@ -227,6 +238,11 @@ export default function CompanyFinanceiro() {
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [payModal, setPayModal] = useState(null)      // { tx, pagamento_at, juros, bank_account_id, forma_pagamento }
+  const [payErr, setPayErr] = useState('')
+  const [bankModal, setBankModal] = useState(null)     // { mode, data }
+  const [savingBank, setSavingBank] = useState(false)
+  const [confirmDelBank, setConfirmDelBank] = useState(null)
 
   // ── Access control ────────────────────────────────────────────────────────
   if (!isAdmin) return (
@@ -250,9 +266,11 @@ export default function CompanyFinanceiro() {
         .order('vencimento', { ascending: false }),
       supabase.from('financial_categories').select('*')
         .in('instancia', [instance, '_default_']).order('nome'),
-    ]).then(([{ data: tx }, { data: cats }]) => {
+      supabase.from('bank_accounts').select('*').eq('instancia', instance).order('nome'),
+    ]).then(([{ data: tx }, { data: cats }, { data: banks }]) => {
       if (tx) setTransactions(tx)
       if (cats) setCategories(cats)
+      if (banks) setBankAccounts(banks)
       setLoading(false)
     })
   }, [instance])
@@ -261,6 +279,24 @@ export default function CompanyFinanceiro() {
   const catMap = useMemo(() => {
     const m = {}; categories.forEach(c => { m[c.id] = c }); return m
   }, [categories])
+
+  const bankMap = useMemo(() => {
+    const m = {}; bankAccounts.forEach(b => { m[b.id] = b }); return m
+  }, [bankAccounts])
+
+  // Saldo/movimento por conta: saldo_inicial + receitas pagas − (despesas pagas + juros)
+  const bankBalances = useMemo(() => {
+    const m = {}
+    bankAccounts.forEach(b => { m[b.id] = { entradas: 0, saidas: 0, saldo: parseFloat(b.saldo_inicial) || 0 } })
+    transactions.forEach(t => {
+      if (t.status !== 'pago' || !t.bank_account_id || !m[t.bank_account_id]) return
+      const v = parseFloat(t.valor) || 0
+      const j = parseFloat(t.juros) || 0
+      if (t.tipo === 'receita') { m[t.bank_account_id].entradas += v; m[t.bank_account_id].saldo += v }
+      else { const out = v + j; m[t.bank_account_id].saidas += out; m[t.bank_account_id].saldo -= out }
+    })
+    return m
+  }, [bankAccounts, transactions])
 
   const cm = currentMonthStr()
 
@@ -466,9 +502,62 @@ export default function CompanyFinanceiro() {
     if (ins) setTransactions(prev => [...ins, ...prev]); setModal(null)
   }
 
-  async function handleMarkPaid(tx) {
-    const { data: upd } = await supabase.from('financial_transactions').update({ status: 'pago', pagamento_at: todayStr() }).eq('id', tx.id).select().single()
+  // Abre o modal de pagamento (data, juros, conta) em vez de marcar direto
+  function handleMarkPaid(tx) {
+    setPayModal({
+      tx,
+      pagamento_at: todayStr(),
+      juros: '',
+      bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
+      forma_pagamento: tx.forma_pagamento || '',
+    })
+    setPayErr('')
+  }
+
+  async function confirmPay() {
+    if (!payModal) return
+    const p = payModal
+    const juros = p.juros ? parseFloat(p.juros) : 0
+    if (p.juros && (isNaN(juros) || juros < 0)) { setPayErr('Juros inválido.'); return }
+    const { data: upd, error } = await supabase.from('financial_transactions').update({
+      status: 'pago',
+      pagamento_at: p.pagamento_at || todayStr(),
+      juros: juros || 0,
+      bank_account_id: p.bank_account_id || null,
+      forma_pagamento: p.forma_pagamento || p.tx.forma_pagamento || null,
+    }).eq('id', p.tx.id).select().single()
+    if (error) { setPayErr('Erro: ' + error.message); return }
     if (upd) setTransactions(prev => prev.map(t => t.id === upd.id ? upd : t))
+    setPayModal(null)
+  }
+
+  async function saveBank() {
+    const d = bankModal?.data || {}
+    if (!d.nome?.trim()) return
+    setSavingBank(true)
+    const payload = {
+      instancia: instance,
+      nome: d.nome.trim(),
+      banco: d.banco?.trim() || null,
+      tipo: d.tipo || 'corrente',
+      saldo_inicial: d.saldo_inicial !== '' && d.saldo_inicial != null ? parseFloat(d.saldo_inicial) : 0,
+      ativo: d.ativo !== false,
+    }
+    if (bankModal.mode === 'edit') {
+      const { data: upd } = await supabase.from('bank_accounts').update(payload).eq('id', d.id).select().single()
+      if (upd) setBankAccounts(prev => prev.map(b => b.id === upd.id ? upd : b))
+    } else {
+      const { data: ins } = await supabase.from('bank_accounts').insert(payload).select().single()
+      if (ins) setBankAccounts(prev => [...prev, ins].sort((a, b) => a.nome.localeCompare(b.nome)))
+    }
+    setSavingBank(false); setBankModal(null)
+  }
+
+  async function deleteBank() {
+    if (!confirmDelBank) return
+    await supabase.from('bank_accounts').delete().eq('id', confirmDelBank.id)
+    setBankAccounts(prev => prev.filter(b => b.id !== confirmDelBank.id))
+    setConfirmDelBank(null)
   }
 
   async function handleDelete() {
@@ -488,6 +577,7 @@ export default function CompanyFinanceiro() {
     { key: 'dre', label: 'DRE' },
     { key: 'inadimplencia', label: 'Inadimplência' },
     { key: 'categorias', label: 'Por Categoria' },
+    { key: 'contas', label: 'Contas' },
   ]
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -742,7 +832,7 @@ export default function CompanyFinanceiro() {
           ) : (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
               {filteredTx.map((tx, i) => (
-                <TxRow key={tx.id} tx={tx} catMap={catMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} last={i === filteredTx.length-1} />
+                <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} last={i === filteredTx.length-1} />
               ))}
             </div>
           )}
@@ -996,7 +1086,7 @@ export default function CompanyFinanceiro() {
                 </div>
                 <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
                   {b.items.map((tx, i) => (
-                    <TxRow key={tx.id} tx={tx} catMap={catMap} onPaid={handleMarkPaid} onEdit={openEdit} showDays last={i===b.items.length-1} />
+                    <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} showDays last={i===b.items.length-1} />
                   ))}
                 </div>
               </div>
@@ -1074,6 +1164,64 @@ export default function CompanyFinanceiro() {
                 </div>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'contas' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, color: C.navy, ...sora }}>Contas bancárias</div>
+              <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2, ...sora }}>Cadastre suas contas pra saber quanto entrou e saiu em cada uma.</div>
+            </div>
+            <button onClick={() => setBankModal({ mode: 'new', data: { nome: '', banco: '', tipo: 'corrente', saldo_inicial: '', ativo: true } })}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.blue, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', ...sora }}>
+              <Plus size={15} /> Nova conta
+            </button>
+          </div>
+
+          {bankAccounts.length === 0 ? (
+            <div style={{ background: C.card, border: `1px dashed ${C.border}`, borderRadius: 16, padding: '3rem 2rem', textAlign: 'center', color: C.muted, ...sora }}>
+              <div style={{ fontSize: 34, marginBottom: 8 }}>🏦</div>
+              <div style={{ fontWeight: 700, color: C.slate, fontSize: 14 }}>Nenhuma conta cadastrada</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>Cadastre a primeira conta pra registrar em qual conta cada pagamento entrou ou saiu.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ background: C.navy, color: '#fff', borderRadius: 16, padding: '1.1rem 1.4rem', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', ...sora }}>
+                <div style={{ fontSize: 12.5, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Saldo total das contas</div>
+                <div style={{ fontSize: 22, fontWeight: 800, ...mono }}>{fmtBRL(bankAccounts.reduce((s, b) => s + (bankBalances[b.id]?.saldo || 0), 0))}</div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {bankAccounts.map(b => {
+                  const bal = bankBalances[b.id] || { entradas: 0, saidas: 0, saldo: parseFloat(b.saldo_inicial) || 0 }
+                  return (
+                    <div key={b.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '1.1rem 1.25rem', opacity: b.ativo === false ? 0.6 : 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: C.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...sora }}>{b.nome}</div>
+                          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2, ...sora }}>
+                            {b.banco ? b.banco + ' · ' : ''}{TIPO_LABEL[b.tipo] || b.tipo}{b.ativo === false ? ' · inativa' : ''}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                          <button onClick={() => setBankModal({ mode: 'edit', data: { ...b, saldo_inicial: b.saldo_inicial?.toString() ?? '' } })} style={{ width: 28, height: 28, borderRadius: 7, background: C.blueDim, border: '1px solid #BFDBFE', color: C.blue, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Edit2 size={12} /></button>
+                          <button onClick={() => setConfirmDelBank(b)} style={{ width: 28, height: 28, borderRadius: 7, background: '#FFF1F2', border: '1px solid #FECDD3', color: C.rose, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={12} /></button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: bal.saldo >= 0 ? C.emerald : C.rose, marginTop: 12, ...mono }}>{fmtBRL(bal.saldo)}</div>
+                      <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 11.5, ...sora }}>
+                        <span style={{ color: C.emerald }}>↑ {fmtBRL(bal.entradas)}</span>
+                        <span style={{ color: C.rose }}>↓ {fmtBRL(bal.saidas)}</span>
+                        <span style={{ color: C.muted, marginLeft: 'auto' }}>abertura {fmtBRL(b.saldo_inicial)}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -1232,6 +1380,128 @@ export default function CompanyFinanceiro() {
               <button onClick={handleDelete} disabled={deleting} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', cursor: 'pointer', background: C.rose, color: '#fff', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 {deleting ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={14} />}
                 {deleting ? 'Excluindo...' : 'Excluir'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Modal de pagamento (data, juros, conta) ── */}
+      {payModal && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(6px)', padding: '1.5rem' }}>
+          <div style={{ background: C.card, borderRadius: 18, width: '100%', maxWidth: 440, boxShadow: '0 25px 60px rgba(0,0,0,0.2)', ...sora }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.navy }}>{payModal.tx.tipo === 'receita' ? 'Registrar recebimento' : 'Registrar pagamento'}</div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }} onClick={() => setPayModal(null)}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ background: '#F8FAFC', borderRadius: 10, padding: '10px 12px', fontSize: 13, ...sora }}>
+                <div style={{ fontWeight: 700, color: C.navy }}>{payModal.tx.descricao}</div>
+                <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>Vence {fmtDateBR(payModal.tx.vencimento)} · <strong style={{ color: payModal.tx.tipo === 'receita' ? C.emerald : C.rose, ...mono }}>{fmtBRL(payModal.tx.valor)}</strong></div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={lbl}>Data do {payModal.tx.tipo === 'receita' ? 'recebimento' : 'pagamento'} *</label>
+                  <input className="nx-input" type="date" value={payModal.pagamento_at} onChange={e => setPayModal(p => ({ ...p, pagamento_at: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>Juros / multa (R$)</label>
+                  <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.juros} onChange={e => setPayModal(p => ({ ...p, juros: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Conta bancária</label>
+                <select className="nx-select" value={payModal.bank_account_id} onChange={e => setPayModal(p => ({ ...p, bank_account_id: e.target.value }))}>
+                  <option value="">Não informar</option>
+                  {bankAccounts.filter(b => b.ativo !== false).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                </select>
+                {bankAccounts.length === 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Nenhuma conta cadastrada — crie na aba "Contas" pra registrar de onde saiu/entrou.</div>}
+              </div>
+              <div>
+                <label style={lbl}>Forma de pagamento</label>
+                <select className="nx-select" value={payModal.forma_pagamento} onChange={e => setPayModal(p => ({ ...p, forma_pagamento: e.target.value }))}>
+                  <option value="">Não informado</option>
+                  {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+              {(parseFloat(payModal.juros) || 0) > 0 && (
+                <div style={{ fontSize: 12.5, color: C.slate, ...sora }}>Total {payModal.tx.tipo === 'receita' ? 'recebido' : 'pago'}: <strong style={{ ...mono }}>{fmtBRL((parseFloat(payModal.tx.valor) || 0) + (parseFloat(payModal.juros) || 0))}</strong></div>
+              )}
+              {payErr && <div style={{ color: C.rose, fontSize: 12.5 }}>{payErr}</div>}
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 10 }}>
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setPayModal(null)}>Cancelar</button>
+              <button onClick={confirmPay} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', cursor: 'pointer', background: C.emerald, color: '#fff', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Check size={14} /> Confirmar
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Modal de conta bancária ── */}
+      {bankModal && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(6px)', padding: '1.5rem' }}>
+          <div style={{ background: C.card, borderRadius: 18, width: '100%', maxWidth: 440, boxShadow: '0 25px 60px rgba(0,0,0,0.2)', ...sora }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.navy }}>{bankModal.mode === 'edit' ? 'Editar conta' : 'Nova conta bancária'}</div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }} onClick={() => setBankModal(null)}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={lbl}>Nome da conta *</label>
+                <input className="nx-input" autoFocus placeholder="Ex: Banco do Brasil - CC, Caixa PJ" value={bankModal.data.nome || ''} onChange={e => setBankModal(p => ({ ...p, data: { ...p.data, nome: e.target.value } }))} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={lbl}>Banco</label>
+                  <input className="nx-input" placeholder="Ex: Bradesco" value={bankModal.data.banco || ''} onChange={e => setBankModal(p => ({ ...p, data: { ...p.data, banco: e.target.value } }))} />
+                </div>
+                <div>
+                  <label style={lbl}>Tipo</label>
+                  <select className="nx-select" value={bankModal.data.tipo || 'corrente'} onChange={e => setBankModal(p => ({ ...p, data: { ...p.data, tipo: e.target.value } }))}>
+                    <option value="corrente">Conta corrente</option>
+                    <option value="poupanca">Poupança</option>
+                    <option value="caixa">Caixa</option>
+                    <option value="outro">Outro</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Saldo inicial (R$)</label>
+                <input className="nx-input" type="number" step="0.01" placeholder="0,00" value={bankModal.data.saldo_inicial ?? ''} onChange={e => setBankModal(p => ({ ...p, data: { ...p.data, saldo_inicial: e.target.value } }))} />
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Saldo que a conta tinha quando você começou a usar aqui. O sistema soma/subtrai os lançamentos pagos a partir dele.</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.slate, flex: 1 }}>Conta ativa</span>
+                <Toggle on={bankModal.data.ativo !== false} onChange={v => setBankModal(p => ({ ...p, data: { ...p.data, ativo: v } }))} />
+              </div>
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 10 }}>
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setBankModal(null)}>Cancelar</button>
+              <button onClick={saveBank} disabled={savingBank || !bankModal.data.nome?.trim()} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', cursor: 'pointer', background: C.blue, color: '#fff', fontSize: 13, fontWeight: 700, opacity: (savingBank || !bankModal.data.nome?.trim()) ? 0.6 : 1 }}>
+                {savingBank ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Confirmar exclusão de conta ── */}
+      {confirmDelBank && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(6px)', padding: '1.5rem' }}>
+          <div style={{ background: C.card, borderRadius: 18, width: '100%', maxWidth: 400, boxShadow: '0 25px 60px rgba(0,0,0,0.2)', ...sora }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 15, color: C.navy }}>Excluir conta</div>
+            <div style={{ padding: '1.25rem 1.5rem', fontSize: 14, color: C.slate }}>
+              Excluir a conta <strong>"{confirmDelBank.nome}"</strong>? Os lançamentos já pagos nela continuam existindo, mas ficam sem conta vinculada.
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 10 }}>
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDelBank(null)}>Cancelar</button>
+              <button onClick={deleteBank} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', cursor: 'pointer', background: C.rose, color: '#fff', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Trash2 size={14} /> Excluir
               </button>
             </div>
           </div>
