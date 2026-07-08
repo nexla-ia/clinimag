@@ -4,6 +4,59 @@
 
 export const UPDATES = [
   {
+    date: '2026-06-30',
+    title: 'Apagar mensagem no chat — e vocês veem quando o paciente apaga também',
+    type: 'feature',
+    tags: ['Conversas', 'WhatsApp'],
+    items: [
+      'Passando o mouse em cima de qualquer mensagem aparece uma lixeirinha. Clicou, confirmou, e a mensagem é apagada no WhatsApp do paciente — e fica riscada aqui na plataforma, igual quando você apaga no celular.',
+      'E quando o PACIENTE apaga uma mensagem lá no WhatsApp dele, a plataforma percebe e risca ela aqui também, com o aviso "mensagem apagada pelo cliente". Nada some sem vocês ficarem sabendo.',
+      'A mensagem riscada continua riscada depois de recarregar — fica registrado que aquilo foi apagado, e por quem.',
+    ],
+  },
+  {
+    date: '2026-06-30',
+    title: 'CRM agora captura seus leads sozinho',
+    type: 'feature',
+    tags: ['CRM'],
+    items: [
+      'Todo número novo que manda mensagem pra clínica pela primeira vez vira um lead automaticamente, já na primeira etapa do funil — com a origem (WhatsApp/Instagram) e o nome preenchidos. Vocês não perdem mais ninguém que chega.',
+      'Não quer aquele contato no funil (engano, fornecedor, número errado)? Abre o lead e clica em "Remover". O funil fica limpo, só com quem interessa.',
+      'Continua dando pra cadastrar na mão também, no botão "Novo Lead", quando quiser adicionar alguém específico.',
+    ],
+  },
+  {
+    date: '2026-06-30',
+    title: 'Conversas mais práticas: prévia das mensagens, filtro de não lidas e quebra de linha',
+    type: 'improvement',
+    tags: ['Conversas'],
+    items: [
+      'Na lista de conversas agora aparece a prévia da última mensagem embaixo do nome — dá pra saber do que se trata sem precisar abrir, igualzinho ao WhatsApp.',
+      'Botão "Não lidas" ao lado da busca: clica e a lista mostra só as conversas que têm mensagem esperando resposta. Fim do "deixei alguém sem responder e não vi".',
+      'Shift+Enter agora pula linha no campo de mensagem, sem enviar. Dá pra escrever uma mensagem com parágrafo sem mandar sem querer no meio.',
+    ],
+  },
+  {
+    date: '2026-06-30',
+    title: 'Menu lateral reorganizado em seções',
+    type: 'improvement',
+    tags: ['Interface'],
+    items: [
+      'O menu da esquerda estava virando uma lista enorme. Agora ele vem agrupado por contexto: Atendimento (Conversas, Instagram, Grupos, Alertas), Gestão (Pacientes, Agenda, Kanban, CRM, Financeiro, Catálogo), Análise (Métricas) e Conta & Ajuda.',
+      'Os itens do dia a dia subiram pro topo; os de configuração e ajuda desceram. Bate o olho e acha mais rápido.',
+    ],
+  },
+  {
+    date: '2026-06-30',
+    title: 'Plataforma mais rápida pra abrir',
+    type: 'improvement',
+    tags: ['Performance'],
+    items: [
+      'Enxugamos o carregamento: o login e as telas internas passam a baixar só o que precisam na hora, em vez de tudo de uma vez. O primeiro acesso ficou bem mais leve.',
+      'As telas que puxavam muita informação de uma vez (Conversas, Grupos, painéis) agora recebem os dados já resumidos do servidor — abrem mais rápido e gastam menos internet.',
+    ],
+  },
+  {
     date: '2026-05-12',
     title: 'Lembretes automáticos de agendamento — WhatsApp avisa o paciente sozinho',
     type: 'feature',
