@@ -633,3 +633,56 @@
   .company-admin .page-body { padding: 0 1rem; }
   .company-admin .data-table { display: block; overflow-x: auto; }
 }
+
+/* ═══ Tabela de dados (Pacientes, Catálogo, etc. no painel company) ═══════
+   .data-table/.td-name/.table-action existiam só no Adm.css (não carregado
+   aqui), então tabelas dessas telas ficavam sem estilo e vazavam. Versões
+   globais abaixo. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.data-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #F8FAFC;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid #F1F5F9;
+  vertical-align: middle;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: #FAFCFF; }
+.td-name { color: var(--text-primary); font-weight: 600; }
+
+.table-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.table-action:hover { border-color: #BFDBFE; color: #2563EB; background: #EFF6FF; }
+.table-action.danger:hover { border-color: #FECACA; color: #DC2626; background: #FEF2F2; }
+
+/* Container rolável horizontal pra tabela não vazar / cortar em telas menores */
+.table-scroll { overflow-x: auto; }
+.table-scroll .data-table { min-width: 720px; }

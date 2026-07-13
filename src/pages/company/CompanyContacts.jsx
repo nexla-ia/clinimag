@@ -192,6 +192,7 @@ export default function CompanyContacts() {
 
       {filtered.length > 0 && (
         <div className="nx-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="table-scroll">
           <table className="data-table" style={{ width: '100%' }}>
             <thead>
               <tr>
@@ -304,6 +305,7 @@ export default function CompanyContacts() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
