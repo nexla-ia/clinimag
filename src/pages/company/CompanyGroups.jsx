@@ -129,6 +129,7 @@ export default function CompanyGroups() {
   const [activeMember, setActiveMember] = useState(null)
   const [savingContact, setSavingContact] = useState(null)
   const [savedContact, setSavedContact] = useState(null)
+  const [memberMenu, setMemberMenu] = useState(null)   // { x, y, numero, nome } — menu ao clicar no nome no thread
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
@@ -885,7 +886,17 @@ export default function CompanyGroups() {
                   <div key={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                       {!isAtendente && (
-                        <span style={{ fontSize: 11, fontWeight: 600, color: '#4F46E5', marginBottom: 3, marginLeft: 2 }}>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const num = (msg.numero || '').replace(/@.*$/, '')
+                            if (!num) return
+                            const r = e.currentTarget.getBoundingClientRect()
+                            setMemberMenu({ x: r.left, y: r.bottom + 4, numero: num, nome: msg.nome || null })
+                          }}
+                          title="Conversar ou salvar contato"
+                          style={{ fontSize: 11, fontWeight: 600, color: '#4F46E5', marginBottom: 3, marginLeft: 2, cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                        >
                           {senderLabel(msg)}
                         </span>
                       )}
@@ -1146,6 +1157,42 @@ export default function CompanyGroups() {
             {mutedGroups.includes(contextMenu.group.idgrupo)
               ? <><Bell size={14} color="#16A34A" /> Ativar notificações</>
               : <><BellOff size={14} color="#6B7280" /> Silenciar grupo</>}
+          </button>
+        </div>
+      </>,
+      document.body
+    )}
+
+    {memberMenu && createPortal(
+      <>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99997 }} onClick={() => setMemberMenu(null)} />
+        <div style={{
+          position: 'fixed', left: memberMenu.x, top: memberMenu.y, zIndex: 99998,
+          background: '#fff', border: '1px solid var(--border)',
+          borderRadius: 10, boxShadow: '0 6px 24px rgba(0,0,0,0.14)',
+          padding: 6, minWidth: 190,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 10px 6px', fontVariantNumeric: 'tabular-nums' }}>
+            {memberMenu.nome ? memberMenu.nome : `+${memberMenu.numero}`}
+          </div>
+          <button
+            onClick={() => { navigate(`/painel/conversas?contact=${memberMenu.numero}`); setMemberMenu(null) }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 6, fontSize: 13, color: 'var(--text-primary)', textAlign: 'left' }}
+            onMouseEnter={e => e.currentTarget.style.background = '#F3F4F6'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            <MessageCircle size={14} color="#7C3AED" /> Conversar
+          </button>
+          <button
+            onClick={() => { handleSaveMember(memberMenu.numero, memberMenu.nome); setMemberMenu(null) }}
+            disabled={savingContact === memberMenu.numero}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 6, fontSize: 13, color: 'var(--text-primary)', textAlign: 'left' }}
+            onMouseEnter={e => e.currentTarget.style.background = '#F3F4F6'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            {savedContact === memberMenu.numero
+              ? <><Check size={14} color="#16A34A" /> Salvo!</>
+              : <><UserPlus size={14} color="#16A34A" /> Salvar contato</>}
           </button>
         </div>
       </>,
