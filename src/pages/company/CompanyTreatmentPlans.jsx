@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
-import { Repeat, Plus, X, Trash2, Calendar, User as UserIcon, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Repeat, Plus, X, Trash2, Calendar, User as UserIcon, Loader2, CheckCircle2, AlertTriangle, DollarSign, Check } from 'lucide-react'
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const lbl = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }
@@ -10,6 +10,13 @@ const lbl = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--tex
 function fmtBRL(v) { return (parseFloat(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
 function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function normNum(n) { return (n || '').replace(/\D/g, '') }
+function curMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+function monthRange(ym) {
+  const [y, m] = ym.split('-').map(Number)
+  const start = new Date(y, m - 1, 1)
+  const end = new Date(y, m, 1)
+  return { startISO: start.toISOString(), endISO: end.toISOString(), comp: `${ym}-01`, vencStr: `${y}-${String(m).padStart(2, '0')}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}` }
+}
 
 // Gera os agendamentos do plano (dia a dia, respeitando o padrão semanal)
 function buildAppointments(plan, slots, profRate, instance) {
@@ -50,6 +57,14 @@ export default function CompanyTreatmentPlans() {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [confirmDel, setConfirmDel] = useState(null)
+
+  // Repasse
+  const [view, setView] = useState('planos')       // 'planos' | 'repasse'
+  const [repMonth, setRepMonth] = useState(curMonth())
+  const [repRows, setRepRows] = useState([])
+  const [repLoading, setRepLoading] = useState(false)
+  const [repExisting, setRepExisting] = useState({})   // professional_id -> financeiro row (repasse ja gerado)
+  const [repGen, setRepGen] = useState(false)
 
   useEffect(() => {
     if (!instance) return
@@ -180,6 +195,62 @@ export default function CompanyTreatmentPlans() {
     setConfirmDel(null)
   }
 
+  // ── Repasse: carrega atendimentos de plano do mês e monta a tabela ─────────
+  useEffect(() => {
+    if (!instance || view !== 'repasse') return
+    setRepLoading(true)
+    const { startISO, endISO, comp } = monthRange(repMonth)
+    Promise.all([
+      supabase.from('appointments')
+        .select('professional_id, status')
+        .eq('instancia', instance)
+        .not('treatment_plan_id', 'is', null)
+        .gte('starts_at', startISO).lt('starts_at', endISO),
+      // repasses já gerados nesse mês
+      supabase.from('financial_transactions')
+        .select('id, professional_id, valor, status')
+        .eq('instancia', instance).eq('competencia', comp)
+        .eq('created_by', 'Repasse (automático)'),
+    ]).then(([ap, fin]) => {
+      const counts = {}
+      ;(ap.data || []).forEach(a => {
+        if (!a.professional_id) return
+        if ((a.status || '').toLowerCase() === 'cancelado') return   // cancelado não conta
+        counts[a.professional_id] = (counts[a.professional_id] || 0) + 1
+      })
+      const rows = Object.entries(counts).map(([pid, count]) => ({
+        pid, nome: profName[pid] || 'Profissional', count,
+        rate: profRate[pid] || 0, valor: count * (profRate[pid] || 0),
+      })).sort((a, b) => b.valor - a.valor)
+      const exist = {}
+      ;(fin.data || []).forEach(f => { if (f.professional_id) exist[f.professional_id] = f })
+      setRepRows(rows)
+      setRepExisting(exist)
+      setRepLoading(false)
+    })
+  }, [instance, view, repMonth, profName, profRate])
+
+  const repTotal = useMemo(() => repRows.reduce((s, r) => s + r.valor, 0), [repRows])
+
+  async function generateRepasse() {
+    const { comp, vencStr } = monthRange(repMonth)
+    const toCreate = repRows.filter(r => r.valor > 0 && !repExisting[r.pid])
+    if (!toCreate.length) return
+    setRepGen(true)
+    const [y, m] = repMonth.split('-')
+    const cat = null
+    const rows = toCreate.map(r => ({
+      instancia: instance, tipo: 'despesa',
+      descricao: `Repasse — ${r.nome} (${r.count} atend. · ${m}/${y})`,
+      valor: r.valor, status: 'pendente', vencimento: vencStr,
+      categoria_id: cat, professional_id: r.pid, competencia: comp,
+      created_by: 'Repasse (automático)',
+    }))
+    const { data } = await supabase.from('financial_transactions').insert(rows).select('id, professional_id, valor, status')
+    if (data) setRepExisting(prev => { const n = { ...prev }; data.forEach(f => { n[f.professional_id] = f }); return n })
+    setRepGen(false)
+  }
+
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: 16, flexWrap: 'wrap' }}>
@@ -191,12 +262,83 @@ export default function CompanyTreatmentPlans() {
             Recorrência com vários fisioterapeutas — gera os agendamentos e a mensalidade automaticamente.
           </div>
         </div>
-        <button className="nx-btn-primary" onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> Novo plano
-        </button>
+        {view === 'planos' && (
+          <button className="nx-btn-primary" onClick={openNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={14} /> Novo plano
+          </button>
+        )}
       </div>
 
-      {loading ? (
+      {/* Abas */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {[{ k: 'planos', l: 'Planos', ic: Repeat }, { k: 'repasse', l: 'Repasse aos fisios', ic: DollarSign }].map(t => (
+          <button key={t.k} onClick={() => setView(t.k)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: `1px solid ${view === t.k ? '#4F46E5' : 'var(--border)'}`, background: view === t.k ? '#4F46E5' : '#fff', color: view === t.k ? '#fff' : 'var(--text-secondary)' }}>
+            <t.ic size={14} /> {t.l}
+          </button>
+        ))}
+      </div>
+
+      {view === 'repasse' && (
+        <div>
+          <div className="nx-card" style={{ padding: '1rem 1.25rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Mês de referência</label>
+            <input className="nx-input" type="month" value={repMonth} onChange={e => setRepMonth(e.target.value)} style={{ width: 170 }} />
+            <div style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--text-muted)' }}>
+              Total do mês: <strong style={{ color: '#E11D48' }}>{fmtBRL(repTotal)}</strong>
+            </div>
+          </div>
+
+          {repLoading ? (
+            <div className="nx-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</div>
+          ) : repRows.length === 0 ? (
+            <div className="nx-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Nenhum atendimento de plano nesse mês.
+            </div>
+          ) : (
+            <div className="nx-card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div className="table-scroll">
+                <table className="data-table" style={{ width: '100%' }}>
+                  <thead><tr><th>Fisioterapeuta</th><th style={{ textAlign: 'center' }}>Atend.</th><th style={{ textAlign: 'center' }}>%</th><th style={{ textAlign: 'right' }}>Valor/atend.</th><th style={{ textAlign: 'right' }}>Repasse</th><th style={{ textAlign: 'right' }}>Situação</th></tr></thead>
+                  <tbody>
+                    {repRows.map(r => {
+                      const ex = repExisting[r.pid]
+                      return (
+                        <tr key={r.pid}>
+                          <td className="td-name">{r.nome}</td>
+                          <td style={{ textAlign: 'center' }}>{r.count}</td>
+                          <td style={{ textAlign: 'center' }}>{repTotal ? Math.round(r.valor / repTotal * 100) : 0}%</td>
+                          <td style={{ textAlign: 'right' }}>{fmtBRL(r.rate)}{!r.rate && <span style={{ color: '#D97706', fontSize: 10, marginLeft: 4 }}>sem valor</span>}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>{fmtBRL(r.valor)}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            {ex
+                              ? <span style={{ fontSize: 11, fontWeight: 700, color: ex.status === 'pago' ? '#059669' : '#2563EB' }}>{ex.status === 'pago' ? '✓ Pago' : '↳ A pagar gerado'}</span>
+                              : <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>
+                  Conta todos os atendimentos agendados do mês (menos cancelados). Gera um "a pagar" por fisio no Financeiro.
+                </div>
+                {repRows.some(r => r.valor > 0 && !repExisting[r.pid]) ? (
+                  <button className="nx-btn-primary" onClick={generateRepasse} disabled={repGen} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {repGen ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Gerando...</> : <><Check size={14} /> Aprovar e gerar "a pagar"</>}
+                  </button>
+                ) : (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} /> Repasse do mês já gerado</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === 'planos' && (loading ? (
         <div className="nx-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</div>
       ) : plans.length === 0 ? (
         <div className="nx-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
@@ -223,7 +365,7 @@ export default function CompanyTreatmentPlans() {
             </div>
           ))}
         </div>
-      )}
+      ))}
 
       {/* Modal criar plano */}
       {modal && (
