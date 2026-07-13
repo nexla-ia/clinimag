@@ -578,22 +578,24 @@ export default function CompanyGroups() {
     }
   }
 
-  async function handleSaveMember(numero) {
+  async function handleSaveMember(numero, nome) {
     if (savingContact === numero) return
+    const digits = (numero || '').replace(/\D/g, '')
+    if (!digits) return
     setSavingContact(numero)
     try {
-      // Cria uma entrada básica de contato na lista de mensagens para aparecer em Conversas
-      const sessionId = numero + '@s.whatsapp.net'
-      await supabase.from('mensagens_geral').upsert({
-        instancia: instance,
-        numero: sessionId,
-        nome: numero,
-        mensagem: '',
-        type: 'contato_salvo',
-        horaLastMessage: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        created_at: new Date().toISOString(),
-        aplicativo: 'whatsapp',
-      }, { onConflict: 'instancia,numero,created_at', ignoreDuplicates: true })
+      // Salva de verdade como paciente/contato (saved_contacts usa numero só dígitos)
+      const { data: existing } = await supabase.from('saved_contacts')
+        .select('id').eq('instancia', instance).eq('numero', digits).maybeSingle()
+      if (!existing) {
+        const { error } = await supabase.from('saved_contacts').insert({
+          instancia: instance,
+          numero: digits,
+          nome: (nome && nome.trim()) || digits,   // provisório — dá pra renomear em Pacientes
+          created_by_email: session?.user?.email || null,
+        })
+        if (error) { alert('Erro ao salvar contato: ' + error.message); return }
+      }
       setSavedContact(numero)
       setTimeout(() => setSavedContact(null), 2500)
     } finally {
