@@ -10,7 +10,7 @@ import {
 import {
   DollarSign, TrendingUp, TrendingDown, ArrowUpCircle, ArrowDownCircle,
   Plus, Edit2, Trash2, Check, X, Search, Loader2, Lock, Calendar,
-  AlertTriangle, ChevronLeft, ChevronRight, AlertCircle,
+  AlertTriangle, ChevronLeft, ChevronRight, AlertCircle, RefreshCw, ArrowRight,
 } from 'lucide-react'
 
 // ─── Fonts ───────────────────────────────────────────────────────────────────
@@ -241,6 +241,9 @@ export default function CompanyFinanceiro() {
   const [payModal, setPayModal] = useState(null)      // { tx, pagamento_at, juros, bank_account_id, forma_pagamento }
   const [payErr, setPayErr] = useState('')
   const [bankModal, setBankModal] = useState(null)     // { mode, data }
+  const [transfers, setTransfers] = useState([])
+  const [transferModal, setTransferModal] = useState(null)
+  const [savingTransfer, setSavingTransfer] = useState(false)
   const [savingBank, setSavingBank] = useState(false)
   const [confirmDelBank, setConfirmDelBank] = useState(null)
 
@@ -267,10 +270,12 @@ export default function CompanyFinanceiro() {
       supabase.from('financial_categories').select('*')
         .in('instancia', [instance, '_default_']).order('nome'),
       supabase.from('bank_accounts').select('*').eq('instancia', instance).order('nome'),
-    ]).then(([{ data: tx }, { data: cats }, { data: banks }]) => {
+      supabase.from('bank_transfers').select('*').eq('instancia', instance).order('data', { ascending: false }),
+    ]).then(([{ data: tx }, { data: cats }, { data: banks }, { data: trs }]) => {
       if (tx) setTransactions(tx)
       if (cats) setCategories(cats)
       if (banks) setBankAccounts(banks)
+      if (trs) setTransfers(trs)
       setLoading(false)
     })
   }, [instance])
@@ -295,8 +300,14 @@ export default function CompanyFinanceiro() {
       if (t.tipo === 'receita') { m[t.bank_account_id].entradas += v; m[t.bank_account_id].saldo += v }
       else { const out = v + j; m[t.bank_account_id].saidas += out; m[t.bank_account_id].saldo -= out }
     })
+    // Transferências: saem da origem, entram no destino (neutro no resultado)
+    transfers.forEach(tr => {
+      const v = parseFloat(tr.valor) || 0
+      if (tr.from_account_id && m[tr.from_account_id]) { m[tr.from_account_id].saidas += v; m[tr.from_account_id].saldo -= v }
+      if (tr.to_account_id && m[tr.to_account_id]) { m[tr.to_account_id].entradas += v; m[tr.to_account_id].saldo += v }
+    })
     return m
-  }, [bankAccounts, transactions])
+  }, [bankAccounts, transactions, transfers])
 
   const cm = currentMonthStr()
 
@@ -551,6 +562,33 @@ export default function CompanyFinanceiro() {
       if (ins) setBankAccounts(prev => [...prev, ins].sort((a, b) => a.nome.localeCompare(b.nome)))
     }
     setSavingBank(false); setBankModal(null)
+  }
+
+  function openTransfer() {
+    setTransferModal({ from_account_id: bankAccounts[0]?.id || '', to_account_id: '', to_externo: '', valor: '', data: todayStr(), descricao: '', err: '' })
+  }
+  async function saveTransfer() {
+    const t = transferModal
+    if (!t.from_account_id) { setTransferModal(p => ({ ...p, err: 'Escolha a conta de origem.' })); return }
+    const val = parseFloat(t.valor)
+    if (!(val > 0)) { setTransferModal(p => ({ ...p, err: 'Informe um valor válido.' })); return }
+    const isExterno = t.to_account_id === '__ext__'
+    if (!isExterno && !t.to_account_id) { setTransferModal(p => ({ ...p, err: 'Escolha o destino.' })); return }
+    if (!isExterno && t.to_account_id === t.from_account_id) { setTransferModal(p => ({ ...p, err: 'Origem e destino não podem ser a mesma conta.' })); return }
+    if (isExterno && !t.to_externo.trim()) { setTransferModal(p => ({ ...p, err: 'Informe o destino (pessoa/empresa).' })); return }
+    setSavingTransfer(true)
+    const { data: ins, error } = await supabase.from('bank_transfers').insert({
+      instancia: instance,
+      from_account_id: t.from_account_id,
+      to_account_id: isExterno ? null : t.to_account_id,
+      to_externo: isExterno ? t.to_externo.trim() : null,
+      valor: val, data: t.data, descricao: t.descricao?.trim() || null,
+      created_by: session?.user?.email || null,
+    }).select().single()
+    setSavingTransfer(false)
+    if (error) { setTransferModal(p => ({ ...p, err: 'Erro: ' + error.message })); return }
+    if (ins) setTransfers(prev => [ins, ...prev])
+    setTransferModal(null)
   }
 
   async function deleteBank() {
@@ -1175,10 +1213,16 @@ export default function CompanyFinanceiro() {
               <div style={{ fontWeight: 700, fontSize: 16, color: C.navy, ...sora }}>Contas bancárias</div>
               <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2, ...sora }}>Cadastre suas contas pra saber quanto entrou e saiu em cada uma.</div>
             </div>
-            <button onClick={() => setBankModal({ mode: 'new', data: { nome: '', banco: '', tipo: 'corrente', saldo_inicial: '', ativo: true } })}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.blue, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', ...sora }}>
-              <Plus size={15} /> Nova conta
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={openTransfer} disabled={bankAccounts.length === 0}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', color: C.slate, border: `1px solid ${C.border}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: bankAccounts.length ? 'pointer' : 'not-allowed', opacity: bankAccounts.length ? 1 : 0.5, ...sora }}>
+                <RefreshCw size={15} /> Transferência
+              </button>
+              <button onClick={() => setBankModal({ mode: 'new', data: { nome: '', banco: '', tipo: 'corrente', saldo_inicial: '', ativo: true } })}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.blue, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', ...sora }}>
+                <Plus size={15} /> Nova conta
+              </button>
+            </div>
           </div>
 
           {bankAccounts.length === 0 ? (
@@ -1221,9 +1265,90 @@ export default function CompanyFinanceiro() {
                   )
                 })}
               </div>
+
+              {transfers.length > 0 && (
+                <div style={{ marginTop: 22 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10, ...sora }}>Transferências recentes</div>
+                  <div className="nx-card" style={{ padding: 0, overflow: 'hidden' }}>
+                    {transfers.slice(0, 20).map((tr, i, arr) => (
+                      <div key={tr.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderBottom: i === arr.length - 1 ? 'none' : `1px solid ${C.border}`, fontSize: 13, ...sora }}>
+                        <RefreshCw size={14} style={{ color: C.slate, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.navy, fontWeight: 600, flexWrap: 'wrap' }}>
+                            {bankMap[tr.from_account_id]?.nome || 'Conta'} <ArrowRight size={13} style={{ color: C.muted }} /> {tr.to_account_id ? (bankMap[tr.to_account_id]?.nome || 'Conta') : (tr.to_externo || 'Externo')}
+                          </div>
+                          {tr.descricao && <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{tr.descricao}</div>}
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontWeight: 700, ...mono }}>{fmtBRL(tr.valor)}</div>
+                          <div style={{ fontSize: 11, color: C.muted }}>{fmtDateBR(tr.data)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
+      )}
+
+      {/* ── Modal transferência ── */}
+      {transferModal && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(6px)', padding: '1.5rem' }}>
+          <div style={{ background: C.card, borderRadius: 18, width: '100%', maxWidth: 460, boxShadow: '0 25px 60px rgba(0,0,0,0.2)', ...sora }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.navy, display: 'flex', alignItems: 'center', gap: 8 }}><RefreshCw size={16} /> Transferência entre contas</div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }} onClick={() => setTransferModal(null)}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={lbl}>De (origem) *</label>
+                <select className="nx-select" value={transferModal.from_account_id} onChange={e => setTransferModal(p => ({ ...p, from_account_id: e.target.value }))}>
+                  <option value="">Selecione...</option>
+                  {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Para (destino) *</label>
+                <select className="nx-select" value={transferModal.to_account_id} onChange={e => setTransferModal(p => ({ ...p, to_account_id: e.target.value }))}>
+                  <option value="">Selecione...</option>
+                  {bankAccounts.filter(b => b.id !== transferModal.from_account_id).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                  <option value="__ext__">Externo / Pessoa (saída)</option>
+                </select>
+              </div>
+              {transferModal.to_account_id === '__ext__' && (
+                <div>
+                  <label style={lbl}>Destino externo *</label>
+                  <input className="nx-input" placeholder="Ex: João (sócio), Fornecedor X..." value={transferModal.to_externo} onChange={e => setTransferModal(p => ({ ...p, to_externo: e.target.value }))} />
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={lbl}>Valor (R$) *</label>
+                  <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={transferModal.valor} onChange={e => setTransferModal(p => ({ ...p, valor: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={lbl}>Data *</label>
+                  <input className="nx-input" type="date" value={transferModal.data} onChange={e => setTransferModal(p => ({ ...p, data: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Descrição</label>
+                <input className="nx-input" placeholder="Opcional" value={transferModal.descricao} onChange={e => setTransferModal(p => ({ ...p, descricao: e.target.value }))} />
+              </div>
+              <div style={{ fontSize: 11.5, color: C.muted }}>A transferência ajusta o saldo das contas, mas não conta como receita nem despesa (neutra no resultado).</div>
+              {transferModal.err && <div style={{ color: C.rose, fontSize: 12.5 }}>{transferModal.err}</div>}
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 10 }}>
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setTransferModal(null)}>Cancelar</button>
+              <button onClick={saveTransfer} disabled={savingTransfer} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', cursor: 'pointer', background: C.blue, color: '#fff', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                {savingTransfer ? 'Salvando...' : <><RefreshCw size={14} /> Transferir</>}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Modal ── */}
