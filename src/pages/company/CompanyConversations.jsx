@@ -135,6 +135,12 @@ const REASONS = [
 ]
 
 const AUTO_CLOSE_HOURS = 2
+const CLIENT_TYPES = ['cliente', 'human']
+// Esperando o paciente = atendente/IA respondeu por último (não foi o cliente).
+// Nesses casos NÃO auto-encerra — a demora é do paciente, não da secretária.
+function isWaitingPatient(c) {
+  return !!c?.lastTipo && !CLIENT_TYPES.includes(c.lastTipo)
+}
 const MANUAL_REASONS = REASONS.filter(r => r.value !== 'auto_encerrado')
 
 const SPEEDS = [1, 1.5, 2]
@@ -509,6 +515,7 @@ export default function CompanyConversations() {
           lastTs: getTimestamp(r),
           outsideAssumed: r.outside_assumed,
           preview: r.preview || '',
+          lastTipo: r.last_tipo || '',
         }))
         setContacts(unique)
         setLoadingContacts(false)
@@ -538,7 +545,8 @@ export default function CompanyConversations() {
     const toClose = contacts.filter(c =>
       !closedMap[c.session_id] &&
       c.lastTs &&
-      new Date(c.lastTs).getTime() < cutoff
+      new Date(c.lastTs).getTime() < cutoff &&
+      !isWaitingPatient(c)   // esperando o paciente → não encerra
     )
     if (!toClose.length) return
 
@@ -602,11 +610,11 @@ export default function CompanyConversations() {
             const isOutsideHuman = incomingType === 'atendente' || incomingType === 'humano'
             if (exists) {
               return [
-                { ...exists, lastTs: ts, outsideAssumed: exists.outsideAssumed || isOutsideHuman, preview: newPreview || exists.preview },
+                { ...exists, lastTs: ts, outsideAssumed: exists.outsideAssumed || isOutsideHuman, preview: newPreview || exists.preview, lastTipo: incomingType },
                 ...prev.filter(c => c.session_id !== sid)
               ]
             }
-            return [{ session_id: sid, phone: formatPhone(sid), lastTs: ts, outsideAssumed: isOutsideHuman, preview: newPreview }, ...prev]
+            return [{ session_id: sid, phone: formatPhone(sid), lastTs: ts, outsideAssumed: isOutsideHuman, preview: newPreview, lastTipo: incomingType }, ...prev]
           })
 
           if (selectedRef.current?.session_id === sid) {
@@ -1464,6 +1472,11 @@ export default function CompanyConversations() {
                     )}
                     {tab === 'finalizados' && rs && (
                       <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, color: rs.color, background: rs.bg, border: `1px solid ${rs.border}`, lineHeight: '16px' }}>{rs.label}</span>
+                    )}
+                    {tab !== 'finalizados' && isWaitingPatient(c) && (
+                      <span title="O atendente já respondeu — aguardando o paciente responder" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, color: '#B45309', background: '#FFFBEB', border: '1px solid #FDE68A', lineHeight: '16px' }}>
+                        ⏳ Aguardando paciente
+                      </span>
                     )}
                   </div>
                   {c.preview && (
