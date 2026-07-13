@@ -11,6 +11,13 @@ function fmtBRL(v) { return (parseFloat(v) || 0).toLocaleString('pt-BR', { style
 function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function normNum(n) { return (n || '').replace(/\D/g, '') }
 function curMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+// Soma meses travando no último dia do mês (evita 31/jan +1 virar 03/mar)
+function addMonths(date, n) {
+  const d = new Date(date); const day = d.getDate()
+  d.setDate(1); d.setMonth(d.getMonth() + n)
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(day, last)); return d
+}
 function monthRange(ym) {
   const [y, m] = ym.split('-').map(Number)
   const start = new Date(y, m - 1, 1)
@@ -22,7 +29,7 @@ function monthRange(ym) {
 function buildAppointments(plan, slots, profRate, instance) {
   const out = []
   const start = new Date(plan.data_inicio + 'T00:00:00')
-  const end = new Date(start); end.setMonth(end.getMonth() + plan.meses)
+  const end = addMonths(start, plan.meses)
   for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
     const wd = d.getDay()
     slots.filter(s => Number(s.weekday) === wd && s.hora && s.professional_id).forEach(s => {
@@ -118,7 +125,7 @@ export default function CompanyTreatmentPlans() {
     if (!modal) return null
     // Ocorrências no 1º mês do padrão
     const start = new Date((modal.data_inicio || todayStr()) + 'T00:00:00')
-    const end = new Date(start); end.setMonth(end.getMonth() + 1)
+    const end = addMonths(start, 1)
     const perProf = {}
     let total = 0
     for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
@@ -174,7 +181,7 @@ export default function CompanyTreatmentPlans() {
       const fin = []
       const start = new Date(modal.data_inicio + 'T00:00:00')
       for (let m = 0; m < parseInt(modal.meses); m++) {
-        const venc = new Date(start); venc.setMonth(venc.getMonth() + m)
+        const venc = addMonths(start, m)
         const comp = `${venc.getFullYear()}-${String(venc.getMonth() + 1).padStart(2, '0')}-01`
         fin.push({
           instancia: instance, tipo: 'receita',

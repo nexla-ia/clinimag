@@ -247,20 +247,8 @@ export default function CompanyFinanceiro() {
   const [savingBank, setSavingBank] = useState(false)
   const [confirmDelBank, setConfirmDelBank] = useState(null)
 
-  // ── Access control ────────────────────────────────────────────────────────
-  if (!isAdmin) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 16, ...sora }}>
-      <div style={{ width: 64, height: 64, borderRadius: 16, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Lock size={28} color={C.muted} /></div>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ fontWeight: 700, fontSize: 17, color: C.navy, marginBottom: 6 }}>Acesso restrito</div>
-        <div style={{ fontSize: 13, color: C.muted }}>Apenas administradores podem acessar o módulo financeiro.</div>
-      </div>
-    </div>
-  )
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    if (!instance) return
+    if (!instance || !isAdmin) return
     setLoading(true)
     const y = new Date().getFullYear()
     Promise.all([
@@ -617,6 +605,17 @@ export default function CompanyFinanceiro() {
     { key: 'categorias', label: 'Por Categoria' },
     { key: 'contas', label: 'Contas' },
   ]
+
+  // ── Access control (depois de todos os hooks, pra não violar Rules of Hooks) ─
+  if (!isAdmin) return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 16, ...sora }}>
+      <div style={{ width: 64, height: 64, borderRadius: 16, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Lock size={28} color={C.muted} /></div>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontWeight: 700, fontSize: 17, color: C.navy, marginBottom: 6 }}>Acesso restrito</div>
+        <div style={{ fontSize: 13, color: C.muted }}>Apenas administradores podem acessar o módulo financeiro.</div>
+      </div>
+    </div>
+  )
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
