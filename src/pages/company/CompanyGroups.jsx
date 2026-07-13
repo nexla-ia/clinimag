@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check } from 'lucide-react'
+import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
@@ -130,6 +130,7 @@ export default function CompanyGroups() {
   const [savingContact, setSavingContact] = useState(null)
   const [savedContact, setSavedContact] = useState(null)
   const [memberMenu, setMemberMenu] = useState(null)   // { x, y, numero, nome } — menu ao clicar no nome no thread
+  const [lightbox, setLightbox] = useState(null)       // src da imagem em tela cheia
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
@@ -914,8 +915,16 @@ export default function CompanyGroups() {
                           <audio controls src={media.src} style={{ maxWidth: 240, height: 32 }} />
                         )}
                         {media?.type === 'image' && (
-                          <img src={media.src} alt="imagem"
-                            style={{ maxWidth: 240, maxHeight: 280, borderRadius: 8, display: 'block' }} />
+                          <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <img src={media.src} alt="imagem"
+                              onClick={() => setLightbox(media.src)}
+                              style={{ maxWidth: 240, maxHeight: 280, borderRadius: 8, display: 'block', cursor: 'zoom-in' }} />
+                            <a href={media.src} download="imagem.jpg" onClick={e => e.stopPropagation()}
+                              title="Baixar imagem"
+                              style={{ position: 'absolute', top: 6, right: 6, width: 28, height: 28, borderRadius: 8, background: 'rgba(15,23,42,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+                              <Download size={14} />
+                            </a>
+                          </div>
                         )}
                         {media?.type === 'video' && (
                           <video controls src={media.src}
@@ -1222,6 +1231,21 @@ export default function CompanyGroups() {
           </button>
         </div>
       </>,
+      document.body
+    )}
+
+    {lightbox && createPortal(
+      <div
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, cursor: 'zoom-out' }}
+        onClick={() => setLightbox(null)}
+      >
+        <img src={lightbox} alt="imagem" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }} />
+        <a href={lightbox} download="imagem.jpg" onClick={e => e.stopPropagation()}
+          title="Baixar imagem"
+          style={{ position: 'fixed', top: 20, right: 20, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+          <Download size={16} /> Baixar
+        </a>
+      </div>,
       document.body
     )}
     </>
