@@ -115,6 +115,7 @@ export default function CompanyCatalog() {
       end_time: proModal.end_time || '18:00',
       break_start: proModal.break_start || null,
       break_end: proModal.break_end || null,
+      valor_atendimento: (proModal.valor_atendimento !== '' && proModal.valor_atendimento != null) ? parseFloat(proModal.valor_atendimento) : 0,
       instancia: instance,
     }
     const { data, error } = proModal.id
@@ -428,6 +429,10 @@ export default function CompanyCatalog() {
             <Field label="Registro (CRM/CRO/etc)">
               <input className="nx-input" placeholder="Ex: CRM-DF 12345"
                 value={proModal.registration || ''} onChange={e => setProModal(p => ({ ...p, registration: e.target.value }))} />
+            </Field>
+            <Field label="Valor por atendimento (R$) — usado no repasse dos planos">
+              <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00"
+                value={proModal.valor_atendimento ?? ''} onChange={e => setProModal(p => ({ ...p, valor_atendimento: e.target.value }))} />
             </Field>
             <Field label="Cor">
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
