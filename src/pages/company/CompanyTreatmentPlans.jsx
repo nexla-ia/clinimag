@@ -66,16 +66,30 @@ export default function CompanyTreatmentPlans() {
   const [repExisting, setRepExisting] = useState({})   // professional_id -> financeiro row (repasse ja gerado)
   const [repGen, setRepGen] = useState(false)
 
+  // Carrega planos + conta agendamentos por plano (sem depender de FK/embedding)
+  async function fetchPlans() {
+    const { data: pl } = await supabase.from('treatment_plans').select('*').eq('instancia', instance).order('created_at', { ascending: false })
+    const list = pl || []
+    if (list.length) {
+      const ids = list.map(p => p.id)
+      const { data: appts } = await supabase.from('appointments').select('treatment_plan_id').in('treatment_plan_id', ids)
+      const counts = {}
+      ;(appts || []).forEach(a => { if (a.treatment_plan_id) counts[a.treatment_plan_id] = (counts[a.treatment_plan_id] || 0) + 1 })
+      list.forEach(p => { p._count = counts[p.id] || 0 })
+    }
+    return list
+  }
+
   useEffect(() => {
     if (!instance) return
     setLoading(true)
     Promise.all([
-      supabase.from('treatment_plans').select('*, appointments:appointments(count)').eq('instancia', instance).order('created_at', { ascending: false }),
+      fetchPlans(),
       supabase.from('professionals').select('id, name, valor_atendimento, active').eq('instancia', instance).order('name'),
       supabase.from('agendas').select('id, name').eq('instancia', instance).order('name'),
       supabase.from('saved_contacts').select('nome, numero').eq('instancia', instance).order('nome'),
-    ]).then(([p, pr, ag, sc]) => {
-      if (p.data) setPlans(p.data)
+    ]).then(([pl, pr, ag, sc]) => {
+      setPlans(pl)
       if (pr.data) setProfessionals(pr.data.filter(x => x.active !== false))
       if (ag.data) setAgendas(ag.data)
       if (sc.data) setSavedContacts(sc.data)
@@ -175,9 +189,7 @@ export default function CompanyTreatmentPlans() {
       if (fin.length) await supabase.from('financial_transactions').insert(fin)
 
       setModal(null)
-      // recarrega
-      const { data } = await supabase.from('treatment_plans').select('*, appointments:appointments(count)').eq('instancia', instance).order('created_at', { ascending: false })
-      if (data) setPlans(data)
+      setPlans(await fetchPlans())   // recarrega com a contagem
     } catch (e) {
       setErr('Erro ao salvar: ' + (e.message || e))
     } finally {
@@ -360,7 +372,7 @@ export default function CompanyTreatmentPlans() {
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: '#059669', marginTop: 10 }}>{fmtBRL(p.valor_mensal)}<span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}> /mês</span></div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-                {(p.appointments?.[0]?.count ?? 0)} agendamentos gerados
+                {(p._count ?? 0)} agendamentos gerados
               </div>
             </div>
           ))}
