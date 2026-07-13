@@ -137,12 +137,13 @@ export default function CompanyContacts() {
 
   const tagMatch = buildTagFilter(tagFilter, tagAssignments)
   const filtered = patients.filter(c => {
-    const s = search.toLowerCase()
-    const matchesSearch = (
-      c.nome?.toLowerCase().includes(s) ||
-      (c.numero || '').includes(search) ||
-      (c.cpf || '').includes(search.replace(/\D/g, '')) ||
-      (c.email || '').toLowerCase().includes(s)
+    const s = search.trim().toLowerCase()
+    const digits = search.replace(/\D/g, '')
+    const matchesSearch = !s || (
+      (c.nome || '').toLowerCase().includes(s) ||
+      (c.email || '').toLowerCase().includes(s) ||
+      (digits.length > 0 && (c.numero || '').replace(/\D/g, '').includes(digits)) ||
+      (digits.length > 0 && (c.cpf || '').replace(/\D/g, '').includes(digits))
     )
     return matchesSearch && tagMatch(c.numero || '')
   })
