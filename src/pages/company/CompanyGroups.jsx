@@ -147,7 +147,16 @@ export default function CompanyGroups() {
   const recordTimerRef = useRef(null)
   const fileInputRef = useRef(null)
   const emojiPickerRef = useRef(null)
+  const composerRef = useRef(null)
   selectedRef.current = selected
+
+  // Auto-cresce o composer conforme digita (até ~5 linhas), tipo WhatsApp
+  useEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+  }, [msgText])
 
   // Fecha emoji picker ao clicar fora
   useEffect(() => {
@@ -1071,15 +1080,17 @@ export default function CompanyGroups() {
                     })}
                   </div>
                 )}
-                <input
+                <textarea
+                  ref={composerRef}
+                  rows={1}
                   className="nx-input chat-composer-input"
-                  style={{ flex: 1 }}
-                  placeholder={attachedFile ? 'Mensagem opcional para acompanhar o arquivo…' : recordedAudio ? 'Mensagem opcional para acompanhar o áudio…' : 'Mensagem para o grupo…'}
+                  style={{ flex: 1, resize: 'none', minHeight: 38, maxHeight: 120, overflowY: 'auto', lineHeight: 1.4, fontFamily: 'inherit' }}
+                  placeholder={attachedFile ? 'Mensagem opcional para acompanhar o arquivo…' : recordedAudio ? 'Mensagem opcional para acompanhar o áudio…' : 'Mensagem para o grupo…  (Shift+Enter pula linha)'}
                   value={msgText}
                   onChange={handleMsgChange}
                   onKeyDown={e => {
                     if (e.key === 'Escape') { setMentionOpen(false); return }
-                    if (e.key === 'Enter' && !e.shiftKey) handleSend()
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
                   }}
                   disabled={sending || recording}
                 />
