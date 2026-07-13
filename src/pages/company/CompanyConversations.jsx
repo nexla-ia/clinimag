@@ -1655,6 +1655,28 @@ export default function CompanyConversations() {
                     anchor="bottom-right"
                   />
                   {(() => {
+                    const cleanNum = selected.phone.replace(/\D/g, '')
+                    const saved = savedContacts[cleanNum]
+                    const hasContact = !!saved
+                    return (
+                      <button
+                        className="nx-btn-ghost"
+                        style={{
+                          fontSize: 12, padding: '7px 14px',
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          color: hasContact ? '#16A34A' : '#C9A074',
+                          borderColor: hasContact ? '#BBF7D0' : '#F0E0B6',
+                          background: hasContact ? '#F0FDF4' : '#FFFBEB',
+                        }}
+                        title={hasContact ? `Já salvo como ${saved.nome}` : 'Salvar contato pra aparecer com nome'}
+                        onClick={() => openSaveContact(selected)}
+                      >
+                        {hasContact ? <UserCheck size={14} /> : <UserPlus size={14} />}
+                        <span className="btn-label">{hasContact ? `Editar ${saved.nome}` : 'Salvar contato'}</span>
+                      </button>
+                    )
+                  })()}
+                  {(() => {
                     const rs = REASONS.find(r => r.value === closedMap[selected.session_id])
                     return rs ? (
                       <span style={{
