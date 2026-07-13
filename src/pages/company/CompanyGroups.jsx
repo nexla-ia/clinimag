@@ -921,6 +921,21 @@ export default function CompanyGroups() {
                           <video controls src={media.src}
                             style={{ maxWidth: 240, borderRadius: 8, display: 'block' }} />
                         )}
+                        {media?.type === 'pdf' && (
+                          <a href={media.src} download="documento.pdf" target="_blank" rel="noreferrer"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 10,
+                              background: '#FEF2F2', border: '1px solid #FECACA',
+                              borderRadius: 8, padding: '10px 14px', textDecoration: 'none',
+                              minWidth: 200, marginBottom: msg.mensagem ? 6 : 0,
+                            }}>
+                            <div style={{ width: 34, height: 34, borderRadius: 6, background: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#DC2626', fontWeight: 700, fontSize: 10, flexShrink: 0 }}>PDF</div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>Documento PDF</div>
+                              <div style={{ fontSize: 11, color: '#6B7280' }}>Clique para abrir/baixar</div>
+                            </div>
+                          </a>
+                        )}
                         {(!media || media.type === 'pdf') && msg.mensagem && (
                           <span style={{ whiteSpace: 'pre-wrap' }}>
                             {renderTextWithLinks(msg.mensagem, {
