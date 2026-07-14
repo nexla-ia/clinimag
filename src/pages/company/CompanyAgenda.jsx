@@ -46,6 +46,13 @@ function getMonday(date) {
 function addDays(date, n) {
   const d = new Date(date); d.setDate(d.getDate() + n); return d
 }
+// Soma meses travando no último dia do mês (evita 31/jan +1 virar 03/mar)
+function addMonthsClamp(date, n) {
+  const d = new Date(date); const day = d.getDate()
+  d.setDate(1); d.setMonth(d.getMonth() + n)
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(day, last)); return d
+}
 
 function fmtDate(d) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
@@ -374,6 +381,9 @@ export default function CompanyAgenda() {
       payment_status: 'pendente',
       recurrence: null,
       recurrence_count: 4,
+      recurrence_weekdays: [],
+      recurrence_mode: 'meses',
+      recurrence_months: 3,
     })
     setApptErr('')
     setPatientHistory([])
@@ -561,20 +571,49 @@ export default function CompanyAgenda() {
 
     // Agendamentos recorrentes (somente ao criar)
     if (isNew && apptModal.recurrence) {
-      const count = Math.min(parseInt(apptModal.recurrence_count) || 4, 52)
+      const rec = apptModal.recurrence
+      const mode = apptModal.recurrence_mode || 'ocorrencias'
       const extras = []
-      for (let i = 1; i < count; i++) {
-        let next
-        if (apptModal.recurrence === 'mensal') {
-          next = new Date(startsAt)
-          next.setMonth(next.getMonth() + i)
-        } else {
-          const days = apptModal.recurrence === 'semanal' ? 7 : 14
-          next = new Date(startsAt.getTime() + i * days * 86400000)
+      const hh = startsAt.getHours(), mm = startsAt.getMinutes()
+
+      if (rec === 'mensal') {
+        const total = mode === 'meses'
+          ? Math.max(1, parseInt(apptModal.recurrence_months) || 1)
+          : Math.max(2, parseInt(apptModal.recurrence_count) || 2)
+        for (let i = 1; i < total; i++) {
+          extras.push({ ...payload, starts_at: addMonthsClamp(startsAt, i).toISOString() })
         }
-        extras.push({ ...payload, starts_at: next.toISOString() })
+      } else {
+        // Semanal / Quinzenal — pode ter vários dias na semana (ex.: 3x/semana)
+        let weekdays = (apptModal.recurrence_weekdays?.length ? [...apptModal.recurrence_weekdays] : [startsAt.getDay()])
+        if (!weekdays.includes(startsAt.getDay())) weekdays.push(startsAt.getDay())
+        weekdays = [...new Set(weekdays)].sort((a, b) => a - b)
+
+        const maxOcc = mode === 'ocorrencias' ? Math.max(2, parseInt(apptModal.recurrence_count) || 2) : Infinity
+        const end = mode === 'meses' ? addMonthsClamp(startsAt, Math.max(1, parseInt(apptModal.recurrence_months) || 1)) : null
+        const weekInc = rec === 'quinzenal' ? 2 : 1
+
+        // domingo da semana do agendamento base
+        const week0 = new Date(startsAt); week0.setHours(0, 0, 0, 0); week0.setDate(week0.getDate() - week0.getDay())
+        let occ = 1 // o agendamento base já conta
+        for (let w = 0; w < 520; w += weekInc) {
+          const weekStart = new Date(week0); weekStart.setDate(weekStart.getDate() + w * 7)
+          if (end && weekStart >= end) break
+          for (const wd of weekdays) {
+            const day = new Date(week0); day.setDate(day.getDate() + w * 7 + wd); day.setHours(hh, mm, 0, 0)
+            if (day.getTime() <= startsAt.getTime()) continue   // pula o próprio base e datas passadas
+            if (end && day >= end) continue
+            if (occ >= maxOcc) break
+            extras.push({ ...payload, starts_at: day.toISOString() })
+            occ++
+          }
+          if (occ >= maxOcc) break
+        }
       }
-      if (extras.length) await supabase.from('appointments').insert(extras)
+      // insere em blocos (pode ser muita coisa: 3x/sem x 3 meses ≈ 39)
+      for (let i = 0; i < extras.length; i += 200) {
+        await supabase.from('appointments').insert(extras.slice(i, i + 200))
+      }
     }
 
     // ─── Mensagens automáticas pro paciente (chat interno + WhatsApp) ─────
@@ -1480,7 +1519,11 @@ export default function CompanyAgenda() {
                       const active = apptModal.recurrence === r.value
                       return (
                         <button key={String(r.value)} type="button"
-                          onClick={() => setApptModal(p => ({ ...p, recurrence: r.value }))}
+                          onClick={() => setApptModal(p => {
+                            const baseWd = p.date ? new Date(p.date + 'T00:00:00').getDay() : new Date().getDay()
+                            const initWd = (r.value === 'semanal' || r.value === 'quinzenal') && !(p.recurrence_weekdays?.length) ? [baseWd] : p.recurrence_weekdays
+                            return { ...p, recurrence: r.value, recurrence_weekdays: initWd }
+                          })}
                           style={{
                             padding: '5px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
                             border: `1.5px solid ${active ? '#2563EB' : 'var(--border)'}`,
@@ -1493,15 +1536,63 @@ export default function CompanyAgenda() {
                       )
                     })}
                   </div>
+                  {/* Dias da semana (para semanal/quinzenal — permite 3x/semana etc.) */}
+                  {(apptModal.recurrence === 'semanal' || apptModal.recurrence === 'quinzenal') && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 5 }}>Dias da semana</div>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d, wd) => {
+                          const on = (apptModal.recurrence_weekdays || []).includes(wd)
+                          return (
+                            <button key={wd} type="button"
+                              onClick={() => setApptModal(p => {
+                                const cur = p.recurrence_weekdays || []
+                                return { ...p, recurrence_weekdays: on ? cur.filter(x => x !== wd) : [...cur, wd] }
+                              })}
+                              style={{
+                                width: 40, padding: '6px 0', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                                border: `1.5px solid ${on ? '#2563EB' : 'var(--border)'}`,
+                                background: on ? '#EFF6FF' : 'transparent',
+                                color: on ? '#2563EB' : 'var(--text-secondary)', cursor: 'pointer',
+                              }}>
+                              {d}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Duração: por meses ou por número de ocorrências */}
                   {apptModal.recurrence && (
-                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input className="nx-input" type="number" min={2} max={52}
-                        style={{ width: 72, textAlign: 'center' }}
-                        value={apptModal.recurrence_count}
-                        onChange={e => setApptModal(p => ({ ...p, recurrence_count: Math.min(52, Math.max(2, parseInt(e.target.value) || 2)) }))} />
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        ocorrências — total de <strong style={{ color: 'var(--text-primary)' }}>{apptModal.recurrence_count}</strong> consultas
-                      </span>
+                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {[{ v: 'meses', l: 'Por meses' }, { v: 'ocorrencias', l: 'Nº de vezes' }].map(opt => {
+                          const on = (apptModal.recurrence_mode || 'meses') === opt.v
+                          return (
+                            <button key={opt.v} type="button"
+                              onClick={() => setApptModal(p => ({ ...p, recurrence_mode: opt.v }))}
+                              style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, border: `1.5px solid ${on ? '#2563EB' : 'var(--border)'}`, background: on ? '#EFF6FF' : 'transparent', color: on ? '#2563EB' : 'var(--text-secondary)', cursor: 'pointer' }}>
+                              {opt.l}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {(apptModal.recurrence_mode || 'meses') === 'meses' ? (
+                        <>
+                          <input className="nx-input" type="number" min={1} max={24} style={{ width: 68, textAlign: 'center' }}
+                            value={apptModal.recurrence_months}
+                            onChange={e => setApptModal(p => ({ ...p, recurrence_months: Math.min(24, Math.max(1, parseInt(e.target.value) || 1)) }))} />
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>meses</span>
+                        </>
+                      ) : (
+                        <>
+                          <input className="nx-input" type="number" min={2} max={200} style={{ width: 68, textAlign: 'center' }}
+                            value={apptModal.recurrence_count}
+                            onChange={e => setApptModal(p => ({ ...p, recurrence_count: Math.min(200, Math.max(2, parseInt(e.target.value) || 2)) }))} />
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>consultas no total</span>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
