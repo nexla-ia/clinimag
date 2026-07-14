@@ -430,10 +430,6 @@ export default function CompanyCatalog() {
               <input className="nx-input" placeholder="Ex: CRM-DF 12345"
                 value={proModal.registration || ''} onChange={e => setProModal(p => ({ ...p, registration: e.target.value }))} />
             </Field>
-            <Field label="Valor por atendimento (R$) — usado no repasse dos planos">
-              <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00"
-                value={proModal.valor_atendimento ?? ''} onChange={e => setProModal(p => ({ ...p, valor_atendimento: e.target.value }))} />
-            </Field>
             <Field label="Cor">
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {COLORS.map(c => (
