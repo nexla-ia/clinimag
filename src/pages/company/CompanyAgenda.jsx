@@ -692,6 +692,21 @@ export default function CompanyAgenda() {
     setApptModal(null)
   }
 
+  // Valor do agendamento: o valor por sessão do profissional manda. Só cai no
+  // preço do procedimento (convênio > particular) quando o profissional não
+  // tem valor cadastrado no Catálogo.
+  function resolveApptPrice(professionalId, procedureId, planId, current = 0) {
+    const pro = professionals.find(x => x.id === professionalId)
+    const proValue = parseFloat(pro?.valor_atendimento) || 0
+    if (proValue > 0) return proValue
+    if (!procedureId) return current
+    const proc = procedures.find(x => x.id === procedureId)
+    const priceRow = planId
+      ? procedurePrices.find(pr => pr.procedure_id === procedureId && pr.insurance_plan_id === planId)
+      : null
+    return priceRow?.price ?? proc?.price_particular ?? 0
+  }
+
   // Abre a confirmação certa: se o agendamento nasceu de uma recorrência,
   // pergunta se é só ele ou a série toda.
   async function askDeleteAppt(appt, fromModal = false) {
@@ -1712,7 +1727,15 @@ export default function CompanyAgenda() {
                 <div>
                   <label style={labelStyle}>Profissional</label>
                   <select className="nx-select" value={apptModal.professional_id || ''}
-                    onChange={e => setApptModal(p => ({ ...p, professional_id: e.target.value || null, procedure_id: null }))}>
+                    onChange={e => {
+                      const proId = e.target.value || null
+                      setApptModal(p => ({
+                        ...p,
+                        professional_id: proId,
+                        procedure_id: null,
+                        price: resolveApptPrice(proId, null, p.insurance_plan_id, p.price),
+                      }))
+                    }}>
                     <option value="">— Selecione —</option>
                     {professionals.map(p => <option key={p.id} value={p.id}>{p.name}{p.specialty ? ` — ${p.specialty}` : ''}</option>)}
                   </select>
@@ -1726,16 +1749,12 @@ export default function CompanyAgenda() {
                     onChange={e => {
                       const procId = e.target.value || null
                       const proc = procedures.find(x => x.id === procId)
-                      // Auto-preenche valor (do convênio se houver, senão particular) e duração
-                      let newPrice = apptModal.price
-                      let newDuration = apptModal.duration_minutes
-                      if (proc) {
-                        newDuration = proc.duration_minutes || newDuration
-                        const planId = apptModal.insurance_plan_id
-                        const priceRow = planId ? procedurePrices.find(pr => pr.procedure_id === procId && pr.insurance_plan_id === planId) : null
-                        newPrice = priceRow?.price ?? proc.price_particular ?? 0
-                      }
-                      setApptModal(p => ({ ...p, procedure_id: procId, price: newPrice, duration_minutes: newDuration }))
+                      setApptModal(p => ({
+                        ...p,
+                        procedure_id: procId,
+                        duration_minutes: proc?.duration_minutes || p.duration_minutes,
+                        price: resolveApptPrice(p.professional_id, procId, p.insurance_plan_id, p.price),
+                      }))
                     }}>
                     <option value="">— Selecione —</option>
                     {procedures
@@ -1751,14 +1770,11 @@ export default function CompanyAgenda() {
                   <select className="nx-select" value={apptModal.insurance_plan_id || ''}
                     onChange={e => {
                       const planId = e.target.value || null
-                      const procId = apptModal.procedure_id
-                      let newPrice = apptModal.price
-                      if (procId) {
-                        const proc = procedures.find(x => x.id === procId)
-                        const priceRow = planId ? procedurePrices.find(pr => pr.procedure_id === procId && pr.insurance_plan_id === planId) : null
-                        newPrice = priceRow?.price ?? proc?.price_particular ?? 0
-                      }
-                      setApptModal(p => ({ ...p, insurance_plan_id: planId, price: newPrice }))
+                      setApptModal(p => ({
+                        ...p,
+                        insurance_plan_id: planId,
+                        price: resolveApptPrice(p.professional_id, p.procedure_id, planId, p.price),
+                      }))
                     }}>
                     <option value="">Particular</option>
                     {insurancePlans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1769,6 +1785,16 @@ export default function CompanyAgenda() {
                   <input className="nx-input" type="number" step="0.01" min={0}
                     value={apptModal.price ?? 0}
                     onChange={e => setApptModal(p => ({ ...p, price: e.target.value }))} />
+                  {(() => {
+                    const pro = professionals.find(x => x.id === apptModal.professional_id)
+                    const proValue = parseFloat(pro?.valor_atendimento) || 0
+                    if (!proValue) return null
+                    return (
+                      <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 3 }}>
+                        Valor por sessão de {pro.name.split(' ')[0]} (Catálogo). Dá pra editar aqui.
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
 

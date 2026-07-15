@@ -273,7 +273,7 @@ export default function CompanyCatalog() {
             <div className="nx-card" style={{ padding: 0, overflow: 'hidden' }}>
               <table className="data-table" style={{ width: '100%' }}>
                 <thead>
-                  <tr><th>Nome</th><th>Especialidade</th><th>Atendimento</th><th>Status</th><th style={{ textAlign: 'right' }}>Ação</th></tr>
+                  <tr><th>Nome</th><th>Especialidade</th><th>Atendimento</th><th>Valor/sessão</th><th>Status</th><th style={{ textAlign: 'right' }}>Ação</th></tr>
                 </thead>
                 <tbody>
                   {pros.map(p => {
@@ -305,6 +305,11 @@ export default function CompanyCatalog() {
                             )}
                           </div>
                         ) : '—'}
+                      </td>
+                      <td style={{ fontSize: 12, fontWeight: 600 }}>
+                        {Number(p.valor_atendimento) > 0
+                          ? fmtMoney(p.valor_atendimento)
+                          : <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>—</span>}
                       </td>
                       <td>
                         <span className={`nx-badge ${p.active !== false ? 'nx-badge-green' : 'nx-badge-red'}`}>
@@ -429,6 +434,16 @@ export default function CompanyCatalog() {
             <Field label="Registro (CRM/CRO/etc)">
               <input className="nx-input" placeholder="Ex: CRM-DF 12345"
                 value={proModal.registration || ''} onChange={e => setProModal(p => ({ ...p, registration: e.target.value }))} />
+            </Field>
+            <Field label="Valor por atendimento (R$)">
+              <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00"
+                value={proModal.valor_atendimento ?? ''}
+                onChange={e => setProModal(p => ({ ...p, valor_atendimento: e.target.value }))} />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Quanto este profissional cobra por sessão. Ao escolher ele na agenda, o valor
+                já vem preenchido — e ainda dá pra editar no agendamento.
+                Deixe 0 para usar o preço do procedimento.
+              </div>
             </Field>
             <Field label="Cor">
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
