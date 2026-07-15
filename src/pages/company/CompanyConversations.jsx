@@ -1229,8 +1229,18 @@ export default function CompanyConversations() {
       })
         .then(r => r.text())
         .then(async text => {
-          const [instResp, msgResp, msgId] = text.trim().split('\n').map(l => l.trim())
+          // Resposta do n8n: instancia / mensagem / id_mensagem, uma por linha.
+          // A mensagem pode ter quebra de linha, então ancora pelas pontas
+          // (1ª = instancia, última = id) e o miolo é a mensagem inteira.
+          const lines = text.trim().split('\n')
+          if (lines.length < 3) return
+          const instResp = lines[0].trim()
+          const msgId    = lines[lines.length - 1].trim()
+          const msgResp  = lines.slice(1, -1).join('\n').trim()
           if (!msgId || !instResp || !msgResp) return
+          // id_mensagem nunca tem espaço — se tiver, o corte saiu errado e
+          // gravar isso apontaria a lixeira pra mensagem errada no WhatsApp.
+          if (/\s/.test(msgId)) return
           // Acha a linha pelo conteúdo da mensagem + instancia + numero (mais recente)
           const { data: row } = await supabase
             .from('mensagens_geral')
