@@ -177,6 +177,7 @@ export default function CompanyAgenda() {
   const [dragOverSlot, setDragOverSlot] = useState(null)
   const [ctxMenu, setCtxMenu] = useState(null) // { x, y, appt }
   const [confirmDeleteApptDirect, setConfirmDeleteApptDirect] = useState(null)
+  const [seriesDelete, setSeriesDelete] = useState(null) // { appt, count, fromModal }
   const [recipSearch, setRecipSearch] = useState('')
   const [useCustomMsg, setUseCustomMsg] = useState(false)
   const [customMsg, setCustomMsg] = useState('')
@@ -563,9 +564,23 @@ export default function CompanyAgenda() {
     const isNew = !apptModal.id
     const prevStatus = apptModal._prevStatus
     const prevStartsAt = apptModal._prevStartsAt
-    const { error } = isNew
+
+    // Recorrência: marca o base e todos os derivados com o mesmo id, para
+    // depois ser possível excluir a série inteira de uma vez.
+    if (isNew && apptModal.recurrence) {
+      payload.recurrence_group_id = (crypto.randomUUID?.() || null)
+    }
+
+    let { error } = isNew
       ? await supabase.from('appointments').insert(payload)
       : await supabase.from('appointments').update(payload).eq('id', apptModal.id)
+
+    // Se a migration da série ainda não rodou, salva sem o vínculo em vez de
+    // travar o agendamento (a série só perde o "excluir todos").
+    if (error && payload.recurrence_group_id && /recurrence_group_id/i.test(error.message || '')) {
+      delete payload.recurrence_group_id
+      ;({ error } = await supabase.from('appointments').insert(payload))
+    }
     setSavingAppt(false)
     if (error) { setApptErr('Erro: ' + error.message); return }
 
@@ -677,17 +692,45 @@ export default function CompanyAgenda() {
     setApptModal(null)
   }
 
+  // Abre a confirmação certa: se o agendamento nasceu de uma recorrência,
+  // pergunta se é só ele ou a série toda.
+  async function askDeleteAppt(appt, fromModal = false) {
+    if (!appt?.recurrence_group_id) {
+      if (fromModal) setConfirmDeleteAppt(true)
+      else setConfirmDeleteApptDirect(appt)
+      return
+    }
+    const { count } = await supabase.from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('recurrence_group_id', appt.recurrence_group_id)
+    setSeriesDelete({ appt, count: count || 0, fromModal })
+  }
+
+  // scope: 'este' | 'serie'
+  async function doDeleteAppt(appt, scope, fromModal) {
+    if (!appt?.id) return
+    setDeletingNow(true)
+    const groupId = appt.recurrence_group_id
+    if (scope === 'serie' && groupId) {
+      await supabase.from('appointments').delete().eq('recurrence_group_id', groupId)
+      setAppointments(prev => prev.filter(a => a.recurrence_group_id !== groupId))
+    } else {
+      await supabase.from('appointments').delete().eq('id', appt.id)
+      setAppointments(prev => prev.filter(a => a.id !== appt.id))
+    }
+    setDeletingNow(false)
+    setSeriesDelete(null)
+    setConfirmDeleteApptDirect(null)
+    if (fromModal) { setConfirmDeleteAppt(false); setApptModal(null) }
+  }
+
   function handleDeleteAppt() {
     if (!apptModal?.id) return
-    setConfirmDeleteAppt(true)
+    askDeleteAppt(apptModal, true)
   }
   async function confirmDeleteApptAction() {
     if (!apptModal?.id) return
-    setDeletingNow(true)
-    await supabase.from('appointments').delete().eq('id', apptModal.id)
-    setDeletingNow(false)
-    setConfirmDeleteAppt(false)
-    setApptModal(null)
+    await doDeleteAppt(apptModal, 'este', true)
   }
 
   const selectedAgenda = agendas.find(a => a.id === selectedAgendaId)
@@ -1141,15 +1184,82 @@ export default function CompanyAgenda() {
         message={`Tem certeza que deseja excluir o agendamento de "${confirmDeleteApptDirect?.contact_nome || ''}"? Essa ação não pode ser desfeita.`}
         confirmLabel="Excluir"
         loading={deletingNow}
-        onConfirm={async () => {
-          if (!confirmDeleteApptDirect) return
-          setDeletingNow(true)
-          await supabase.from('appointments').delete().eq('id', confirmDeleteApptDirect.id)
-          setDeletingNow(false)
-          setConfirmDeleteApptDirect(null)
-        }}
+        onConfirm={() => doDeleteAppt(confirmDeleteApptDirect, 'este', false)}
         onCancel={() => setConfirmDeleteApptDirect(null)}
       />
+
+      {/* Excluir agendamento que veio de uma recorrência: só este ou a série toda */}
+      {seriesDelete && createPortal(
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 99999, backdropFilter: 'blur(4px)', padding: '1.5rem',
+        }}>
+          <div className="nx-card" style={{ width: '100%', maxWidth: 440 }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: '#FEF2F2', border: '1px solid #FECACA', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#DC2626', flexShrink: 0 }}>
+                  <Repeat size={15} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+                    Excluir agendamento recorrente
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
+                    {seriesDelete.appt?.contact_nome || 'Paciente'} · faz parte de uma série de {seriesDelete.count} agendamentos
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button
+                onClick={() => doDeleteAppt(seriesDelete.appt, 'este', seriesDelete.fromModal)}
+                disabled={deletingNow}
+                style={{
+                  textAlign: 'left', padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
+                  border: '1.5px solid var(--border)', background: '#fff', fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = '#2563EB'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Somente este agendamento
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {seriesDelete.appt?.starts_at
+                    ? new Date(seriesDelete.appt.starts_at).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                    : 'Este horário'}
+                  {seriesDelete.count > 1 && ` — os outros ${seriesDelete.count - 1} continuam na agenda.`}
+                </div>
+              </button>
+
+              <button
+                onClick={() => doDeleteAppt(seriesDelete.appt, 'serie', seriesDelete.fromModal)}
+                disabled={deletingNow}
+                style={{
+                  textAlign: 'left', padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
+                  border: '1.5px solid #FECACA', background: '#FEF2F2', fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = '#DC2626'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = '#FECACA'}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#DC2626' }}>
+                  Todos os {seriesDelete.count} agendamentos da série
+                </div>
+                <div style={{ fontSize: 11.5, color: '#B91C1C', marginTop: 2 }}>
+                  Apaga a recorrência inteira, inclusive os já realizados. Não pode ser desfeito.
+                </div>
+              </button>
+            </div>
+
+            <div style={{ padding: '0 1.5rem 1.25rem' }}>
+              <button className="nx-btn-ghost" style={{ width: '100%' }} disabled={deletingNow}
+                onClick={() => setSeriesDelete(null)}>
+                {deletingNow ? 'Excluindo...' : 'Cancelar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
 
       {/* Context menu botão direito */}
       {ctxMenu && createPortal(
@@ -1181,7 +1291,7 @@ export default function CompanyAgenda() {
           </button>
           <div style={{ height: 1, background: 'rgba(15,23,42,0.06)', margin: '3px 4px' }} />
           <button
-            onClick={() => { setConfirmDeleteApptDirect(ctxMenu.appt); setCtxMenu(null) }}
+            onClick={() => { askDeleteAppt(ctxMenu.appt); setCtxMenu(null) }}
             style={{
               width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
               padding: '8px 12px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
