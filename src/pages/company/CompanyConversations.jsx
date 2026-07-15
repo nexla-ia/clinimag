@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -815,6 +815,51 @@ export default function CompanyConversations() {
         user_email: session.user.email,
         last_read_at: now,
       }, { onConflict: 'instancia,session_id,user_email' }).then(() => {})
+    }
+  }
+
+  // Marca como NÃO lida: recua a leitura para antes da última mensagem do
+  // paciente, para o contador voltar a acusar pendência.
+  async function handleMarkUnread(c) {
+    setContextMenu(null)
+    const { data } = await supabase.from(CONV_TABLE)
+      .select('created_at')
+      .eq('numero', c.session_id)
+      .eq('instancia', instance)
+      .ilike('type', 'cliente')
+      .order('created_at', { ascending: false })
+      .limit(1)
+    const lastClientTs = data?.[0]?.created_at
+    if (!lastClientTs) return // sem mensagem do paciente não há o que marcar
+    const before = new Date(new Date(lastClientTs).getTime() - 1000).toISOString()
+
+    setUnreadCounts(prev => ({ ...prev, [c.session_id]: prev[c.session_id] || 1 }))
+    setReadsMap(prev => ({ ...prev, [c.session_id]: before }))
+    // Sai da conversa, senão ela continua aberta "não lida" e confunde
+    if (selectedRef.current?.session_id === c.session_id) setSelected(null)
+
+    if (session?.user?.email) {
+      await supabase.from('conversation_reads').upsert({
+        instancia: instance,
+        session_id: c.session_id,
+        user_email: session.user.email,
+        last_read_at: before,
+      }, { onConflict: 'instancia,session_id,user_email' })
+    }
+  }
+
+  async function handleMarkRead(c) {
+    setContextMenu(null)
+    setUnreadCounts(prev => { const n = { ...prev }; delete n[c.session_id]; return n })
+    const now = new Date().toISOString()
+    setReadsMap(prev => ({ ...prev, [c.session_id]: now }))
+    if (session?.user?.email) {
+      await supabase.from('conversation_reads').upsert({
+        instancia: instance,
+        session_id: c.session_id,
+        user_email: session.user.email,
+        last_read_at: now,
+      }, { onConflict: 'instancia,session_id,user_email' })
     }
   }
 
@@ -2345,21 +2390,38 @@ export default function CompanyConversations() {
           {(() => {
             const cleanNum = contextMenu.contact.phone.replace(/\D/g, '')
             const saved = savedContacts[cleanNum]
+            const isUnread = unreadCounts[contextMenu.contact.session_id] > 0
+            const itemStyle = {
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+              padding: '8px 12px', border: 'none', background: 'transparent',
+              fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer',
+              borderRadius: 6, textAlign: 'left',
+            }
+            const hoverOn  = e => e.currentTarget.style.background = '#F8FAFC'
+            const hoverOff = e => e.currentTarget.style.background = 'transparent'
             return (
-              <button
-                onClick={() => openSaveContact(contextMenu.contact)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  padding: '8px 12px', border: 'none', background: 'transparent',
-                  fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer',
-                  borderRadius: 6, textAlign: 'left',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <User size={13} />
-                {saved ? 'Editar paciente' : 'Salvar paciente'}
-              </button>
+              <>
+                <button
+                  onClick={() => openSaveContact(contextMenu.contact)}
+                  style={itemStyle}
+                  onMouseEnter={hoverOn}
+                  onMouseLeave={hoverOff}
+                >
+                  <User size={13} />
+                  {saved ? 'Editar paciente' : 'Salvar paciente'}
+                </button>
+                <button
+                  onClick={() => isUnread
+                    ? handleMarkRead(contextMenu.contact)
+                    : handleMarkUnread(contextMenu.contact)}
+                  style={itemStyle}
+                  onMouseEnter={hoverOn}
+                  onMouseLeave={hoverOff}
+                >
+                  {isUnread ? <MailOpen size={13} /> : <Mail size={13} />}
+                  {isUnread ? 'Marcar como lida' : 'Marcar como não lida'}
+                </button>
+              </>
             )
           })()}
         </div>
