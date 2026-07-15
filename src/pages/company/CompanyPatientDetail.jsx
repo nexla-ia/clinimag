@@ -56,6 +56,10 @@ function daysUntilBirthday(birth) {
   return Math.round((next - now) / 86400000) + (next.getDate() === now.getDate() && next.getMonth() === now.getMonth() ? 0 : 0)
 }
 
+function fmtBRL(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
 function fmtDate(d) {
   if (!d) return '—'
   return new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR')
@@ -478,6 +482,32 @@ export default function CompanyPatientDetail() {
   const concluded = appointments.filter(a => a.status === 'concluido').length
   const totalSpent = appointments.filter(a => a.payment_status === 'pago').reduce((s, a) => s + Number(a.price || 0), 0)
 
+  // Quanto o paciente representa daqui pra frente, por profissional. Como cada
+  // agendamento carrega o valor de quem atende, o total é a soma deles.
+  const routine = useMemo(() => {
+    const now = new Date()
+    const until = new Date(now); until.setDate(until.getDate() + 30)
+    const inWindow = appointments.filter(a =>
+      a.status !== 'cancelado' &&
+      new Date(a.starts_at) > now &&
+      new Date(a.starts_at) <= until
+    )
+    const byPro = {}
+    inWindow.forEach(a => {
+      const name = a.professionals?.name || 'Sem profissional definido'
+      if (!byPro[name]) byPro[name] = { name, count: 0, total: 0, prices: new Set() }
+      byPro[name].count += 1
+      byPro[name].total += Number(a.price || 0)
+      byPro[name].prices.add(Number(a.price || 0))
+    })
+    const rows = Object.values(byPro).sort((a, b) => b.total - a.total)
+    const total = rows.reduce((s, r) => s + r.total, 0)
+    const pending = inWindow
+      .filter(a => a.payment_status !== 'pago')
+      .reduce((s, a) => s + Number(a.price || 0), 0)
+    return { rows, total, pending, count: inWindow.length }
+  }, [appointments])
+
   return (
     <div className="pat-root">
       {/* Voltar */}
@@ -600,6 +630,60 @@ export default function CompanyPatientDetail() {
               sub="há tempos com a gente"
             />
           </div>
+
+          {routine.count > 0 && (
+            <div className="pat-section-card">
+              <SectionTitle icon={CreditCard} title="Rotina e valores — próximos 30 dias" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {routine.rows.map(r => {
+                  const unit = r.prices.size === 1 ? [...r.prices][0] : null
+                  return (
+                    <div key={r.name} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '8px 0', borderBottom: '1px solid var(--border)',
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.name}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>
+                          {r.count} {r.count === 1 ? 'sessão' : 'sessões'}
+                          {unit ? ` × ${fmtBRL(unit)}` : ' · valores variados'}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                        {fmtBRL(r.total)}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingTop: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      Total em 30 dias
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>
+                      Média de {fmtBRL(routine.total * 7 / 30)} por semana · {routine.count} sessões
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#16A34A', whiteSpace: 'nowrap' }}>
+                    {fmtBRL(routine.total)}
+                  </div>
+                </div>
+
+                {routine.pending > 0 && (
+                  <div style={{
+                    marginTop: 10, padding: '8px 11px', borderRadius: 8,
+                    background: '#FFFBEB', border: '1px solid #FDE68A',
+                    fontSize: 12, color: '#92400E',
+                  }}>
+                    <strong>{fmtBRL(routine.pending)}</strong> ainda em aberto (a receber) nesse período.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {patient.notes && (
             <div className="pat-section-card">
