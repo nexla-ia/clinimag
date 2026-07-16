@@ -108,6 +108,10 @@ export default function CompanyGroups() {
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
   const [sendErr, setSendErr] = useState('')
+  const [customNames, setCustomNames] = useState({}) // idgrupo → nome definido pela clínica
+  const [renameModal, setRenameModal] = useState(null) // { idgrupo, nome }
+  const [savingName, setSavingName] = useState(false)
+  const [renameErr, setRenameErr] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [readsMap, setReadsMap] = useState({})     // idgrupo → last_read_at ISO
@@ -262,6 +266,50 @@ export default function CompanyGroups() {
         setLoading(false)
       })
   }, [instance])
+
+  // Nomes personalizados dos grupos (se a migration ainda não rodou, ignora)
+  useEffect(() => {
+    if (!instance) return
+    supabase.from('group_custom_names')
+      .select('idgrupo, nome')
+      .eq('instancia', instance)
+      .then(({ data }) => {
+        if (data) setCustomNames(Object.fromEntries(data.map(r => [r.idgrupo, r.nome])))
+      })
+  }, [instance])
+
+  // Nome exibido: apelido da clínica > nome do WhatsApp > código
+  const labelOf = (g) => customNames[g.idgrupo] || groupLabel(g)
+
+  async function handleSaveGroupName() {
+    if (!renameModal || savingName) return
+    const nome = (renameModal.nome || '').trim()
+    setSavingName(true)
+    setRenameErr('')
+    if (nome) {
+      const { error } = await supabase.from('group_custom_names').upsert({
+        instancia: instance,
+        idgrupo: renameModal.idgrupo,
+        nome,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'instancia,idgrupo' })
+      if (error) {
+        setSavingName(false)
+        setRenameErr(/group_custom_names/.test(error.message)
+          ? 'Falta rodar a migration group_custom_names no Supabase.'
+          : 'Erro: ' + error.message)
+        return
+      }
+      setCustomNames(prev => ({ ...prev, [renameModal.idgrupo]: nome }))
+    } else {
+      // Campo vazio = volta pro nome original do WhatsApp
+      await supabase.from('group_custom_names').delete()
+        .eq('instancia', instance).eq('idgrupo', renameModal.idgrupo)
+      setCustomNames(prev => { const n = { ...prev }; delete n[renameModal.idgrupo]; return n })
+    }
+    setSavingName(false)
+    setRenameModal(null)
+  }
 
   const MSG_PAGE = 50
 
@@ -709,7 +757,7 @@ export default function CompanyGroups() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontWeight: unread ? 800 : 600, fontSize: 13.5, color: isMuted ? 'var(--text-muted)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {groupLabel(g)}
+                      {labelOf(g)}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                       <span style={{ fontSize: 11, color: unread ? '#2563EB' : 'var(--text-muted)', fontWeight: unread ? 700 : 400 }}>
@@ -767,12 +815,22 @@ export default function CompanyGroups() {
                   }}
                 >
                   <div style={{ fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {groupLabel(selected)}
+                    {labelOf(selected)}
                     <ChevronRight size={14} color="#6B7280" style={{ flexShrink: 0 }} />
                   </div>
                   <div style={{ fontSize: 11, color: '#2563EB' }}>
                     Ver integrantes
                   </div>
+                </button>
+                <button
+                  onClick={() => setRenameModal({ idgrupo: selected.idgrupo, nome: customNames[selected.idgrupo] || selected.nomegrupo || '' })}
+                  title="Renomear grupo (só muda aqui na plataforma)"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                    color: 'var(--text-muted)', flexShrink: 0, display: 'inline-flex',
+                  }}
+                >
+                  <Pencil size={13} />
                 </button>
               </div>
               <TagPicker
@@ -794,7 +852,7 @@ export default function CompanyGroups() {
                 <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>Integrantes</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{groupLabel(selected)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{labelOf(selected)}</div>
                   </div>
                   <button onClick={() => setGroupInfoOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
                     <X size={16} />
@@ -1298,6 +1356,58 @@ export default function CompanyGroups() {
           style={{ position: 'fixed', top: 20, right: 20, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
           <Download size={16} /> Baixar
         </a>
+      </div>,
+      document.body
+    )}
+
+    {/* Renomear grupo (apelido só da plataforma) */}
+    {renameModal && createPortal(
+      <div style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 99999, backdropFilter: 'blur(4px)', padding: '1.5rem',
+      }}>
+        <div className="nx-card" style={{ width: '100%', maxWidth: 400 }}>
+          <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Renomear grupo</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
+                {renameModal.idgrupo.replace('@g.us', '')}
+              </div>
+            </div>
+            <button onClick={() => setRenameModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+              <X size={16} />
+            </button>
+          </div>
+          <div style={{ padding: '1.25rem 1.5rem' }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Nome do grupo
+            </label>
+            <input
+              className="nx-input"
+              autoFocus
+              placeholder="Ex: Equipe Recepção"
+              value={renameModal.nome}
+              onChange={e => setRenameModal(p => ({ ...p, nome: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveGroupName() }}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+              Muda só aqui na plataforma — o nome no WhatsApp continua o mesmo.
+              Deixe em branco pra voltar ao nome original.
+            </div>
+            {renameErr && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginTop: 10 }}>
+                {renameErr}
+              </div>
+            )}
+          </div>
+          <div style={{ padding: '0 1.5rem 1.25rem', display: 'flex', gap: 10 }}>
+            <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setRenameModal(null)}>Cancelar</button>
+            <button className="nx-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSaveGroupName} disabled={savingName}>
+              {savingName ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        </div>
       </div>,
       document.body
     )}
