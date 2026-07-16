@@ -380,9 +380,14 @@ export default function CompanyGroups() {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    const isVideo = file.type.startsWith('video/')
-    const MAX = isVideo ? 50 * 1024 * 1024 : 15 * 1024 * 1024
-    if (file.size > MAX) return
+    // O arquivo viaja como base64 (~1,33x o tamanho) num JSON até o Supabase e
+    // o n8n — que corta em 16 MB. Acima de ~10 MB o envio quebra nos dois.
+    const MAX = 10 * 1024 * 1024
+    if (file.size > MAX) {
+      setSendErr(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB) — o limite é 10 MB. Comprima o vídeo ou envie direto pelo WhatsApp.`)
+      setTimeout(() => setSendErr(''), 8000)
+      return
+    }
     const buf = await file.arrayBuffer()
     const bytes = new Uint8Array(buf)
     let bin = ''
