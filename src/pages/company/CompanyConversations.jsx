@@ -884,9 +884,7 @@ export default function CompanyConversations() {
     const name = session?.user?.name || 'Atendente'
     const sectorLabel = userSector ? ` (${userSector.name})` : ''
 
-    // INSERT sem ON CONFLICT UPDATE — se outro atendente assumiu primeiro,
-    // o banco retorna erro 23505 (unique violation) e abortamos silenciosamente.
-    const { error: insertErr } = await supabase.from('attendances').insert({
+    const payload = {
       numero: contact.session_id,
       instancia: instance,
       sector_id: userSector?.id || null,
@@ -895,13 +893,49 @@ export default function CompanyConversations() {
       attendant_name: name,
       attendant_email: session?.user?.email,
       assumed_at: new Date().toISOString(),
-    })
+    }
+
+    // INSERT sem ON CONFLICT UPDATE — se outro atendente assumiu primeiro,
+    // o banco retorna 23505 e a gente confere QUEM é em vez de sobrescrever.
+    let { error: insertErr } = await supabase.from('attendances').insert(payload)
+
+    if (insertErr?.code === '23505') {
+      // Já existe linha. Pode ser outro atendente de verdade, ou uma linha
+      // órfã do ticket anterior correndo contra a limpeza do "finalizar".
+      const { data: existing } = await supabase.from('attendances')
+        .select('*')
+        .eq('numero', contact.session_id)
+        .eq('instancia', instance)
+        .maybeSingle()
+
+      if (existing && existing.attendant_email !== session?.user?.email) {
+        // Outro atendente de verdade — mostra quem e sincroniza a tela.
+        setAttendancesMap(prev => ({ ...prev, [contact.session_id]: existing }))
+        setAssuming(null)
+        setToast({
+          message: `Essa conversa já está com ${existing.attendant_name || 'outro atendente'}${existing.sector_name ? ` (${existing.sector_name})` : ''}.`,
+          color: '#DC2626',
+        })
+        setTimeout(() => setToast(null), 4000)
+        return
+      }
+
+      if (existing) {
+        // A linha já era minha (tela desatualizada) — só sincroniza e segue.
+        setAttendancesMap(prev => ({ ...prev, [contact.session_id]: existing }))
+        setTab('meu-setor')
+        setAssuming(null)
+        return
+      }
+
+      // A linha órfã sumiu entre o insert e a checagem — tenta uma vez mais.
+      ;({ error: insertErr } = await supabase.from('attendances').insert(payload))
+    }
+
     if (insertErr) {
       setAssuming(null)
-      if (insertErr.code === '23505') {
-        setToast({ message: 'Essa conversa já foi assumida por outro atendente.', color: '#DC2626' })
-        setTimeout(() => setToast(null), 4000)
-      }
+      setToast({ message: 'Não consegui assumir: ' + insertErr.message, color: '#DC2626' })
+      setTimeout(() => setToast(null), 4000)
       return
     }
 
@@ -1336,10 +1370,15 @@ export default function CompanyConversations() {
       ids.map(sid => ({ session_id: sid, instancia: instance, reason, closed_at: nowISO })),
       { onConflict: 'session_id,instancia' }
     )
+    if (error) { setClosing(false); return }
+    // Espera a limpeza dos atendimentos aterrissar. Sem o await, reabrir e
+    // assumir logo em seguida corre contra esse delete e bate na trava de
+    // duplicidade ("já foi assumida por outro atendente" sem ter ninguém).
+    await Promise.all(ids.map(sid =>
+      supabase.from('attendances').delete().eq('numero', sid).eq('instancia', instance)
+    ))
     setClosing(false)
-    if (error) return
     setClosedMap(prev => { const n = { ...prev }; ids.forEach(sid => { n[sid] = reason }); return n })
-    ids.forEach(sid => supabase.from('attendances').delete().eq('numero', sid).eq('instancia', instance))
     setAttendancesMap(prev => { const n = { ...prev }; ids.forEach(sid => delete n[sid]); return n })
     if (selected && ids.includes(selected.session_id)) setSelected(null)
     setSelectedIds([])
