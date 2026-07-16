@@ -6,13 +6,17 @@ import TrialCTA from '../components/TrialCTA'
 import './LoginPage.css'
 
 export default function LoginPage() {
-  const { login } = useAuth()
+  const { login, masterEnter } = useAuth()
   const navigate = useNavigate()
   const [tab, setTab] = useState('empresa')
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({ email: '', password: '' })
+  // Acesso mestre: { companies, masterEmail } quando o login mestre valida
+  const [masterPick, setMasterPick] = useState(null)
+  const [masterFilter, setMasterFilter] = useState('')
+  const [entering, setEntering] = useState(null)
 
   function handleChange(e) {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -25,11 +29,23 @@ export default function LoginPage() {
     setLoading(true)
     const result = await login(form.email, form.password, tab)
     setLoading(false)
-    if (result.ok) {
+    if (result.ok && result.master) {
+      setMasterPick({ companies: result.companies, masterEmail: result.masterEmail })
+      setMasterFilter('')
+    } else if (result.ok) {
       navigate(tab === 'adm' ? '/adm' : '/painel')
     } else {
       setError(result.error)
     }
+  }
+
+  async function handleMasterEnter(c) {
+    if (entering) return
+    setEntering(c.id)
+    const r = await masterEnter(c.id, masterPick.masterEmail)
+    setEntering(null)
+    if (r.ok) navigate('/painel')
+    else setError(r.error)
   }
 
   return (
@@ -85,6 +101,71 @@ export default function LoginPage() {
         <div className="login-right">
           {/* wrapper coluna para empilhar form + trial CTA */}
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {masterPick ? (
+            <div className="login-card">
+              <div className="login-card-header">
+                <h2 className="login-card-title">Acesso mestre</h2>
+                <p className="login-card-sub">Escolha a empresa que deseja acessar</p>
+              </div>
+              {masterPick.companies.length > 6 && (
+                <input
+                  className="login-input"
+                  placeholder="Buscar empresa..."
+                  value={masterFilter}
+                  onChange={e => setMasterFilter(e.target.value)}
+                  style={{ marginBottom: 10 }}
+                  autoFocus
+                />
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                {masterPick.companies
+                  .filter(c => !masterFilter || c.name.toLowerCase().includes(masterFilter.toLowerCase()) || (c.instance || '').includes(masterFilter.toLowerCase()))
+                  .map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => c.active && handleMasterEnter(c)}
+                      disabled={!c.active || !!entering}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
+                        padding: '11px 14px', borderRadius: 10, cursor: c.active ? 'pointer' : 'not-allowed',
+                        border: '1.5px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.05)',
+                        color: '#fff', opacity: c.active ? 1 : 0.45, fontFamily: 'inherit',
+                      }}
+                    >
+                      <div style={{
+                        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                        background: 'rgba(255,255,255,0.1)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13,
+                      }}>
+                        {c.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.name}
+                        </div>
+                        <div style={{ fontSize: 11, opacity: 0.65 }}>
+                          {c.instance} · {c.plan || 'sem plano'}{!c.active && ' · inativa'}
+                        </div>
+                      </div>
+                      {entering === c.id && <Loader2 size={14} className="spin" />}
+                    </button>
+                  ))}
+              </div>
+              {error && <div className="login-error" style={{ marginTop: 10 }}>{error}</div>}
+              <button
+                type="button"
+                onClick={() => { setMasterPick(null); setError('') }}
+                style={{
+                  marginTop: 12, width: '100%', padding: '9px 0', borderRadius: 10,
+                  background: 'transparent', border: '1px solid rgba(255,255,255,0.18)',
+                  color: 'rgba(255,255,255,0.75)', cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit',
+                }}
+              >
+                Voltar ao login
+              </button>
+            </div>
+          ) : (
           <form className="login-card" onSubmit={handleSubmit}>
             <div className="login-card-header">
               <h2 className="login-card-title">Acesso ao painel</h2>
@@ -134,9 +215,10 @@ export default function LoginPage() {
 
             <div className="login-footer">Med Mag v2.0 · Plataforma exclusiva · Acesso restrito</div>
           </form>
+          )}
 
           {/* Trial CTA — visível somente no tab empresa */}
-          {tab === 'empresa' && (
+          {tab === 'empresa' && !masterPick && (
             <TrialCTA compact />
           )}
           </div>

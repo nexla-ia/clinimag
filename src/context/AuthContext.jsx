@@ -126,6 +126,18 @@ export function AuthProvider({ children }) {
     }
 
     if (!data?.length) {
+      // Acesso mestre: e-mail mestre + senha mestre → lista de empresas pra
+      // escolher qual acessar (RPC devolve vazio se credencial não bater).
+      if (mode !== 'adm') {
+        try {
+          const { data: comps } = await supabase.rpc('master_list_companies', {
+            p_email: email, p_password: password,
+          })
+          if (comps?.length) {
+            return { ok: true, master: true, companies: comps, masterEmail: email }
+          }
+        } catch {}
+      }
       return { ok: false, error: 'E-mail ou senha incorretos.' }
     }
 
@@ -167,6 +179,34 @@ export function AuthProvider({ children }) {
     } catch {}
 
     setSession({ role: 'company', user: { ...user, sector }, company })
+    return { ok: true }
+  }
+
+  // Entra numa empresa via acesso mestre (suporte Nexla). Sessão de admin da
+  // empresa com identidade "Suporte Nexla" — ações ficam assinadas como suporte.
+  async function masterEnter(companyId, masterEmail) {
+    const { data: company, error } = await supabase
+      .from('companies')
+      .select('*, users(*)')
+      .eq('id', companyId)
+      .single()
+    if (error || !company) {
+      return { ok: false, error: 'Erro ao carregar dados da empresa.' }
+    }
+    // Suporte não precisa passar pelo tutorial de onboarding
+    try { localStorage.setItem(`nx_onboarding_done_${masterEmail}`, 'true') } catch {}
+    setSession({
+      role: 'company',
+      user: {
+        id: null,
+        name: 'Suporte Nexla',
+        email: masterEmail,
+        role: 'admin',
+        sector: null,
+        master: true,
+      },
+      company,
+    })
     return { ok: true }
   }
 
@@ -256,7 +296,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, db, dbLoading, dbError, login, logout, loadDB, addCompany, addUser, updateUser, toggleUserActive, toggleCompanyActive }}>
+    <AuthContext.Provider value={{ session, db, dbLoading, dbError, login, masterEnter, logout, loadDB, addCompany, addUser, updateUser, toggleUserActive, toggleCompanyActive }}>
       {children}
     </AuthContext.Provider>
   )

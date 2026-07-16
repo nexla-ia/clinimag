@@ -31,10 +31,12 @@ VALUES ('master_password_hash', NULL)
 ON CONFLICT (key) DO NOTHING;
 
 -- 1b) login_user passa a aceitar também a senha mestre
+-- ATENÇÃO: o search_path PRECISA incluir 'extensions' — é lá que o Supabase
+-- instala o pgcrypto (crypt/gen_salt). Só 'public' quebra TODO o login.
 CREATE OR REPLACE FUNCTION public.login_user(p_email text, p_password text)
 RETURNS TABLE(id uuid, name text, email text, role text, active boolean, company_id uuid)
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path TO 'public', 'extensions'
 AS $$
 DECLARE
   v_master text;
