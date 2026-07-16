@@ -317,6 +317,20 @@ export default function CompanyGroups() {
           })
           if (selectedRef.current?.idgrupo === row.idgrupo) {
             setMessages(msgs => [...msgs, row])
+            // O realtime corta payloads grandes (~1 MB): vídeo/PDF chega sem o
+            // base64 e a bolha vira só texto até dar F5. Se a mensagem anuncia
+            // mídia mas o base64 não veio, busca a linha completa.
+            if (!row.base64 && /🎤|🖼️|📄|🎬|📎/.test(row.mensagem || '')) {
+              supabase.from(CONV_TABLE)
+                .select('id, base64')
+                .eq('id', row.id)
+                .single()
+                .then(({ data }) => {
+                  if (data?.base64) {
+                    setMessages(msgs => msgs.map(m => m.id === data.id ? { ...m, base64: data.base64 } : m))
+                  }
+                })
+            }
           }
         }
       )
