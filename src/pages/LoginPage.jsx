@@ -129,14 +129,16 @@ export default function LoginPage() {
                       style={{
                         display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
                         padding: '11px 14px', borderRadius: 10, cursor: c.active ? 'pointer' : 'not-allowed',
-                        border: '1.5px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.05)',
-                        color: '#fff', opacity: c.active ? 1 : 0.45, fontFamily: 'inherit',
+                        border: '1.5px solid #E2E8F0', background: '#F8FAFC',
+                        color: '#0F172A', opacity: c.active ? 1 : 0.45, fontFamily: 'inherit',
                       }}
+                      onMouseEnter={e => { if (c.active) e.currentTarget.style.borderColor = '#2563EB' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#E2E8F0' }}
                     >
                       <div style={{
                         width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                        background: 'rgba(255,255,255,0.1)', display: 'flex',
-                        alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13,
+                        background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#2563EB',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13,
                       }}>
                         {c.name.charAt(0).toUpperCase()}
                       </div>
@@ -144,7 +146,7 @@ export default function LoginPage() {
                         <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {c.name}
                         </div>
-                        <div style={{ fontSize: 11, opacity: 0.65 }}>
+                        <div style={{ fontSize: 11, color: '#64748B' }}>
                           {c.instance} · {c.plan || 'sem plano'}{!c.active && ' · inativa'}
                         </div>
                       </div>
@@ -158,8 +160,8 @@ export default function LoginPage() {
                 onClick={() => { setMasterPick(null); setError('') }}
                 style={{
                   marginTop: 12, width: '100%', padding: '9px 0', borderRadius: 10,
-                  background: 'transparent', border: '1px solid rgba(255,255,255,0.18)',
-                  color: 'rgba(255,255,255,0.75)', cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit',
+                  background: 'transparent', border: '1px solid #E2E8F0',
+                  color: '#64748B', cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit',
                 }}
               >
                 Voltar ao login
