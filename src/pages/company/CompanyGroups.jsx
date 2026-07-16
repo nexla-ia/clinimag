@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download } from 'lucide-react'
+import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
