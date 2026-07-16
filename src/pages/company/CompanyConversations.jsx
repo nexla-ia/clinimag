@@ -914,22 +914,11 @@ export default function CompanyConversations() {
       p_hora: new Date().toISOString(),
     })
 
-    // Notifica n8n que a conversa foi assumida (para IA travar) — sem message para não enviar aviso ao cliente
-    fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: contact.session_id,
-        phone: contact.phone,
-        instancia: instance,
-        api_instancia: apiInstancia,
-        ai_enabled: session?.company?.ai_enabled !== false,
-        company: session?.company?.name,
-        sender_name: name,
-        sender_email: session?.user?.email,
-        is_assume_event: true,
-      }),
-    }).catch(e => console.warn('webhook assumir:', e))
+    // Assumir NÃO dispara webhook de envio: o fluxo do n8n montava "*Nome*:"
+    // e mandava a mensagem vazia pro WhatsApp do paciente. O aviso de assumido
+    // fica só na plataforma (send_mensagem_geral acima). Se a IA precisar
+    // saber que a conversa foi assumida, o n8n deve consultar a tabela
+    // attendances em vez de receber esse ping.
 
     setAttendancesMap(prev => ({
       ...prev,
