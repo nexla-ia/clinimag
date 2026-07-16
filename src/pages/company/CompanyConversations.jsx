@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -1267,6 +1267,24 @@ export default function CompanyConversations() {
       })
         .then(r => r.text())
         .then(async text => {
+          // Nó de erro do n8n (Respond to Webhook) devolve texto começando com
+          // "ERRO" quando o WhatsApp recusou o envio — avisa e marca a bolha.
+          if (/^ERRO/i.test((text || '').trim())) {
+            setToast({
+              message: '⚠️ O WhatsApp está com instabilidade e essa mensagem NÃO foi entregue. Tente enviar de novo.',
+              color: '#DC2626',
+            })
+            setTimeout(() => setToast(null), 7000)
+            setMessages(prev => {
+              for (let i = prev.length - 1; i >= 0; i--) {
+                if (prev[i].type === 'atendente' && prev[i].content === mensagemPayload) {
+                  const n = [...prev]; n[i] = { ...n[i], falhou: true }; return n
+                }
+              }
+              return prev
+            })
+            return
+          }
           // Resposta do n8n: instancia / mensagem / id_mensagem, uma por linha.
           // A mensagem pode ter quebra de linha, então ancora pelas pontas
           // (1ª = instancia, última = id) e o miolo é a mensagem inteira.
@@ -2148,6 +2166,11 @@ export default function CompanyConversations() {
                             {msg.apagada && (
                               <div style={{ fontSize: 10.5, fontStyle: 'italic', opacity: 0.7, marginTop: displayContent ? 4 : 0, display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <Trash2 size={10} /> {isCliente ? 'mensagem apagada pelo cliente' : 'mensagem apagada'}
+                              </div>
+                            )}
+                            {msg.falhou && (
+                              <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, color: isAtendente ? '#FDE68A' : '#DC2626' }}>
+                                <AlertCircle size={10} /> não entregue no WhatsApp
                               </div>
                             )}
                           </div>

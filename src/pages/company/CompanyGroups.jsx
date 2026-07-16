@@ -507,7 +507,17 @@ export default function CompanyGroups() {
             company: session?.company?.name,
             ai_enabled: false,
           }),
-        }).catch(e => console.warn('webhook grupo:', e))
+        })
+          .then(r => r.text())
+          .then(t => {
+            // Nó de erro do n8n responde texto começando com "ERRO" quando o
+            // WhatsApp recusou o envio.
+            if (/^ERRO/i.test((t || '').trim())) {
+              setSendErr('⚠️ O WhatsApp está com instabilidade e essa mensagem NÃO foi entregue no grupo. Tente de novo.')
+              setTimeout(() => setSendErr(''), 8000)
+            }
+          })
+          .catch(e => console.warn('webhook grupo:', e))
       }
     } finally {
       setSending(false)
