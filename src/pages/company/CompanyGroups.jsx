@@ -107,6 +107,7 @@ export default function CompanyGroups() {
   const [groups, setGroups] = useState([])
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
+  const [sendErr, setSendErr] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [readsMap, setReadsMap] = useState({})     // idgrupo → last_read_at ISO
@@ -420,7 +421,7 @@ export default function CompanyGroups() {
     setAttachedFile(null)
     try {
       const hora = new Date().toISOString()
-      await supabase.from(CONV_TABLE).insert({
+      const { error: insErr } = await supabase.from(CONV_TABLE).insert({
         instancia: instance,
         numero: instanceOwner || selected.idgrupo,
         idgrupo: selected.idgrupo,
@@ -432,6 +433,13 @@ export default function CompanyGroups() {
         horaLastMessage: hora,
         created_at: hora,
       })
+      // Sem isso o insert falha calado: a mensagem some da tela (o chat só
+      // renderiza pelo realtime) e ninguém fica sabendo o motivo.
+      if (insErr) {
+        console.error('grupo insert:', insErr)
+        setSendErr('A mensagem não foi salva: ' + insErr.message)
+        setTimeout(() => setSendErr(''), 6000)
+      }
       if (/@\d+/.test(text)) {
         // Mensagem com menção → só para infogrupo
         fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
@@ -463,6 +471,11 @@ export default function CompanyGroups() {
             file_mime: attachedFile?.mime || null,
             file_name: attachedFile?.name || null,
             file_kind: attachedFile?.kind || null,
+            // Alias: a mídia (áudio OU arquivo) também vai como "base64"/"mime",
+            // o mesmo nome da coluna do banco, pro fluxo de grupo no n8n achar
+            // o campo sem depender do nome específico acima.
+            base64: mediaBase64,
+            mime: audio?.mime || attachedFile?.mime || null,
             number: selected.idgrupo,
             session_id: selected.idgrupo,
             numero: instanceOwner || selected.idgrupo,
@@ -1028,6 +1041,17 @@ export default function CompanyGroups() {
                   <button onClick={() => stopRecording()} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#DC2626', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                     <Square size={11} /> Parar
                   </button>
+                </div>
+              )}
+
+              {/* Erro de envio (insert falhou — sem isso a mensagem some calada) */}
+              {sendErr && (
+                <div style={{
+                  background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626',
+                  borderRadius: 8, padding: '7px 12px', marginBottom: 8,
+                  fontSize: 12, fontWeight: 600,
+                }}>
+                  {sendErr}
                 </div>
               )}
 
