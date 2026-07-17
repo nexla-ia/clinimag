@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -144,6 +144,19 @@ function isWaitingPatient(c) {
 }
 const MANUAL_REASONS = REASONS.filter(r => r.value !== 'auto_encerrado')
 
+// Motivo personalizado só tem cor; deriva o fundo/borda como as etiquetas.
+function reasonStyle(color) {
+  return { color, bg: (color || '#6B7280') + '15', border: (color || '#6B7280') + '44' }
+}
+const REASON_COLORS = ['#16A34A', '#2563EB', '#7C3AED', '#DB2777', '#D97706', '#0891B2', '#DC2626', '#6B7280']
+function slugify(s) {
+  // NFD separa o acento em codepoint próprio (U+0300–U+036F); removemos essa
+  // faixa e tudo que não for a-z0-9 vira "_".
+  return (s || '').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'motivo'
+}
+
 const SPEEDS = [1, 1.5, 2]
 
 function AudioPlayer({ src, style = {} }) {
@@ -206,6 +219,11 @@ export default function CompanyConversations() {
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
   const [closeModal, setCloseModal]   = useState(null)
   const [reason, setReason]           = useState('')
+  const [customReasons, setCustomReasons] = useState([]) // motivos criados pela empresa
+  const [addingReason, setAddingReason]   = useState(false)
+  const [newReasonLabel, setNewReasonLabel] = useState('')
+  const [newReasonColor, setNewReasonColor] = useState(REASON_COLORS[0])
+  const [savingReason, setSavingReason]   = useState(false)
   const [selectedIds, setSelectedIds] = useState([])   // seleção múltipla para encerrar em lote
   const [closing, setClosing]         = useState(false)
   const [toast, setToast]             = useState(null)
@@ -523,6 +541,60 @@ export default function CompanyConversations() {
         setLoadingContacts(false)
       })
   }, [instance])
+
+  // Motivos de encerramento personalizados da empresa (fallback: sem custom)
+  useEffect(() => {
+    if (!instance) return
+    supabase.from('conversation_close_reasons')
+      .select('value, label, color')
+      .eq('instancia', instance)
+      .order('created_at')
+      .then(({ data, error }) => { if (!error && data) setCustomReasons(data) })
+  }, [instance])
+
+  // Motivos que aparecem no seletor: fixos + os criados pela empresa.
+  const manualReasons = [
+    ...MANUAL_REASONS,
+    ...customReasons.map(r => ({ value: r.value, label: r.label, custom: true, ...reasonStyle(r.color) })),
+  ]
+  // Lookup de qualquer motivo (inclui o 'auto_encerrado' do sistema).
+  function findReason(value) {
+    return REASONS.find(r => r.value === value)
+      || manualReasons.find(r => r.value === value)
+      || null
+  }
+
+  async function handleAddReason() {
+    const label = newReasonLabel.trim()
+    if (!label || savingReason) return
+    let value = slugify(label)
+    // evita colidir com fixo ou já existente
+    const used = new Set([...REASONS, ...customReasons].map(r => r.value))
+    if (used.has(value)) value = value + '_' + Math.floor(Math.random() * 1000)
+    setSavingReason(true)
+    const { data, error } = await supabase.from('conversation_close_reasons')
+      .insert({ instancia: instance, value, label, color: newReasonColor })
+      .select('value, label, color').single()
+    setSavingReason(false)
+    if (error) {
+      setToast({ message: /conversation_close_reasons/.test(error.message)
+        ? 'Falta rodar a migration close_reasons no Supabase.' : 'Erro: ' + error.message, color: '#DC2626' })
+      setTimeout(() => setToast(null), 4000)
+      return
+    }
+    setCustomReasons(prev => [...prev, data])
+    setReason(data.value)
+    setNewReasonLabel('')
+    setNewReasonColor(REASON_COLORS[0])
+    setAddingReason(false)
+  }
+
+  async function handleDeleteReason(value) {
+    await supabase.from('conversation_close_reasons')
+      .delete().eq('instancia', instance).eq('value', value)
+    setCustomReasons(prev => prev.filter(r => r.value !== value))
+    if (reason === value) setReason('')
+  }
 
   // Carrega sessões encerradas com motivo
   useEffect(() => {
@@ -1403,8 +1475,8 @@ export default function CompanyConversations() {
     setCloseModal(null)
     setReason('')
     setTab('finalizados')
-    const label = REASONS.find(r => r.value === reason)?.label || reason
-    const color = REASONS.find(r => r.value === reason)?.color || '#16A34A'
+    const label = findReason(reason)?.label || reason
+    const color = findReason(reason)?.color || '#16A34A'
     setToast({ message: ids.length > 1 ? `${ids.length} conversas finalizadas — ${label}` : `Conversa finalizada — ${label}`, color })
     setTimeout(() => setToast(null), 3500)
   }
@@ -1545,7 +1617,7 @@ export default function CompanyConversations() {
             const att = attendancesMap[c.session_id]
             const isAssuming = assuming === c.session_id
             const closedReason = closedMap[c.session_id]
-            const rs = closedReason ? REASONS.find(r => r.value === closedReason) : null
+            const rs = closedReason ? findReason(closedReason) : null
             const cleanNum = c.phone.replace(/\D/g, '')
             const saved = savedContacts[cleanNum]
             const cliente = clientesMap[cleanNum]
@@ -1843,7 +1915,7 @@ export default function CompanyConversations() {
                     )
                   })()}
                   {(() => {
-                    const rs = REASONS.find(r => r.value === closedMap[selected.session_id])
+                    const rs = findReason(closedMap[selected.session_id])
                     return rs ? (
                       <span style={{
                         fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20,
@@ -2666,8 +2738,8 @@ export default function CompanyConversations() {
                 onClick={() => setCloseModal(null)}><X size={16} /></button>
             </div>
 
-            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {MANUAL_REASONS.map(r => (
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '52vh', overflowY: 'auto' }}>
+              {manualReasons.map(r => (
                 <label key={r.value} style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   padding: '12px 16px', borderRadius: 8, cursor: 'pointer',
@@ -2681,11 +2753,62 @@ export default function CompanyConversations() {
                     width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
                     background: reason === r.value ? r.color : 'var(--border)',
                   }} />
-                  <div style={{ fontSize: 13, fontWeight: 600, color: reason === r.value ? r.color : 'var(--text-primary)' }}>
+                  <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: reason === r.value ? r.color : 'var(--text-primary)' }}>
                     {r.label}
                   </div>
+                  {r.custom && (
+                    <button
+                      onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteReason(r.value) }}
+                      title="Remover este motivo"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'inline-flex', opacity: 0.6 }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                      onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                 </label>
               ))}
+
+              {/* Criar novo motivo */}
+              {addingReason ? (
+                <div style={{ border: '1.5px dashed var(--border)', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <input
+                    className="nx-input" autoFocus placeholder="Nome do motivo (ex: Orçamento enviado)"
+                    value={newReasonLabel} maxLength={40}
+                    onChange={e => setNewReasonLabel(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddReason() }}
+                  />
+                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                    {REASON_COLORS.map(c => (
+                      <button key={c} type="button" onClick={() => setNewReasonColor(c)}
+                        style={{ width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer',
+                          border: 'none', outline: newReasonColor === c ? `2px solid ${c}` : 'none', outlineOffset: 2 }} />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="nx-btn-ghost" style={{ padding: '6px 12px', fontSize: 12 }}
+                      onClick={() => { setAddingReason(false); setNewReasonLabel('') }}>Cancelar</button>
+                    <button className="nx-btn-primary" style={{ padding: '6px 14px', fontSize: 12, justifyContent: 'center' }}
+                      onClick={handleAddReason} disabled={!newReasonLabel.trim() || savingReason}>
+                      {savingReason ? 'Salvando...' : 'Adicionar'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingReason(true)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '10px', borderRadius: 8, border: '1.5px dashed var(--border)',
+                    background: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--text-muted)',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = '#2563EB'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >
+                  <Plus size={13} /> Nova opção de encerramento
+                </button>
+              )}
             </div>
 
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', display: 'flex', gap: 10 }}>
