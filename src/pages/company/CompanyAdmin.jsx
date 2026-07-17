@@ -1170,8 +1170,9 @@ export default function CompanyAdmin() {
               <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setAssignModal(null)}><X size={16} /></button>
             </div>
             <div style={{ padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 340, overflowY: 'auto' }}>
-              {users.filter(u => u.role !== 'admin').map(u => {
+              {users.map(u => {
                 const inThisSector = sectorMembers.find(m => m.user_id === u.id)?.sector_id === assignModal.id
+                const isAdmin = u.role === 'admin'
                 return (
                   <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', borderRadius: 8, background: inThisSector ? '#F0FDF4' : '#F8FAFC', border: `1px solid ${inThisSector ? '#BBF7D0' : 'var(--border)'}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
@@ -1179,7 +1180,12 @@ export default function CompanyAdmin() {
                         {u.name.charAt(0)}
                       </div>
                       <div>
-                        <div style={{ fontWeight: 500 }}>{u.name}</div>
+                        <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {u.name}
+                          {isAdmin && (
+                            <span style={{ fontSize: 9, fontWeight: 700, color: '#7C3AED', background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 20, padding: '0 6px', lineHeight: '15px' }}>ADMIN</span>
+                          )}
+                        </div>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{u.email}</div>
                       </div>
                     </div>
@@ -1193,9 +1199,9 @@ export default function CompanyAdmin() {
                   </div>
                 )
               })}
-              {users.filter(u => u.role !== 'admin').length === 0 && (
+              {users.length === 0 && (
                 <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>
-                  Nenhum operador disponível.
+                  Nenhum usuário disponível.
                 </div>
               )}
             </div>
