@@ -130,6 +130,7 @@ export default function CompanyGroups() {
   const [mutedGroups, setMutedGroupsState] = useState(() => getMutedGroups(instance))
   const [contextMenu, setContextMenu] = useState(null) // { x, y, group }
   const [tagFilter, setTagFilter] = useState([])
+  const [search, setSearch] = useState('')
   const { tagsOf, assignments: tagAssignments } = useContactTags(instance)
   const [groupInfo, setGroupInfo] = useState(null)
   const [groupInfoLoading, setGroupInfoLoading] = useState(false)
@@ -771,9 +772,12 @@ export default function CompanyGroups() {
   const hasSelected = !!selected
 
   const tagMatch = buildTagFilter(tagFilter, tagAssignments)
-  const filteredGroups = tagFilter.length > 0
-    ? groups.filter(g => tagMatch(g.idgrupo))
-    : groups
+  const q = search.trim().toLowerCase()
+  const filteredGroups = groups.filter(g => {
+    if (tagFilter.length > 0 && !tagMatch(g.idgrupo)) return false
+    if (q && !labelOf(g).toLowerCase().includes(q)) return false
+    return true
+  })
 
   return (
     <>
@@ -783,6 +787,13 @@ export default function CompanyGroups() {
       <div className="contacts-list">
         <div className="contacts-list-header">
           <div className="contacts-list-title">Grupos</div>
+          <input
+            className="nx-input"
+            placeholder="Buscar grupo por nome..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ marginBottom: 8, fontSize: 13 }}
+          />
           <TagFilter instancia={instance} value={tagFilter} onChange={setTagFilter} />
         </div>
         <div className="contacts-list-body">
@@ -793,7 +804,11 @@ export default function CompanyGroups() {
           )}
           {!loading && filteredGroups.length === 0 && (
             <div style={{ padding: '24px 16px', color: 'var(--text-muted)', fontSize: 13 }}>
-              {groups.length === 0 ? 'Nenhum grupo encontrado' : 'Nenhum grupo com essa etiqueta'}
+              {groups.length === 0
+                ? 'Nenhum grupo encontrado'
+                : q
+                  ? `Nenhum grupo com "${search.trim()}"`
+                  : 'Nenhum grupo com essa etiqueta'}
             </div>
           )}
           {filteredGroups.map(g => {
