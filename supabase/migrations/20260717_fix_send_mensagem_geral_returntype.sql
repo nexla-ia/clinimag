@@ -1,10 +1,10 @@
 -- ==============================================================
--- Conversas — responder mensagem (citar/reply, estilo WhatsApp)
+-- CORREÇÃO URGENTE — send_mensagem_geral estava RETURNS uuid, mas
+-- mensagens_geral.id é INTEIRO. O "RETURNING id INTO v_id (uuid)" quebrava
+-- em TODA chamada (erro 22P02), derrubando o envio de mensagem no painel.
 --
--- Cada mensagem citada é referenciada pelo id_mensagem da ORIGINAL,
--- guardado em quoted_id_mensagem na resposta. A RPC de envio passa a
--- aceitar p_quoted e a devolver o id da linha inserida — assim a
--- citação é gravada de forma atômica (sem o "match por texto" frágil).
+-- Esta versão volta a RETURNS void e mantém o p_quoted (grava a citação
+-- na própria inserção, atômico). Substitui a função da 20260717_mensagens_quoted.
 --
 -- Seguro rodar mais de uma vez.
 -- Para usar: cole no SQL Editor do Supabase (projeto NOVO, sbzwtnxx).
@@ -12,10 +12,7 @@
 
 SET search_path TO public;
 
-ALTER TABLE public.mensagens_geral
-  ADD COLUMN IF NOT EXISTS quoted_id_mensagem text;
-
--- Remove qualquer versão anterior da função (evita ambiguidade de overload)
+-- Remove qualquer versão anterior (inclui a bugada RETURNS uuid)
 DO $$
 DECLARE r record;
 BEGIN
@@ -24,9 +21,6 @@ BEGIN
   END LOOP;
 END $$;
 
--- NOTA: mensagens_geral.id é INTEIRO — NÃO usar RETURNS uuid aqui (quebra o
--- envio inteiro com erro 22P02). Mantém RETURNS void; o p_quoted grava a
--- citação na própria inserção.
 CREATE FUNCTION public.send_mensagem_geral(
   p_instancia text,
   p_numero    text,
