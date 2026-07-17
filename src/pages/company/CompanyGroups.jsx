@@ -112,6 +112,9 @@ export default function CompanyGroups() {
   const [renameModal, setRenameModal] = useState(null) // { idgrupo, nome }
   const [savingName, setSavingName] = useState(false)
   const [renameErr, setRenameErr] = useState('')
+  const [editingMsgId, setEditingMsgId] = useState(null)
+  const [editingText, setEditingText] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [readsMap, setReadsMap] = useState({})     // idgrupo → last_read_at ISO
@@ -319,7 +322,7 @@ export default function CompanyGroups() {
     setMessages([])
     setHasMoreMsgs(false)
     supabase.from(CONV_TABLE)
-      .select('id, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+      .select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
       .order('id', { ascending: false })
@@ -488,7 +491,7 @@ export default function CompanyGroups() {
     setAttachedFile(null)
     try {
       const hora = new Date().toISOString()
-      const { error: insErr } = await supabase.from(CONV_TABLE).insert({
+      const { data: insRow, error: insErr } = await supabase.from(CONV_TABLE).insert({
         instancia: instance,
         numero: instanceOwner || selected.idgrupo,
         idgrupo: selected.idgrupo,
@@ -499,7 +502,8 @@ export default function CompanyGroups() {
         nome: session?.user?.name || null,
         horaLastMessage: hora,
         created_at: hora,
-      })
+      }).select('id').single()
+      const insertedId = insRow?.id
       // Sem isso o insert falha calado: a mensagem some da tela (o chat só
       // renderiza pelo realtime) e ninguém fica sabendo o motivo.
       if (insErr) {
@@ -563,12 +567,72 @@ export default function CompanyGroups() {
             if (/^ERRO/i.test((t || '').trim())) {
               setSendErr('⚠️ O WhatsApp está com instabilidade e essa mensagem NÃO foi entregue no grupo. Tente de novo.')
               setTimeout(() => setSendErr(''), 8000)
+              return
+            }
+            // Se o n8n devolver o id_mensagem do WhatsApp (mesmo formato das
+            // conversas: instancia / mensagem / id_mensagem, uma por linha),
+            // grava na linha — é o que permite editar/apagar depois no WhatsApp.
+            const lines = (t || '').trim().split('\n')
+            const msgId = lines.length >= 3 ? lines[lines.length - 1].trim() : ''
+            if (insertedId && msgId && !/\s/.test(msgId)) {
+              supabase.from(CONV_TABLE).update({ id_mensagem: msgId }).eq('id', insertedId).then(() => {})
+              setMessages(prev => prev.map(m => m.id === insertedId ? { ...m, id_mensagem: msgId } : m))
             }
           })
           .catch(e => console.warn('webhook grupo:', e))
       }
     } finally {
       setSending(false)
+    }
+  }
+
+  async function handleSaveEdit(msg) {
+    const newText = editingText.trim()
+    if (!newText || savingEdit) return
+    setSavingEdit(true)
+    try {
+      // id_mensagem pode ter sido preenchido pelo n8n depois do envio
+      const { data: fresh } = await supabase.from(CONV_TABLE)
+        .select('id_mensagem').eq('id', msg.id).maybeSingle()
+      const id_mensagem = fresh?.id_mensagem || msg.id_mensagem
+
+      // Atualiza já na plataforma (e no banco), independente do WhatsApp —
+      // assim a edição não some ao recarregar mesmo se o WhatsApp não editar.
+      await supabase.from(CONV_TABLE).update({ mensagem: newText }).eq('id', msg.id)
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, mensagem: newText } : m))
+      setEditingMsgId(null)
+      setEditingText('')
+
+      // Dispara a edição no WhatsApp só se temos o id da mensagem lá
+      if (id_mensagem) {
+        fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexlaeditar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: msg.id,
+            id_mensagem,
+            message: newText,
+            mensagem: newText,
+            session_id: selected?.idgrupo,
+            idgrupo: selected?.idgrupo,
+            numero: instanceOwner || selected?.idgrupo,
+            nomegrupo: selected?.nomegrupo || null,
+            instancia: instance,
+            api_instancia: apiInstancia,
+            company: session?.company?.name,
+            sender_name: session?.user?.name,
+            sender_email: session?.user?.email,
+          }),
+        }).catch(e => console.warn('webhook editar grupo:', e))
+      } else {
+        setSendErr('Editado aqui na plataforma. No WhatsApp não deu pra editar (mensagem antiga, sem identificador).')
+        setTimeout(() => setSendErr(''), 7000)
+      }
+    } catch (e) {
+      setSendErr('Erro ao editar: ' + e.message)
+      setTimeout(() => setSendErr(''), 5000)
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -579,7 +643,7 @@ export default function CompanyGroups() {
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
     const { data } = await supabase.from(CONV_TABLE)
-      .select('id, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+      .select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
       .lt('id', oldestId)
@@ -1052,7 +1116,35 @@ export default function CompanyGroups() {
                             </div>
                           </a>
                         )}
-                        {(!media || media.type === 'pdf') && msg.mensagem && (
+                        {editingMsgId === msg.id ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
+                            <textarea
+                              autoFocus
+                              value={editingText}
+                              onChange={e => setEditingText(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSaveEdit(msg) }
+                                if (e.key === 'Escape') { setEditingMsgId(null); setEditingText('') }
+                              }}
+                              rows={2}
+                              style={{
+                                width: '100%', resize: 'vertical', minHeight: 40, borderRadius: 8,
+                                border: 'none', padding: '7px 9px', fontSize: 13, fontFamily: 'inherit',
+                                color: '#0F172A', lineHeight: 1.4,
+                              }}
+                            />
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                              <button onClick={() => { setEditingMsgId(null); setEditingText('') }}
+                                style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(255,255,255,0.85)', color: '#475569', cursor: 'pointer' }}>
+                                Cancelar
+                              </button>
+                              <button onClick={() => handleSaveEdit(msg)} disabled={savingEdit || !editingText.trim()}
+                                style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 6, border: 'none', background: 'rgba(255,255,255,0.92)', color: '#16A34A', cursor: savingEdit ? 'default' : 'pointer', opacity: savingEdit ? 0.65 : 1 }}>
+                                {savingEdit ? 'Salvando...' : 'Salvar'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (!media || media.type === 'pdf') && msg.mensagem && (
                           <span style={{ whiteSpace: 'pre-wrap' }}>
                             {renderTextWithLinks(msg.mensagem, {
                               color: (msg.type || '').toLowerCase() === 'atendente' || (msg.type || '').toLowerCase() === 'humano'
@@ -1062,9 +1154,28 @@ export default function CompanyGroups() {
                           </span>
                         )}
                       </div>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
-                        {formatTime(ts)}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {formatTime(ts)}
+                        </span>
+                        {/* Editar: só nas mensagens de texto do nosso lado */}
+                        {isAtendente && msg.mensagem && !media && editingMsgId !== msg.id && (
+                          <button
+                            onClick={() => { setEditingMsgId(msg.id); setEditingText(msg.mensagem || '') }}
+                            title="Editar mensagem"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 18, height: 18, borderRadius: 4, border: 'none',
+                              background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)',
+                              opacity: 0.55, padding: 0,
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}
+                          >
+                            <Pencil size={10} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )
