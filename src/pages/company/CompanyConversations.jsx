@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -242,6 +242,7 @@ export default function CompanyConversations() {
   const [saveContactModal, setSaveContactModal] = useState(null) // { numero, nome, notes }
   const [savingContact, setSavingContact] = useState(false)
   const [editingMsgId, setEditingMsgId]   = useState(null)
+  const [replyingTo, setReplyingTo]       = useState(null) // { id_mensagem, content, type, numero }
   const [confirmDelMsg, setConfirmDelMsg] = useState(null)
   const [editingText, setEditingText]     = useState('')
   const [savingEdit, setSavingEdit]       = useState(false)
@@ -700,6 +701,7 @@ export default function CompanyConversations() {
               return [...msgs, {
                 id: row.id,
                 id_mensagem: row.id_mensagem || null,
+                quoted_id_mensagem: row.quoted_id_mensagem || null,
                 type: getMessageType(row),
                 content: getMessageContent(row),
                 base64: row.base64 || null,
@@ -759,13 +761,19 @@ export default function CompanyConversations() {
 
   const MSG_PAGE = 50
 
+  // Ao trocar de conversa, cancela qualquer resposta/edição em andamento
+  useEffect(() => {
+    setReplyingTo(null)
+    setEditingMsgId(null)
+  }, [selected?.session_id])
+
   // Carrega mensagens da conversa selecionada (apenas as 50 mais recentes)
   useEffect(() => {
     if (!selected || !instance) return
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
-    supabase.from(CONV_TABLE).select('id, id_mensagem, numero, nome, type, mensagem, base64, apagada, "horaLastMessage", created_at')
+    supabase.from(CONV_TABLE).select('*')
       .eq('instancia', instance)
       .eq('numero', selected.session_id)
       .is('idgrupo', null)
@@ -779,6 +787,7 @@ export default function CompanyConversations() {
           setMessages(sorted.filter(r => !isToolMessage(r)).map(r => ({
             id: r.id,
             id_mensagem: r.id_mensagem || null,
+            quoted_id_mensagem: r.quoted_id_mensagem || null,
             type: getMessageType(r),
             content: getMessageContent(r),
             base64: r.base64 || null,
@@ -798,7 +807,7 @@ export default function CompanyConversations() {
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
     const { data, error } = await supabase.from(CONV_TABLE)
-      .select('id, id_mensagem, numero, nome, type, mensagem, base64, apagada, "horaLastMessage", created_at')
+      .select('*')
       .eq('instancia', instance)
       .eq('numero', selected.session_id)
       .is('idgrupo', null)
@@ -812,6 +821,7 @@ export default function CompanyConversations() {
       const older = sorted.filter(r => !isToolMessage(r)).map(r => ({
         id: r.id,
         id_mensagem: r.id_mensagem || null,
+        quoted_id_mensagem: r.quoted_id_mensagem || null,
         type: getMessageType(r),
         content: getMessageContent(r),
         base64: r.base64 || null,
@@ -1283,6 +1293,9 @@ export default function CompanyConversations() {
       }
       const text = msgText.trim()
       const file = attachedFile
+      // Foto do reply antes de limpar o estado (o envio é assíncrono)
+      const replySnap = replyingTo
+      setReplyingTo(null)
       setMsgText('')
       setRecordedAudio(null)
       setRecordTime(0)
@@ -1302,7 +1315,9 @@ export default function CompanyConversations() {
         { content: mensagemPayload, nome: senderName, at: Date.now() },
         ...sentCacheRef.current.filter(s => Date.now() - s.at < 30000),
       ]
-      const { error: insErr } = await supabase.rpc('send_mensagem_geral', {
+      // Monta os params. p_quoted só entra quando é resposta — assim o envio
+      // normal não depende da migration que adicionou esse parâmetro.
+      const rpcParams = {
         p_instancia: instance,
         p_numero: selected.session_id,
         p_mensagem: mensagemPayload,
@@ -1310,11 +1325,33 @@ export default function CompanyConversations() {
         p_hora: new Date().toISOString(),
         p_base64: mediaBase64,
         p_nome: senderName,
-      })
+      }
+      if (replySnap?.id_mensagem) rpcParams.p_quoted = replySnap.id_mensagem
+      let { error: insErr } = await supabase.rpc('send_mensagem_geral', rpcParams)
+      // Se a migration do reply ainda não rodou, reenvia sem o vínculo (a
+      // mensagem vai igual, só não fica marcada como resposta no banco).
+      if (insErr && rpcParams.p_quoted && /p_quoted|schema cache|PGRST202|could not find/i.test(insErr.message || insErr.code || '')) {
+        delete rpcParams.p_quoted
+        ;({ error: insErr } = await supabase.rpc('send_mensagem_geral', rpcParams))
+        setToast({ message: 'Mensagem enviada, mas a resposta citada precisa da migration no Supabase.', color: '#D97706' })
+        setTimeout(() => setToast(null), 5000)
+      }
       if (insErr) console.error('send_mensagem_geral:', insErr)
 
+      // Respondendo uma mensagem → webhook próprio (monta o quote na Evolution)
+      const webhookUrl = replySnap
+        ? 'https://n8n.nexladesenvolvimento.com.br/webhook/respondermensagem'
+        : 'https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla'
+      const quotedPayload = replySnap ? {
+        quoted_id:        replySnap.id_mensagem,
+        quoted_text:      replySnap.content,
+        // A original era nossa (atendente/IA)? A Evolution precisa disso pra key
+        quoted_fromMe:    ['atendente', 'humano', 'ia', 'bot'].includes((replySnap.type || '').toLowerCase()),
+        quoted_remoteJid: replySnap.numero,
+      } : {}
+
       // Aguarda resposta do n8n (retorna instancia + mensagem + id_mensagem) para gravar no banco
-      fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
+      fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1335,6 +1372,7 @@ export default function CompanyConversations() {
           company: session?.company?.name,
           sender_name: session?.user?.name,
           sender_email: session?.user?.email,
+          ...quotedPayload,
         }),
       })
         .then(r => r.text())
@@ -1437,6 +1475,34 @@ export default function CompanyConversations() {
     } finally {
       setSavingEdit(false)
     }
+  }
+
+  // Começa a responder uma mensagem (cita ela). Só dá pra citar mensagem que
+  // já tem id_mensagem do WhatsApp — sem ele a Evolution não sabe o que citar.
+  function startReply(msg) {
+    if (!msg?.id_mensagem) return
+    const clean = (msg.content || '').replace(/^\*[^*]+\*:\n?/, '').trim()
+    setReplyingTo({
+      id_mensagem: msg.id_mensagem,
+      content: clean.slice(0, 200) || (msg.base64 ? '📎 Mídia' : ''),
+      type: msg.type,
+      numero: selected?.session_id,
+    })
+    setEditingMsgId(null)
+    setTimeout(() => composerRef.current?.focus(), 30)
+  }
+
+  // Rola até a mensagem original citada e dá um flash de destaque nela.
+  function scrollToOriginal(idMensagem) {
+    if (!idMensagem) return
+    const el = document.querySelector(`[data-msg-id="${CSS.escape(idMensagem)}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.transition = 'box-shadow 0.25s, transform 0.25s'
+    el.style.boxShadow = '0 0 0 3px #16A34A88'
+    el.style.borderRadius = '10px'
+    el.style.transform = 'scale(1.015)'
+    setTimeout(() => { el.style.boxShadow = 'none'; el.style.transform = 'none' }, 1100)
   }
 
   async function handleReopen(contact) {
@@ -2083,7 +2149,7 @@ export default function CompanyConversations() {
                 const isImage      = isCliente && /^(esta imagem|a imagem|esse documento|este documento|essa imagem|o documento|a foto|essa foto)/i.test(msg.content.trim())
                 const labelColor   = isCliente ? 'var(--text-muted)' : isAtendente ? '#16A34A' : '#2563EB'
                 return (
-                  <div key={msg.id}>
+                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined}>
                     <div className="msg-label" style={{
                       display: 'flex', alignItems: 'center', gap: 4,
                       justifyContent: isLeft ? 'flex-start' : 'flex-end',
@@ -2114,6 +2180,37 @@ export default function CompanyConversations() {
                             : {}
                         return (
                           <div className="msg-bubble" style={bubbleStyle}>
+                            {/* Bloco de citação (respondendo a outra mensagem) */}
+                            {msg.quoted_id_mensagem && (() => {
+                              const orig = messages.find(m => m.id_mensagem === msg.quoted_id_mensagem)
+                              const origIsCliente = orig ? orig.type === 'cliente' : false
+                              const author = !orig ? '' : origIsCliente
+                                ? (resolveName(selected?.phone) !== selected?.phone ? resolveName(selected?.phone) : 'Cliente')
+                                : (orig.nome || 'Você')
+                              const origText = !orig ? '(original não carregada)'
+                                : ((orig.content || '').replace(/^\*[^*]+\*:\n?/, '').trim() || (orig.base64 ? '📎 Mídia' : ''))
+                              const accent = isAtendente ? 'rgba(255,255,255,0.9)' : '#16A34A'
+                              return (
+                                <div
+                                  onClick={() => scrollToOriginal(msg.quoted_id_mensagem)}
+                                  title="Ir para a mensagem original"
+                                  style={{
+                                    display: 'flex', gap: 8, cursor: 'pointer', marginBottom: 6,
+                                    background: isAtendente ? 'rgba(255,255,255,0.15)' : 'rgba(22,163,74,0.08)',
+                                    borderRadius: 6, padding: '5px 9px', maxWidth: 280,
+                                  }}>
+                                  <div style={{ width: 3, borderRadius: 2, background: accent, flexShrink: 0 }} />
+                                  <div style={{ minWidth: 0 }}>
+                                    {author && <div style={{ fontSize: 11, fontWeight: 700, color: accent, marginBottom: 1 }}>{author}</div>}
+                                    <div style={{
+                                      fontSize: 12, opacity: 0.85,
+                                      color: isAtendente ? 'rgba(255,255,255,0.92)' : 'var(--text-secondary)',
+                                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260,
+                                    }}>{origText}</div>
+                                  </div>
+                                </div>
+                              )
+                            })()}
                             {media && (() => {
                               const src = `data:${media.mime};base64,${msg.base64}`
                               if (media.type === 'audio') return (
@@ -2250,6 +2347,23 @@ export default function CompanyConversations() {
                       })()}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end', gap: 5 }}>
+                      {msg.id_mensagem && !msg.apagada && editingMsgId !== msg.id && (
+                        <button
+                          onClick={() => startReply(msg)}
+                          title="Responder"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 18, height: 18, borderRadius: 4, border: 'none',
+                            background: 'transparent', cursor: 'pointer',
+                            color: '#16A34A', opacity: 0.6, padding: 0,
+                            transition: 'opacity 0.15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                          onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                        >
+                          <Reply size={12} />
+                        </button>
+                      )}
                       {isAtendente && !msg.base64 && !msg.apagada && editingMsgId !== msg.id && (
                         <button
                           onClick={() => { setEditingMsgId(msg.id); setEditingText(msg.content || '') }}
@@ -2298,6 +2412,28 @@ export default function CompanyConversations() {
 
             {!isClosed && (
               <div style={{ padding: '12px 18px', borderTop: '0.5px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0 }}>
+                {/* Faixa "Respondendo" — mostra a mensagem citada acima do input */}
+                {replyingTo && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: '#F0FDF4', borderLeft: '3px solid #16A34A',
+                    borderRadius: 6, padding: '7px 12px', marginBottom: 8,
+                  }}>
+                    <Reply size={14} style={{ color: '#16A34A', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#16A34A' }}>
+                        Respondendo {['atendente','humano','ia','bot'].includes((replyingTo.type||'').toLowerCase()) ? 'à sua mensagem' : 'ao cliente'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {replyingTo.content || '(mídia)'}
+                      </div>
+                    </div>
+                    <button onClick={() => setReplyingTo(null)} title="Cancelar resposta"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, flexShrink: 0 }}>
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
                 {attachedFile && (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 10,
@@ -2421,6 +2557,7 @@ export default function CompanyConversations() {
                         e.preventDefault()
                         handleSend()
                       }
+                      if (e.key === 'Escape' && replyingTo) { setReplyingTo(null) }
                     }}
                     disabled={sending || recording || !canRespond(selected)}
                   />
