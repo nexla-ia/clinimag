@@ -1408,6 +1408,23 @@ export default function CompanyGroups() {
           padding: 4, minWidth: 180,
         }}>
           <button
+            onClick={() => {
+              const g = contextMenu.group
+              setRenameModal({ idgrupo: g.idgrupo, nome: customNames[g.idgrupo] || g.nomegrupo || '' })
+              setContextMenu(null)
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              width: '100%', padding: '8px 12px', border: 'none',
+              background: 'none', cursor: 'pointer', borderRadius: 6,
+              fontSize: 13, color: 'var(--text-primary)', textAlign: 'left',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover, #F3F4F6)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            <Pencil size={14} color="#6B7280" /> Renomear grupo
+          </button>
+          <button
             onClick={() => toggleMute(contextMenu.group.idgrupo)}
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
