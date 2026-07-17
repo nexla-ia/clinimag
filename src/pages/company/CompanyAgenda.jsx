@@ -10,7 +10,7 @@ import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '.
 import {
   Calendar, Plus, X, Pencil, Trash2, ChevronLeft, ChevronRight,
   Clock, User as UserIcon, Phone, ListChecks, CheckCircle2, XCircle, AlertCircle, Settings,
-  MessageSquare, History, Lock, Repeat, FileText, Users
+  MessageSquare, History, Lock, Repeat, FileText, Users, Bell
 } from 'lucide-react'
 import './Company.css'
 
@@ -24,6 +24,14 @@ const DAYS_OF_WEEK = [
   { num: 4, label: 'Qui', full: 'Quinta' },
   { num: 5, label: 'Sex', full: 'Sexta' },
   { num: 6, label: 'Sáb', full: 'Sábado' },
+]
+
+// Antecedências de lembrete (em minutos)
+const REMINDER_OFFSETS = [
+  { value: 120,   label: '2h antes' },
+  { value: 1440,  label: '1 dia antes' },
+  { value: 2880,  label: '2 dias antes' },
+  { value: 10080, label: '7 dias antes' },
 ]
 
 const STATUS_OPTIONS = [
@@ -167,6 +175,9 @@ export default function CompanyAgenda() {
   const [apptModal, setApptModal]     = useState(null)
   const [apptErr, setApptErr]         = useState('')
   const [savingAppt, setSavingAppt]   = useState(false)
+  const [reminderPresets, setReminderPresets] = useState([])
+  const [savePresetOpen, setSavePresetOpen]   = useState(false)
+  const [presetName, setPresetName]           = useState('')
   const [patientHistory, setPatientHistory] = useState([])
   const [patientAppts, setPatientAppts] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -249,6 +260,13 @@ export default function CompanyAgenda() {
 
       setLoading(false)
     })
+  }, [instance])
+
+  // Padrões de lembrete da empresa (graceful: tabela pode não existir ainda)
+  useEffect(() => {
+    if (!instance) return
+    supabase.from('reminder_presets').select('*').eq('instancia', instance).order('created_at')
+      .then(({ data, error }) => { if (!error && data) setReminderPresets(data) })
   }, [instance])
 
   // Carrega agendamentos da semana
@@ -385,9 +403,12 @@ export default function CompanyAgenda() {
       recurrence_weekdays: [],
       recurrence_mode: 'meses',
       recurrence_months: 3,
+      // Lembretes: começa com o padrão marcado como default (se houver)
+      reminder_offsets: (reminderPresets.find(p => p.is_default)?.offsets) || [],
     })
     setApptErr('')
     setPatientHistory([])
+    setSavePresetOpen(false)
   }
 
   // Pré-preenche pelo query param (vindo do botão "Agendar" no chat)
@@ -439,10 +460,44 @@ export default function CompanyAgenda() {
       time: timeStr,
       _prevStatus: a.status,
       _prevStartsAt: a.starts_at,
+      reminder_offsets: Array.isArray(a.reminders) ? a.reminders.map(r => r.offset_minutes) : [],
+      _prevReminders: Array.isArray(a.reminders) ? a.reminders : [],
     })
     setApptErr('')
     setPatientHistory([])
     setPatientAppts([])
+    setSavePresetOpen(false)
+  }
+
+  function toggleReminderOffset(off) {
+    setApptModal(p => {
+      const cur = p.reminder_offsets || []
+      return { ...p, reminder_offsets: cur.includes(off) ? cur.filter(x => x !== off) : [...cur, off].sort((a, b) => a - b) }
+    })
+  }
+
+  async function handleSaveReminderPreset(makeDefault) {
+    const offsets = apptModal?.reminder_offsets || []
+    if (!offsets.length) return
+    const name = presetName.trim() || `Padrão (${offsets.map(o => REMINDER_OFFSETS.find(r => r.value === o)?.label || o).join(', ')})`
+    if (makeDefault) {
+      await supabase.from('reminder_presets').update({ is_default: false }).eq('instancia', instance)
+    }
+    const { data, error } = await supabase.from('reminder_presets')
+      .insert({ instancia: instance, name, offsets, is_default: !!makeDefault })
+      .select('*').single()
+    if (error) {
+      setApptErr(/reminder_presets/.test(error.message) ? 'Falta rodar a migration reminder_presets no Supabase.' : 'Erro: ' + error.message)
+      return
+    }
+    setReminderPresets(prev => [...(makeDefault ? prev.map(p => ({ ...p, is_default: false })) : prev), data])
+    setSavePresetOpen(false)
+    setPresetName('')
+  }
+
+  async function handleDeletePreset(id) {
+    await supabase.from('reminder_presets').delete().eq('id', id)
+    setReminderPresets(prev => prev.filter(p => p.id !== id))
   }
 
   async function handleSaveAppt() {
@@ -536,6 +591,14 @@ export default function CompanyAgenda() {
     payload.payment_status = paymentStatus
     payload.paid_at = paidAt
 
+    // Lembretes: monta a lista preservando o sent_at dos que já foram enviados
+    // (na edição), pra não reenviar um aviso já disparado.
+    const prevRem = apptModal._prevReminders || []
+    payload.reminders = (apptModal.reminder_offsets || []).map(off => {
+      const existing = prevRem.find(r => r.offset_minutes === off)
+      return { offset_minutes: off, sent_at: existing?.sent_at || null }
+    })
+
     const isNew = !apptModal.id
     const prevStatus = apptModal._prevStatus
     const prevStartsAt = apptModal._prevStartsAt
@@ -546,10 +609,17 @@ export default function CompanyAgenda() {
       payload.recurrence_group_id = (crypto.randomUUID?.() || null)
     }
 
-    let { error } = isNew
-      ? await supabase.from('appointments').insert(payload)
-      : await supabase.from('appointments').update(payload).eq('id', apptModal.id)
+    const doSave = () => isNew
+      ? supabase.from('appointments').insert(payload)
+      : supabase.from('appointments').update(payload).eq('id', apptModal.id)
 
+    let { error } = await doSave()
+
+    // Se a migration dos lembretes ainda não rodou, salva sem eles
+    if (error && payload.reminders && /reminders/i.test(error.message || '')) {
+      delete payload.reminders
+      ;({ error } = await doSave())
+    }
     // Se a migration da série ainda não rodou, salva sem o vínculo em vez de
     // travar o agendamento (a série só perde o "excluir todos").
     if (error && payload.recurrence_group_id && /recurrence_group_id/i.test(error.message || '')) {
@@ -1705,6 +1775,87 @@ export default function CompanyAgenda() {
                   )}
                 </div>
               )}
+
+              {/* Lembretes automáticos do agendamento */}
+              <div style={{ background: '#F8FAFC', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+                <label style={{ ...labelStyle, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Bell size={13} /> Lembretes automáticos (WhatsApp)
+                </label>
+
+                {/* Padrões salvos */}
+                {reminderPresets.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                    {reminderPresets.map(pr => {
+                      const active = JSON.stringify([...(apptModal.reminder_offsets || [])].sort((a,b)=>a-b)) === JSON.stringify([...pr.offsets].sort((a,b)=>a-b))
+                      return (
+                        <span key={pr.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <button type="button"
+                            onClick={() => setApptModal(p => ({ ...p, reminder_offsets: [...pr.offsets] }))}
+                            style={{
+                              padding: '4px 10px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                              border: `1.5px solid ${active ? '#2563EB' : 'var(--border)'}`,
+                              background: active ? '#EFF6FF' : '#fff', color: active ? '#1D4ED8' : 'var(--text-secondary)',
+                            }}>
+                            {pr.is_default ? '★ ' : ''}{pr.name}
+                          </button>
+                          <button type="button" onClick={() => handleDeletePreset(pr.id)} title="Remover padrão"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'inline-flex' }}>
+                            <X size={11} />
+                          </button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Antecedências (múltiplas) */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {REMINDER_OFFSETS.map(opt => {
+                    const active = (apptModal.reminder_offsets || []).includes(opt.value)
+                    return (
+                      <button key={opt.value} type="button" onClick={() => toggleReminderOffset(opt.value)}
+                        style={{
+                          padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: active ? 700 : 500, cursor: 'pointer',
+                          border: `1.5px solid ${active ? '#16A34A' : 'var(--border)'}`,
+                          background: active ? '#F0FDF4' : '#fff', color: active ? '#15803D' : 'var(--text-primary)',
+                        }}>
+                        {active ? '✓ ' : ''}{opt.label}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {(apptModal.reminder_offsets || []).length === 0 ? (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                    Nenhum aviso — o paciente só recebe a confirmação na hora do agendamento.
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                    O paciente recebe o aviso {(apptModal.reminder_offsets || []).length > 1 ? 'nesses momentos' : 'nesse momento'} antes da consulta (não agora — hoje só a confirmação de que foi marcado).
+                  </div>
+                )}
+
+                {/* Salvar como padrão */}
+                {(apptModal.reminder_offsets || []).length > 0 && (
+                  savePresetOpen ? (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input className="nx-input" placeholder="Nome do padrão (ex: Consulta)" value={presetName}
+                        onChange={e => setPresetName(e.target.value)} style={{ flex: 1, minWidth: 140, fontSize: 12 }} />
+                      <button type="button" className="nx-btn-ghost" style={{ fontSize: 11, padding: '6px 10px' }}
+                        onClick={() => handleSaveReminderPreset(false)}>Salvar</button>
+                      <button type="button" className="nx-btn-primary" style={{ fontSize: 11, padding: '6px 10px' }}
+                        onClick={() => handleSaveReminderPreset(true)}>Salvar como padrão ★</button>
+                      <button type="button" onClick={() => { setSavePresetOpen(false); setPresetName('') }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setSavePresetOpen(true)}
+                      style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#2563EB', fontSize: 11.5, fontWeight: 600, padding: 0 }}>
+                      + Salvar essa combinação como padrão
+                    </button>
+                  )
+                )}
+              </div>
 
               {professionals.length > 0 && (
                 <div>

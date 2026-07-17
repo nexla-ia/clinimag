@@ -656,11 +656,24 @@ export default function CompanyAdmin() {
         </div>
       </div>
 
-      {/* Lembretes automáticos de agendamento */}
+      {/* Lembretes automáticos — agora configurados NA AGENDA, na hora de marcar */}
       <div className="page-body">
         <div className="section-header">
           <div className="section-title">Lembretes automáticos</div>
         </div>
+        <div className="nx-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#EFF6FF', border: '1px solid #BFDBFE', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Bell size={16} style={{ color: '#2563EB' }} />
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Os lembretes agora são configurados <strong>na Agenda, na hora de marcar</strong> cada
+            agendamento — você escolhe quantos avisos e com quanta antecedência, e pode salvar um
+            padrão pra reusar. Isso evita confusão de ter dois lugares de configuração.
+          </div>
+        </div>
+      </div>
+
+      {false && (
         <div className="nx-card" style={{ padding: '1.25rem 1.5rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
@@ -821,7 +834,7 @@ export default function CompanyAdmin() {
 
           </div>
         </div>
-      </div>
+      )}
 
       {/* Setores */}
       <div className="page-body">
