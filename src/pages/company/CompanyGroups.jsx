@@ -542,9 +542,9 @@ export default function CompanyGroups() {
           }),
         }).catch(e => console.warn('webhook mencao:', e))
       } else {
-        // Respondendo → webhook próprio; senão envioNexla
+        // Respondendo em grupo → webhook próprio de grupo; senão envioNexla
         const webhookUrl = replySnap
-          ? 'https://n8n.nexladesenvolvimento.com.br/webhook/respondermensagem'
+          ? 'https://n8n.nexladesenvolvimento.com.br/webhook/respondermensagemgrupo'
           : 'https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla'
         const quotedPayload = replySnap ? {
           quoted_id:          replySnap.id_mensagem,
