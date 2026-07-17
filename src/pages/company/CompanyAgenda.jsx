@@ -461,20 +461,9 @@ export default function CompanyAgenda() {
       return new Date(date.getTime() + sign * (h * 60 + m) * 60000).getUTCDay()
     }
 
-    // Conflito de horário na mesma agenda
-    const agendaConflict = appointments.find(a => {
-      if (a.id === apptModal.id) return false
-      if (a.agenda_id !== apptModal.agenda_id) return false
-      if (a.status === 'cancelado') return false
-      const aStart = new Date(a.starts_at).getTime()
-      const aEnd = aStart + (a.duration_minutes || 30) * 60000
-      return startsAt.getTime() < aEnd && aStart < endsAt.getTime()
-    })
-    if (agendaConflict) {
-      const cTime = new Date(agendaConflict.starts_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-      setApptErr(`Conflito de horário: ${agendaConflict.contact_nome} já está marcado às ${cTime} nesta agenda.`)
-      return
-    }
+    // Vários pacientes no mesmo horário são permitidos (turmas de pilates,
+    // vários profissionais atendendo ao mesmo tempo) — não bloqueia mais
+    // por horário repetido, nem na agenda nem por profissional.
 
     // Validação: dia/horário do profissional
     if (apptModal.professional_id) {
@@ -507,22 +496,8 @@ export default function CompanyAgenda() {
           }
         }
       }
-
-      // Validação: conflito com outro agendamento do mesmo profissional
-      const conflict = appointments.find(a => {
-        if (a.id === apptModal.id) return false
-        if (a.professional_id !== apptModal.professional_id) return false
-        if (a.status === 'cancelado') return false
-        const aStart = new Date(a.starts_at).getTime()
-        const aEnd = aStart + (a.duration_minutes || 30) * 60000
-        return startsAt.getTime() < aEnd && aStart < endsAt.getTime()
-      })
-      if (conflict) {
-        const cStart = new Date(conflict.starts_at)
-        const cTime = cStart.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-        setApptErr(`Conflito de horário: ${conflict.contact_nome} já está marcado às ${cTime} com este profissional.`)
-        return
-      }
+      // (Sem bloqueio de conflito por profissional — turma/atendimento
+      //  simultâneo é permitido.)
     }
 
     setSavingAppt(true)
@@ -762,19 +737,22 @@ export default function CompanyAgenda() {
     return arr
   }, [selectedAgenda])
 
-  function apptAt(day, hhmm) {
-    if (!selectedAgenda) return null
+  // Todos os agendamentos que caem no slot (turma pode ter vários no mesmo horário)
+  function apptsAt(day, hhmm) {
+    if (!selectedAgenda) return []
     const tz = session?.company?.timezone || '-03:00'
     // Ancora o slot na timezone da clínica (não do browser)
     const slotStart = new Date(`${fmtDateInput(day)}T${hhmm}:00${tz}`).getTime()
     const slotEnd   = slotStart + (selectedAgenda.slot_minutes || 30) * 60_000
-    // Aceita agendamento cujo starts_at cai DENTRO do intervalo do slot
-    return appointments.find(a => {
-      if (a.agenda_id !== selectedAgenda.id) return false
-      const t = new Date(a.starts_at).getTime()
-      return t >= slotStart && t < slotEnd
-    })
+    return appointments
+      .filter(a => {
+        if (a.agenda_id !== selectedAgenda.id) return false
+        const t = new Date(a.starts_at).getTime()
+        return t >= slotStart && t < slotEnd
+      })
+      .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
   }
+  function apptAt(day, hhmm) { return apptsAt(day, hhmm)[0] || null }
 
   function isWorkingDay(day) {
     if (!selectedAgenda) return false
@@ -963,20 +941,15 @@ export default function CompanyAgenda() {
                       </div>
                       {weekDays.map((d, i) => {
                         const working = isWorkingDay(d)
-                        const appt = working ? apptAt(d, hhmm) : null
-                        const status = appt ? STATUS_OPTIONS.find(s => s.value === appt.status) : null
+                        const appts = working ? apptsAt(d, hhmm) : []
                         const slotKey = `${fmtDateInput(d)}_${hhmm}`
                         const isDragOver = dragOverSlot === slotKey
                         return (
                           <div key={i}
-                            onClick={() => !draggingId && working && (appt ? openEditAppt(appt) : openNewAppt(d, hhmm))}
+                            onClick={() => !draggingId && working && openNewAppt(d, hhmm)}
                             onDragOver={e => {
                               if (!working) return
-                              const occupied = apptAt(d, hhmm)
-                              if (occupied && occupied.id !== e.dataTransfer.types[0]) {
-                                e.dataTransfer.dropEffect = 'none'
-                                return
-                              }
+                              // Turma: pode soltar em qualquer horário de trabalho
                               e.preventDefault()
                               e.dataTransfer.dropEffect = 'move'
                               setDragOverSlot(slotKey)
@@ -991,8 +964,6 @@ export default function CompanyAgenda() {
                               if (!apptId) return
                               const droppedAppt = appointments.find(a => a.id === apptId)
                               if (!droppedAppt) return
-                              const occupied = apptAt(d, hhmm)
-                              if (occupied && occupied.id !== apptId) return
                               setDragOverSlot(null)
                               setDraggingId(null)
                               const tz = session?.company?.timezone || '-03:00'
@@ -1010,13 +981,19 @@ export default function CompanyAgenda() {
                               transition: 'background 0.1s',
                               outline: isDragOver ? '2px dashed #2563EB' : 'none',
                               outlineOffset: '-2px',
+                              display: 'flex', flexDirection: 'column', gap: 2,
                             }}
-                            onMouseEnter={e => { if (working && !appt && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
-                            onMouseLeave={e => { if (working && !appt && !isDragOver) e.currentTarget.style.background = 'transparent' }}
+                            onMouseEnter={e => { if (working && !appts.length && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
+                            onMouseLeave={e => { if (working && !appts.length && !isDragOver) e.currentTarget.style.background = 'transparent' }}
                           >
-                            {appt && status && (
-                              <div
+                            {appts.map(appt => {
+                              const status = STATUS_OPTIONS.find(s => s.value === appt.status)
+                              if (!status) return null
+                              const many = appts.length > 1
+                              return (
+                              <div key={appt.id}
                                 draggable
+                                onClick={e => { e.stopPropagation(); if (!draggingId) openEditAppt(appt) }}
                                 onDragStart={e => {
                                   e.dataTransfer.effectAllowed = 'move'
                                   e.dataTransfer.setData('apptId', appt.id)
@@ -1035,9 +1012,8 @@ export default function CompanyAgenda() {
                                   color: '#fff',
                                   borderLeft: `3px solid ${status.color}`,
                                   borderRadius: 5,
-                                  padding: '5px 8px',
-                                  fontSize: 11, fontWeight: 700, lineHeight: 1.3,
-                                  height: '100%',
+                                  padding: many ? '3px 7px' : '5px 8px',
+                                  fontSize: 11, fontWeight: 700, lineHeight: 1.25,
                                   display: 'flex', flexDirection: 'column', justifyContent: 'center',
                                   overflow: 'hidden',
                                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
@@ -1049,9 +1025,16 @@ export default function CompanyAgenda() {
                                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   {appt.contact_nome}
                                 </div>
-                                <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.85, marginTop: 1 }}>
-                                  {hhmm} · {status.label}
-                                </div>
+                                {!many && (
+                                  <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.85, marginTop: 1 }}>
+                                    {hhmm} · {status.label}
+                                  </div>
+                                )}
+                              </div>
+                            )})}
+                            {appts.length > 1 && (
+                              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textAlign: 'center', marginTop: 1 }}>
+                                {appts.length} na turma
                               </div>
                             )}
                           </div>
