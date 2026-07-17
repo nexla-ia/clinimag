@@ -1010,6 +1010,13 @@ export default function CompanyGroups() {
                           {senderLabel(msg)}
                         </span>
                       )}
+                      {/* Nome do colaborador que enviou (nosso lado). Igual ao WhatsApp,
+                          que mostra quem falou no grupo. Só quando temos o nome. */}
+                      {isAtendente && msg.nome && (
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#16A34A', marginBottom: 3, marginRight: 2 }}>
+                          {msg.nome}
+                        </span>
+                      )}
                       <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : undefined }}>
                         {media?.type === 'audio' && (
                           <audio controls src={media.src} style={{ maxWidth: 240, height: 32 }} />
