@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil } from 'lucide-react'
+import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
@@ -115,6 +115,7 @@ export default function CompanyGroups() {
   const [editingMsgId, setEditingMsgId] = useState(null)
   const [editingText, setEditingText] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
+  const [replyingTo, setReplyingTo] = useState(null) // { id_mensagem, content, nome }
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [readsMap, setReadsMap] = useState({})     // idgrupo → last_read_at ISO
@@ -317,13 +318,15 @@ export default function CompanyGroups() {
 
   const MSG_PAGE = 50
 
+  useEffect(() => { setReplyingTo(null); setEditingMsgId(null) }, [selected?.idgrupo])
+
   useEffect(() => {
     if (!selected || !instance) return
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
     supabase.from(CONV_TABLE)
-      .select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+      .select('*')
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
       .order('id', { ascending: false })
@@ -486,13 +489,15 @@ export default function CompanyGroups() {
         ? (text ? `${filePrefix}\n${text}` : filePrefix)
         : text
     const mediaBase64 = audio?.base64 || attachedFile?.base64 || null
+    const replySnap = replyingTo
+    setReplyingTo(null)
     setMsgText('')
     setRecordedAudio(null)
     setRecordTime(0)
     setAttachedFile(null)
     try {
       const hora = new Date().toISOString()
-      const { data: insRow, error: insErr } = await supabase.from(CONV_TABLE).insert({
+      const insertObj = {
         instancia: instance,
         numero: instanceOwner || selected.idgrupo,
         idgrupo: selected.idgrupo,
@@ -503,7 +508,15 @@ export default function CompanyGroups() {
         nome: session?.user?.name || null,
         horaLastMessage: hora,
         created_at: hora,
-      }).select('id').single()
+      }
+      if (replySnap?.id_mensagem) insertObj.quoted_id_mensagem = replySnap.id_mensagem
+      let ins = await supabase.from(CONV_TABLE).insert(insertObj).select('id').single()
+      // Se a coluna quoted ainda não existe, reinsere sem ela (mensagem vai igual)
+      if (ins.error && insertObj.quoted_id_mensagem && /quoted_id_mensagem/i.test(ins.error.message || '')) {
+        delete insertObj.quoted_id_mensagem
+        ins = await supabase.from(CONV_TABLE).insert(insertObj).select('id').single()
+      }
+      const { data: insRow, error: insErr } = ins
       const insertedId = insRow?.id
       // Sem isso o insert falha calado: a mensagem some da tela (o chat só
       // renderiza pelo realtime) e ninguém fica sabendo o motivo.
@@ -512,7 +525,7 @@ export default function CompanyGroups() {
         setSendErr('A mensagem não foi salva: ' + insErr.message)
         setTimeout(() => setSendErr(''), 6000)
       }
-      if (/@\d+/.test(text)) {
+      if (/@\d+/.test(text) && !replySnap) {
         // Mensagem com menção → só para infogrupo
         fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
           method: 'POST',
@@ -529,8 +542,18 @@ export default function CompanyGroups() {
           }),
         }).catch(e => console.warn('webhook mencao:', e))
       } else {
-        // Mensagem normal → envioNexla
-        fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
+        // Respondendo → webhook próprio; senão envioNexla
+        const webhookUrl = replySnap
+          ? 'https://n8n.nexladesenvolvimento.com.br/webhook/respondermensagem'
+          : 'https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla'
+        const quotedPayload = replySnap ? {
+          quoted_id:          replySnap.id_mensagem,
+          quoted_text:        replySnap.content,
+          quoted_fromMe:      ['atendente', 'humano', 'ia', 'bot'].includes((replySnap.type || '').toLowerCase()),
+          quoted_remoteJid:   selected.idgrupo,       // em grupo, a "conversa" é o grupo
+          quoted_participant: replySnap.numero || null, // quem mandou a original no grupo
+        } : {}
+        fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -558,6 +581,7 @@ export default function CompanyGroups() {
             sender_name: session?.user?.name,
             sender_email: session?.user?.email,
             company: session?.company?.name,
+            ...quotedPayload,
             ai_enabled: false,
           }),
         })
@@ -637,6 +661,31 @@ export default function CompanyGroups() {
     }
   }
 
+  function startReply(msg) {
+    if (!msg?.id_mensagem) return
+    setReplyingTo({
+      id_mensagem: msg.id_mensagem,
+      content: (msg.mensagem || '').slice(0, 200) || (msg.base64 ? '📎 Mídia' : ''),
+      nome: msg.nome || null,
+      type: msg.type || null,
+      numero: (msg.numero || '').replace(/@.*$/, ''), // remetente original (participant do quote em grupo)
+    })
+    setEditingMsgId(null)
+    setTimeout(() => composerRef.current?.focus(), 30)
+  }
+
+  function scrollToOriginal(idMensagem) {
+    if (!idMensagem) return
+    const el = document.querySelector(`[data-msg-id="${CSS.escape(idMensagem)}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.transition = 'box-shadow 0.25s, transform 0.25s'
+    el.style.boxShadow = '0 0 0 3px #4F46E588'
+    el.style.borderRadius = '10px'
+    el.style.transform = 'scale(1.015)'
+    setTimeout(() => { el.style.boxShadow = 'none'; el.style.transform = 'none' }, 1100)
+  }
+
   async function loadMoreMessages() {
     if (loadingMoreMsgs || !selected) return
     const oldestId = messages[0]?.id
@@ -644,7 +693,7 @@ export default function CompanyGroups() {
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
     const { data } = await supabase.from(CONV_TABLE)
-      .select('id, id_mensagem, numero, nome, type, mensagem, base64, "horaLastMessage", created_at')
+      .select('*')
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
       .lt('id', oldestId)
@@ -1072,7 +1121,7 @@ export default function CompanyGroups() {
                 const ts = parseTs(msg)
                 const media = detectMedia(msg.base64)
                 return (
-                  <div key={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
+                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                       {!isAtendente && (
                         <span
@@ -1097,6 +1146,34 @@ export default function CompanyGroups() {
                         </span>
                       )}
                       <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : undefined }}>
+                        {/* Bloco de citação (respondendo outra mensagem do grupo) */}
+                        {msg.quoted_id_mensagem && (() => {
+                          const orig = messages.find(m => m.id_mensagem === msg.quoted_id_mensagem)
+                          const author = !orig ? '' : (orig.nome || senderLabel(orig) || 'Alguém')
+                          const origText = !orig ? '(original não carregada)'
+                            : ((orig.mensagem || '').trim() || (orig.base64 ? '📎 Mídia' : ''))
+                          const accent = isAtendente ? 'rgba(255,255,255,0.9)' : '#4F46E5'
+                          return (
+                            <div
+                              onClick={() => scrollToOriginal(msg.quoted_id_mensagem)}
+                              title="Ir para a mensagem original"
+                              style={{
+                                display: 'flex', gap: 8, cursor: 'pointer', marginBottom: 6,
+                                background: isAtendente ? 'rgba(255,255,255,0.15)' : 'rgba(79,70,229,0.08)',
+                                borderRadius: 6, padding: '5px 9px', maxWidth: 260,
+                              }}>
+                              <div style={{ width: 3, borderRadius: 2, background: accent, flexShrink: 0 }} />
+                              <div style={{ minWidth: 0 }}>
+                                {author && <div style={{ fontSize: 11, fontWeight: 700, color: accent, marginBottom: 1 }}>{author}</div>}
+                                <div style={{
+                                  fontSize: 12, opacity: 0.85,
+                                  color: isAtendente ? 'rgba(255,255,255,0.92)' : 'var(--text-secondary)',
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240,
+                                }}>{origText}</div>
+                              </div>
+                            </div>
+                          )
+                        })()}
                         {media?.type === 'audio' && (
                           <audio controls src={media.src} style={{ maxWidth: 240, height: 32 }} />
                         )}
@@ -1173,6 +1250,23 @@ export default function CompanyGroups() {
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                           {formatTime(ts)}
                         </span>
+                        {/* Responder: qualquer mensagem que já tem id_mensagem */}
+                        {msg.id_mensagem && editingMsgId !== msg.id && (
+                          <button
+                            onClick={() => startReply(msg)}
+                            title="Responder"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 18, height: 18, borderRadius: 4, border: 'none',
+                              background: 'transparent', cursor: 'pointer', color: '#4F46E5',
+                              opacity: 0.6, padding: 0,
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                          >
+                            <Reply size={12} />
+                          </button>
+                        )}
                         {/* Editar: só nas mensagens de texto do nosso lado */}
                         {isAtendente && msg.mensagem && !media && editingMsgId !== msg.id && (
                           <button
@@ -1200,6 +1294,28 @@ export default function CompanyGroups() {
 
             {/* Barra de envio */}
             <div style={{ padding: '8px 16px 12px', borderTop: '1px solid var(--border)' }}>
+              {/* Faixa "Respondendo" */}
+              {replyingTo && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: '#EEF2FF', borderLeft: '3px solid #4F46E5',
+                  borderRadius: 6, padding: '7px 12px', marginBottom: 8,
+                }}>
+                  <Reply size={14} style={{ color: '#4F46E5', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5' }}>
+                      Respondendo {replyingTo.nome ? `a ${replyingTo.nome}` : 'à mensagem'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {replyingTo.content || '(mídia)'}
+                    </div>
+                  </div>
+                  <button onClick={() => setReplyingTo(null)} title="Cancelar resposta"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, flexShrink: 0 }}>
+                    <X size={15} />
+                  </button>
+                </div>
+              )}
               {/* Preview: arquivo anexado */}
               {attachedFile && (
                 <div style={{
@@ -1357,7 +1473,7 @@ export default function CompanyGroups() {
                   value={msgText}
                   onChange={handleMsgChange}
                   onKeyDown={e => {
-                    if (e.key === 'Escape') { setMentionOpen(false); return }
+                    if (e.key === 'Escape') { setMentionOpen(false); if (replyingTo) setReplyingTo(null); return }
                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
                   }}
                   disabled={sending || recording}
