@@ -621,10 +621,10 @@ export default function CompanyAgenda() {
       if (useCustomMsg && customMsg.trim()) {
         patientMsg = customMsg.trim()
       } else if (isNew && payload.status !== 'cancelado') {
-        const proc = procedures.find(x => x.id === payload.procedure_id)
-        patientMsg = proc?.reminder_message?.trim()
-          ? proc.reminder_message.replace(/\{nome\}/gi, firstName).replace(/\{data\}/gi, dateStr)
-          : `Olá ${firstName}! 📅 Seu agendamento foi marcado para *${dateStr}*. Qualquer dúvida é só responder aqui!`
+        // Confirmação simples na HORA do agendamento. A mensagem personalizada
+        // do procedimento ("responda SIM") agora vai no lembrete de X horas
+        // antes (process_appointment_reminders), não aqui.
+        patientMsg = `Olá ${firstName}! 📅 Seu agendamento foi marcado para *${dateStr}*. Qualquer dúvida é só responder aqui!`
       } else if (statusChanged && payload.status === 'cancelado') {
         patientMsg = `Olá ${firstName}, infelizmente seu agendamento de ${dateStr} foi cancelado. Em caso de dúvidas, entre em contato.`
       } else if (statusChanged && payload.status === 'confirmado') {

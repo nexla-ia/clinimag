@@ -579,13 +579,15 @@ export default function CompanyCatalog() {
               <input type="checkbox" checked={procModal.active !== false} onChange={e => setProcModal(p => ({ ...p, active: e.target.checked }))} style={{ width: 16, height: 16 }} />
               Procedimento ativo
             </label>
-            <Field label="Mensagem de confirmação personalizada (opcional)">
+            <Field label="Mensagem do lembrete (enviada X horas antes)">
               <textarea className="nx-input" rows={3}
-                placeholder={`Olá {nome}! Seu agendamento foi marcado para {data}. Qualquer dúvida é só responder aqui!`}
+                placeholder={`Olá {nome}! Passando pra lembrar da sua consulta em {data}. Responda SIM pra confirmar 🙂`}
                 value={procModal.reminder_message || ''}
                 onChange={e => setProcModal(p => ({ ...p, reminder_message: e.target.value }))} />
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Use <strong>{'{nome}'}</strong> e <strong>{'{data}'}</strong> como variáveis. Se vazio, usa a mensagem padrão da clínica.
+                Texto do <strong>lembrete automático</strong> deste procedimento — vai na antecedência
+                configurada em Administração (ex: 24h antes), <strong>não</strong> na hora do agendamento.
+                Use <strong>{'{nome}'}</strong> e <strong>{'{data}'}</strong>. Se vazio, usa o lembrete padrão da clínica.
               </div>
             </Field>
           </ModalBody>
