@@ -1052,6 +1052,7 @@ export default function CompanyAgenda() {
                               outline: isDragOver ? '2px dashed #2563EB' : 'none',
                               outlineOffset: '-2px',
                               display: 'flex', flexDirection: 'column', gap: 2,
+                              minWidth: 0, // impede nome longo de esticar a coluna do grid
                             }}
                             onMouseEnter={e => { if (working && !appts.length && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
                             onMouseLeave={e => { if (working && !appts.length && !isDragOver) e.currentTarget.style.background = 'transparent' }}
@@ -1077,26 +1078,28 @@ export default function CompanyAgenda() {
                                   const y = Math.min(e.clientY, window.innerHeight - 95)
                                   setCtxMenu({ x, y, appt })
                                 }}
+                                title={`${appt.contact_nome} · ${hhmm} · ${status.label}`}
                                 style={{
                                   background: status.color,
                                   color: '#fff',
                                   borderLeft: `3px solid ${status.color}`,
                                   borderRadius: 5,
-                                  padding: many ? '3px 7px' : '5px 8px',
-                                  fontSize: 11, fontWeight: 700, lineHeight: 1.25,
+                                  padding: many ? '4px 8px' : '5px 8px',
+                                  fontSize: 11, fontWeight: 700, lineHeight: 1.2,
                                   display: 'flex', flexDirection: 'column', justifyContent: 'center',
                                   overflow: 'hidden',
+                                  minWidth: 0, // trunca nome longo em vez de esticar
                                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                                   opacity: draggingId === appt.id ? 0.35 : 1,
                                   cursor: 'grab',
                                   userSelect: 'none',
                                   transition: 'opacity 0.15s',
                                 }}>
-                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                                   {appt.contact_nome}
                                 </div>
                                 {!many && (
-                                  <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.85, marginTop: 1 }}>
+                                  <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.85, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {hhmm} · {status.label}
                                   </div>
                                 )}
