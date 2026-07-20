@@ -42,6 +42,18 @@ const STATUS_OPTIONS = [
   { value: 'cancelado',  label: 'Cancelado',  color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', icon: XCircle },
 ]
 
+// Escurece uma cor hex por um fator (0.16 = 16% mais escura). Usado pra
+// alternar o tom dos chips empilhados (turma), pra não se misturarem.
+function shadeHex(hex, factor) {
+  const h = (hex || '').replace('#', '')
+  if (h.length !== 6) return hex
+  const n = parseInt(h, 16)
+  const r = Math.max(0, Math.round(((n >> 16) & 255) * (1 - factor)))
+  const g = Math.max(0, Math.round(((n >> 8) & 255) * (1 - factor)))
+  const b = Math.max(0, Math.round((n & 255) * (1 - factor)))
+  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')
+}
+
 function getMonday(date) {
   const d = new Date(date)
   d.setHours(0, 0, 0, 0)
@@ -1057,10 +1069,13 @@ export default function CompanyAgenda() {
                             onMouseEnter={e => { if (working && !appts.length && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
                             onMouseLeave={e => { if (working && !appts.length && !isDragOver) e.currentTarget.style.background = 'transparent' }}
                           >
-                            {appts.map(appt => {
+                            {appts.map((appt, idx) => {
                               const status = STATUS_OPTIONS.find(s => s.value === appt.status)
                               if (!status) return null
                               const many = appts.length > 1
+                              // Zebra: numa turma, alterna tom (normal / mais escuro) pra
+                              // os chips não se misturarem visualmente.
+                              const chipBg = many && idx % 2 === 1 ? shadeHex(status.color, 0.32) : status.color
                               return (
                               <div key={appt.id}
                                 draggable
@@ -1080,7 +1095,7 @@ export default function CompanyAgenda() {
                                 }}
                                 title={`${appt.contact_nome} · ${hhmm} · ${status.label}`}
                                 style={{
-                                  background: status.color,
+                                  background: chipBg,
                                   color: '#fff',
                                   borderLeft: `3px solid ${status.color}`,
                                   borderRadius: 5,
