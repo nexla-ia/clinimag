@@ -781,6 +781,7 @@ export default function CompanyConversations() {
                 id: row.id,
                 id_mensagem: row.id_mensagem || null,
                 quoted_id_mensagem: row.quoted_id_mensagem || null,
+                quoted_text: row.quoted_text || null,
                 type: getMessageType(row),
                 content: getMessageContent(row),
                 base64: row.base64 || null,
@@ -867,6 +868,7 @@ export default function CompanyConversations() {
             id: r.id,
             id_mensagem: r.id_mensagem || null,
             quoted_id_mensagem: r.quoted_id_mensagem || null,
+            quoted_text: r.quoted_text || null,
             type: getMessageType(r),
             content: getMessageContent(r),
             base64: r.base64 || null,
@@ -901,6 +903,7 @@ export default function CompanyConversations() {
         id: r.id,
         id_mensagem: r.id_mensagem || null,
         quoted_id_mensagem: r.quoted_id_mensagem || null,
+        quoted_text: r.quoted_text || null,
         type: getMessageType(r),
         content: getMessageContent(r),
         base64: r.base64 || null,
@@ -2260,21 +2263,24 @@ export default function CompanyConversations() {
                         return (
                           <div className="msg-bubble" style={bubbleStyle}>
                             {/* Bloco de citação (respondendo a outra mensagem) */}
-                            {msg.quoted_id_mensagem && (() => {
-                              const orig = messages.find(m => m.id_mensagem === msg.quoted_id_mensagem)
+                            {(msg.quoted_id_mensagem || msg.quoted_text) && (() => {
+                              const orig = msg.quoted_id_mensagem ? messages.find(m => m.id_mensagem === msg.quoted_id_mensagem) : null
                               const origIsCliente = orig ? orig.type === 'cliente' : false
                               const author = !orig ? '' : origIsCliente
                                 ? (resolveName(selected?.phone) !== selected?.phone ? resolveName(selected?.phone) : 'Cliente')
                                 : (orig.nome || 'Você')
-                              const origText = !orig ? '(original não carregada)'
-                                : ((orig.content || '').replace(/^\*[^*]+\*:\n?/, '').trim() || (orig.base64 ? '📎 Mídia' : ''))
+                              // Sem a original carregada, mostra o trecho citado que o WhatsApp mandou.
+                              const origText = orig
+                                ? ((orig.content || '').replace(/^\*[^*]+\*:\n?/, '').trim() || (orig.base64 ? '📎 Mídia' : ''))
+                                : (msg.quoted_text || '(mensagem original)')
+                              const canScroll = !!orig
                               const accent = isAtendente ? 'rgba(255,255,255,0.9)' : '#16A34A'
                               return (
                                 <div
-                                  onClick={() => scrollToOriginal(msg.quoted_id_mensagem)}
-                                  title="Ir para a mensagem original"
+                                  onClick={() => canScroll && scrollToOriginal(msg.quoted_id_mensagem)}
+                                  title={canScroll ? 'Ir para a mensagem original' : undefined}
                                   style={{
-                                    display: 'flex', gap: 8, cursor: 'pointer', marginBottom: 6,
+                                    display: 'flex', gap: 8, cursor: canScroll ? 'pointer' : 'default', marginBottom: 6,
                                     background: isAtendente ? 'rgba(255,255,255,0.15)' : 'rgba(22,163,74,0.08)',
                                     borderRadius: 6, padding: '5px 9px', maxWidth: 280,
                                   }}>
