@@ -7,8 +7,9 @@ import BlockedScreen from '../../components/BlockedScreen'
 import SupportWidget from '../../components/SupportWidget'
 import { shouldBlockAccess } from '../../lib/billing'
 import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban, Stethoscope, GraduationCap, Instagram, ShieldCheck, Headset, MessageSquareHeart, Menu, X, Users, DollarSign, GitMerge } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { fetchGruposLista } from '../../lib/queries'
 import { latestUpdateDate } from '../../data/updates'
 import './Company.css'
 
@@ -21,6 +22,7 @@ export default function CompanyLayout() {
   const [activeCount, setActiveCount] = useState(0)
   const [pendingAlerts, setPendingAlerts] = useState(0)
   const [groupUnread, setGroupUnread] = useState(0)
+  const unreadGroupsRef = useRef(new Set()) // idgrupo com msgs não lidas (dedupe do badge)
   const [supportOpen, setSupportOpen] = useState(false)
   const [supportUnread, setSupportUnread] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -28,7 +30,7 @@ export default function CompanyLayout() {
   // Fecha sidebar ao trocar de rota (mobile) e zera badge de grupos ao entrar na tela
   useEffect(() => {
     setSidebarOpen(false)
-    if (location.pathname.startsWith('/painel/grupos')) setGroupUnread(0)
+    if (location.pathname.startsWith('/painel/grupos')) { unreadGroupsRef.current = new Set(); setGroupUnread(0) }
   }, [location.pathname])
   // Trava scroll do body quando drawer aberto
   useEffect(() => {
@@ -101,7 +103,50 @@ export default function CompanyLayout() {
     return () => supabase.removeChannel(ch)
   }, [instance, aiOn, userId])
 
-  // Badge de grupos: conta mensagens novas de clientes em grupos não silenciados
+  // Badge de grupos — contagem INICIAL de grupos com mensagens de cliente não
+  // lidas (igual a lista de Grupos calcula). Sem isso o badge só aparecia
+  // quando chegava mensagem nova com a tela aberta; ao recarregar, sumia.
+  useEffect(() => {
+    if (!instance || !session?.user?.email) return
+    if (location.pathname.startsWith('/painel/grupos')) return // na tela, badge fica zerado
+    let cancel = false
+    async function computeInitial() {
+      const [{ data: reads }, grupos] = await Promise.all([
+        supabase.from('conversation_reads').select('session_id, last_read_at')
+          .eq('instancia', instance).eq('user_email', session.user.email),
+        fetchGruposLista(instance),
+      ])
+      if (cancel) return
+      const readsMap = {}
+      ;(reads || []).forEach(r => { readsMap[r.session_id] = r.last_read_at })
+      let muted = []
+      try { muted = JSON.parse(localStorage.getItem(`muted_groups_${instance}`) || '[]') } catch {}
+      // Candidatos: grupos não silenciados cuja última msg é depois da leitura.
+      const candidates = (grupos || []).filter(g => {
+        if (!g.idgrupo || muted.includes(g.idgrupo)) return false
+        const lr = readsMap[g.idgrupo]
+        return !lr || (g.created_at && new Date(g.created_at) > new Date(lr))
+      })
+      if (!candidates.length) { unreadGroupsRef.current = new Set(); setGroupUnread(0); return }
+      // Confirma que há msg de CLIENTE depois da leitura (evita contar resposta da própria clínica).
+      const pairs = await Promise.all(candidates.map(g =>
+        supabase.from('mensagens_geral').select('id', { count: 'exact', head: true })
+          .eq('instancia', instance).eq('idgrupo', g.idgrupo)
+          .ilike('type', 'cliente')
+          .gt('created_at', readsMap[g.idgrupo] || '1970-01-01T00:00:00Z')
+          .then(({ count }) => [g.idgrupo, count || 0])
+      ))
+      if (cancel) return
+      const set = new Set(pairs.filter(([, c]) => c > 0).map(([gid]) => gid))
+      unreadGroupsRef.current = set
+      setGroupUnread(set.size)
+    }
+    computeInitial()
+    return () => { cancel = true }
+  }, [instance, session?.user?.email])
+
+  // Badge de grupos ao vivo: novo grupo com msg de cliente não silenciada.
+  // Dedupe por grupo (o badge conta GRUPOS não lidos, não mensagens).
   useEffect(() => {
     if (!instance) return
     const ch = supabase.channel('layout-groups-unread')
@@ -117,7 +162,9 @@ export default function CompanyLayout() {
           const muted = JSON.parse(localStorage.getItem(`muted_groups_${instance}`) || '[]')
           if (muted.includes(row.idgrupo)) return
         } catch {}
-        setGroupUnread(n => n + 1)
+        if (unreadGroupsRef.current.has(row.idgrupo)) return // grupo já contado
+        unreadGroupsRef.current.add(row.idgrupo)
+        setGroupUnread(unreadGroupsRef.current.size)
       })
       .subscribe()
     return () => supabase.removeChannel(ch)
