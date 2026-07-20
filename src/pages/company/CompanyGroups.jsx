@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply } from 'lucide-react'
+import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
@@ -250,6 +250,41 @@ export default function CompanyGroups() {
           last_read_at: now,
         }, { onConflict: 'instancia,session_id,user_email' }).then(() => {})
       }
+    }
+  }
+
+  // Marca o grupo como NÃO lido: recua a leitura pra antes da última mensagem
+  // do grupo, fazendo o balãozinho voltar a acusar pendência.
+  async function handleMarkGroupUnread(g) {
+    setContextMenu(null)
+    const { data } = await supabase.from(CONV_TABLE)
+      .select('created_at')
+      .eq('instancia', instance).eq('idgrupo', g.idgrupo)
+      .order('created_at', { ascending: false }).limit(1)
+    const lastTs = data?.[0]?.created_at || g.lastTs
+    if (!lastTs) return
+    const before = new Date(new Date(lastTs).getTime() - 1000).toISOString()
+    setUnreadCounts(prev => ({ ...prev, [g.idgrupo]: prev[g.idgrupo] || 1 }))
+    setReadsMap(prev => ({ ...prev, [g.idgrupo]: before }))
+    if (selectedRef.current?.idgrupo === g.idgrupo) setSelected(null)
+    if (session?.user?.email) {
+      await supabase.from('conversation_reads').upsert({
+        instancia: instance, session_id: g.idgrupo,
+        user_email: session.user.email, last_read_at: before,
+      }, { onConflict: 'instancia,session_id,user_email' })
+    }
+  }
+
+  async function handleMarkGroupRead(g) {
+    setContextMenu(null)
+    setUnreadCounts(prev => { const n = { ...prev }; delete n[g.idgrupo]; return n })
+    const now = new Date().toISOString()
+    setReadsMap(prev => ({ ...prev, [g.idgrupo]: now }))
+    if (session?.user?.email) {
+      await supabase.from('conversation_reads').upsert({
+        instancia: instance, session_id: g.idgrupo,
+        user_email: session.user.email, last_read_at: now,
+      }, { onConflict: 'instancia,session_id,user_email' })
     }
   }
 
@@ -1554,6 +1589,25 @@ export default function CompanyGroups() {
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
           >
             <Pencil size={14} color="#6B7280" /> Renomear grupo
+          </button>
+          <button
+            onClick={() => {
+              const g = contextMenu.group
+              if (unreadCounts[g.idgrupo] > 0) handleMarkGroupRead(g)
+              else handleMarkGroupUnread(g)
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              width: '100%', padding: '8px 12px', border: 'none',
+              background: 'none', cursor: 'pointer', borderRadius: 6,
+              fontSize: 13, color: 'var(--text-primary)', textAlign: 'left',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover, #F3F4F6)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            {unreadCounts[contextMenu.group.idgrupo] > 0
+              ? <><MailOpen size={14} color="#6B7280" /> Marcar como lido</>
+              : <><Mail size={14} color="#6B7280" /> Marcar como não lido</>}
           </button>
           <button
             onClick={() => toggleMute(contextMenu.group.idgrupo)}
