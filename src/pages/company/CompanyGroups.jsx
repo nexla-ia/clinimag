@@ -1170,7 +1170,12 @@ export default function CompanyGroups() {
                           title="Conversar ou salvar contato"
                           style={{ fontSize: 11, fontWeight: 600, color: '#4F46E5', marginBottom: 3, marginLeft: 2, cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
                         >
-                          {senderLabel(msg)}
+                          {(() => {
+                            const num = (msg.numero || '').replace(/@.*$/, '')
+                            // Nome + número (igual WhatsApp). Se não tem nome, mostra só o número.
+                            if (msg.nome && num) return <>{msg.nome} <span style={{ fontWeight: 400, opacity: 0.75, fontVariantNumeric: 'tabular-nums' }}>· {num}</span></>
+                            return senderLabel(msg)
+                          })()}
                         </span>
                       )}
                       {/* Nome do colaborador que enviou (nosso lado). Igual ao WhatsApp,
