@@ -530,6 +530,7 @@ export default function CompanyAgenda() {
     const startsAt = new Date(`${apptModal.date}T${apptModal.time}:00${tz}`)
     const duration = parseInt(apptModal.duration_minutes) || 30
     const endsAt = new Date(startsAt.getTime() + duration * 60000)
+    const isNew = !apptModal.id
 
     // Dia da semana no fuso da clínica (não do browser)
     function dayInTz(date) {
@@ -632,7 +633,6 @@ export default function CompanyAgenda() {
       return { offset_minutes: off, sent_at: existing?.sent_at || null }
     })
 
-    const isNew = !apptModal.id
     const prevStatus = apptModal._prevStatus
     const prevStartsAt = apptModal._prevStartsAt
 
