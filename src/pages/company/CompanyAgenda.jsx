@@ -1017,7 +1017,7 @@ export default function CompanyAgenda() {
                       Configure horários nesta agenda.
                     </div>
                   ) : slots.map((hhmm, idx) => (
-                    <div key={hhmm} style={{ display: 'grid', gridTemplateColumns: '64px repeat(7, 1fr)', borderBottom: idx === slots.length - 1 ? 'none' : '1px solid #F1F5F9' }}>
+                    <div key={hhmm} style={{ display: 'grid', gridTemplateColumns: '64px repeat(7, 1fr)', borderBottom: idx === slots.length - 1 ? 'none' : '1px solid #E2E8F0', background: idx % 2 === 1 ? '#F1F5F9' : '#fff' }}>
                       <div style={{ padding: '6px 8px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textAlign: 'right', borderRight: '1px solid var(--border)' }}>
                         {hhmm}
                       </div>
