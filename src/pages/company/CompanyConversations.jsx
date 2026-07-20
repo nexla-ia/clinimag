@@ -144,6 +144,22 @@ function isWaitingPatient(c) {
 }
 const MANUAL_REASONS = REASONS.filter(r => r.value !== 'auto_encerrado')
 
+// Motivos que a clínica ganha "de fábrica" — semeados no banco uma única vez
+// por instância, e daí editáveis/removíveis como qualquer outro. Não precisa
+// de migration nova: usa a tabela conversation_close_reasons que já existe.
+// O created_at fixo (2020) garante que os padrão fiquem SEMPRE no topo, na
+// ordem certa; motivos criados depois pegam now() e caem embaixo.
+const DEFAULT_SEED = [
+  { value: 'agendado',     label: 'Agendado',              color: '#16A34A', created_at: '2020-01-01T00:00:01Z' },
+  { value: 'resolvido',    label: 'Resolvido',             color: '#2563EB', created_at: '2020-01-01T00:00:02Z' },
+  { value: 'encaminhado',  label: 'Encaminhado',           color: '#7C3AED', created_at: '2020-01-01T00:00:03Z' },
+  { value: 'sem_resposta', label: 'Paciente não respondeu', color: '#D97706', created_at: '2020-01-01T00:00:04Z' },
+  { value: 'desistiu',     label: 'Desistiu',              color: '#DC2626', created_at: '2020-01-01T00:00:05Z' },
+]
+// Linha sentinela: marca que a instância JÁ foi semeada, pra não
+// ressurgir um padrão que a clínica apagou de propósito.
+const SEED_SENTINEL = '__seeded__'
+
 // Motivo personalizado só tem cor; deriva o fundo/borda como as etiquetas.
 function reasonStyle(color) {
   return { color, bg: (color || '#6B7280') + '15', border: (color || '#6B7280') + '44' }
@@ -224,6 +240,7 @@ export default function CompanyConversations() {
   const [newReasonLabel, setNewReasonLabel] = useState('')
   const [newReasonColor, setNewReasonColor] = useState(REASON_COLORS[0])
   const [savingReason, setSavingReason]   = useState(false)
+  const [editReason, setEditReason]       = useState(null) // { value, label, color } em edição
   const [selectedIds, setSelectedIds] = useState([])   // seleção múltipla para encerrar em lote
   const [closing, setClosing]         = useState(false)
   const [toast, setToast]             = useState(null)
@@ -543,25 +560,51 @@ export default function CompanyConversations() {
       })
   }, [instance])
 
-  // Motivos de encerramento personalizados da empresa (fallback: sem custom)
+  // Motivos de encerramento da empresa — todos vêm do banco. Na primeira
+  // vez que a instância é vista, semeamos os padrão (marcando com a linha
+  // sentinela) pra que apareçam "de fábrica" mas continuem editáveis.
   useEffect(() => {
     if (!instance) return
-    supabase.from('conversation_close_reasons')
-      .select('value, label, color')
-      .eq('instancia', instance)
-      .order('created_at')
-      .then(({ data, error }) => { if (!error && data) setCustomReasons(data) })
+    let cancel = false
+    async function loadReasons() {
+      const fetchRows = () => supabase.from('conversation_close_reasons')
+        .select('value, label, color')
+        .eq('instancia', instance)
+        .order('created_at', { ascending: true })
+      let { data, error } = await fetchRows()
+      // Tabela ainda sem migration → cai no fallback do código.
+      if (error) return
+      const seeded = (data || []).some(r => r.value === SEED_SENTINEL)
+      if (!seeded) {
+        const rows = [
+          ...DEFAULT_SEED.map(d => ({ instancia: instance, value: d.value, label: d.label, color: d.color, created_at: d.created_at })),
+          { instancia: instance, value: SEED_SENTINEL, label: '', color: '#6B7280', created_at: '2020-01-01T00:00:09Z' },
+        ]
+        const { error: seedErr } = await supabase.from('conversation_close_reasons')
+          .upsert(rows, { onConflict: 'instancia,value', ignoreDuplicates: true })
+        if (!seedErr) {
+          const res = await fetchRows()
+          if (!res.error) data = res.data
+        }
+      }
+      if (!cancel) setCustomReasons((data || []).filter(r => r.value !== SEED_SENTINEL))
+    }
+    loadReasons()
+    return () => { cancel = true }
   }, [instance])
 
-  // Motivos que aparecem no seletor: fixos + os criados pela empresa.
-  const manualReasons = [
-    ...MANUAL_REASONS,
-    ...customReasons.map(r => ({ value: r.value, label: r.label, custom: true, ...reasonStyle(r.color) })),
-  ]
-  // Lookup de qualquer motivo (inclui o 'auto_encerrado' do sistema).
+  // Motivos que aparecem no seletor. Se o banco trouxe motivos (já semeado),
+  // usa SÓ eles — todos editáveis. Antes da migration, cai nos fixos do código.
+  const dbReasons = customReasons.filter(r => r.value !== SEED_SENTINEL)
+  const manualReasons = dbReasons.length
+    ? dbReasons.map(r => ({ value: r.value, label: r.label, custom: true, ...reasonStyle(r.color) }))
+    : MANUAL_REASONS
+  // Lookup de qualquer motivo. Prioriza o do banco (rótulo/cor que a clínica
+  // editou); cai no código pra 'auto_encerrado' e padrão já apagados que
+  // ainda aparecem em conversas antigas.
   function findReason(value) {
-    return REASONS.find(r => r.value === value)
-      || manualReasons.find(r => r.value === value)
+    return manualReasons.find(r => r.value === value)
+      || REASONS.find(r => r.value === value)
       || null
   }
 
@@ -590,11 +633,47 @@ export default function CompanyConversations() {
     setAddingReason(false)
   }
 
+  async function handleUpdateReason() {
+    if (!editReason) return
+    const label = (editReason.label || '').trim()
+    if (!label || savingReason) return
+    setSavingReason(true)
+    const { error } = await supabase.from('conversation_close_reasons')
+      .update({ label, color: editReason.color })
+      .eq('instancia', instance).eq('value', editReason.value)
+    setSavingReason(false)
+    if (error) {
+      setToast({ message: 'Erro ao salvar: ' + error.message, color: '#DC2626' })
+      setTimeout(() => setToast(null), 4000)
+      return
+    }
+    setCustomReasons(prev => prev.map(r => r.value === editReason.value ? { ...r, label, color: editReason.color } : r))
+    setEditReason(null)
+  }
+
   async function handleDeleteReason(value) {
     await supabase.from('conversation_close_reasons')
       .delete().eq('instancia', instance).eq('value', value)
     setCustomReasons(prev => prev.filter(r => r.value !== value))
     if (reason === value) setReason('')
+    if (editReason?.value === value) setEditReason(null)
+  }
+
+  // Traz de volta os motivos padrão que a clínica apagou (sem mexer nos que
+  // ela editou — ignoreDuplicates não sobrescreve os que já existem).
+  async function handleRestoreDefaults() {
+    if (savingReason) return
+    setSavingReason(true)
+    const rows = DEFAULT_SEED.map(d => ({ instancia: instance, value: d.value, label: d.label, color: d.color, created_at: d.created_at }))
+    const { error } = await supabase.from('conversation_close_reasons')
+      .upsert(rows, { onConflict: 'instancia,value', ignoreDuplicates: true })
+    if (!error) {
+      const { data } = await supabase.from('conversation_close_reasons')
+        .select('value, label, color').eq('instancia', instance)
+        .order('created_at', { ascending: true })
+      setCustomReasons((data || []).filter(r => r.value !== SEED_SENTINEL))
+    }
+    setSavingReason(false)
   }
 
   // Carrega sessões encerradas com motivo
@@ -2877,6 +2956,31 @@ export default function CompanyConversations() {
 
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '52vh', overflowY: 'auto' }}>
               {manualReasons.map(r => (
+                editReason && editReason.value === r.value ? (
+                  <div key={r.value} style={{ border: `1.5px solid ${editReason.color}`, borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <input
+                      className="nx-input" autoFocus placeholder="Nome do motivo" maxLength={40}
+                      value={editReason.label}
+                      onChange={e => setEditReason(er => ({ ...er, label: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') handleUpdateReason(); if (e.key === 'Escape') setEditReason(null) }}
+                    />
+                    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                      {REASON_COLORS.map(c => (
+                        <button key={c} type="button" onClick={() => setEditReason(er => ({ ...er, color: c }))}
+                          style={{ width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer',
+                            border: 'none', outline: editReason.color === c ? `2px solid ${c}` : 'none', outlineOffset: 2 }} />
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button className="nx-btn-ghost" style={{ padding: '6px 12px', fontSize: 12 }}
+                        onClick={() => setEditReason(null)}>Cancelar</button>
+                      <button className="nx-btn-primary" style={{ padding: '6px 14px', fontSize: 12, justifyContent: 'center' }}
+                        onClick={handleUpdateReason} disabled={!editReason.label.trim() || savingReason}>
+                        {savingReason ? 'Salvando...' : 'Salvar'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                 <label key={r.value} style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   padding: '12px 16px', borderRadius: 8, cursor: 'pointer',
@@ -2894,17 +2998,29 @@ export default function CompanyConversations() {
                     {r.label}
                   </div>
                   {r.custom && (
-                    <button
-                      onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteReason(r.value) }}
-                      title="Remover este motivo"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'inline-flex', opacity: 0.6 }}
-                      onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                      onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <>
+                      <button
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); setEditReason({ value: r.value, label: r.label, color: r.color }) }}
+                        title="Editar nome e cor"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'inline-flex', opacity: 0.6 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteReason(r.value) }}
+                        title="Remover este motivo"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'inline-flex', opacity: 0.6 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </>
                   )}
                 </label>
+                )
               ))}
 
               {/* Criar novo motivo */}
@@ -2944,6 +3060,17 @@ export default function CompanyConversations() {
                   onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
                 >
                   <Plus size={13} /> Nova opção de encerramento
+                </button>
+              )}
+
+              {dbReasons.length > 0 && !addingReason && !editReason && (
+                <button
+                  onClick={handleRestoreDefaults}
+                  disabled={savingReason}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--text-muted)', textDecoration: 'underline', textUnderlineOffset: 2, alignSelf: 'center', padding: '2px 6px' }}
+                  title="Traz de volta os motivos padrão que foram removidos (não altera os que você editou)"
+                >
+                  Restaurar motivos padrão
                 </button>
               )}
             </div>
