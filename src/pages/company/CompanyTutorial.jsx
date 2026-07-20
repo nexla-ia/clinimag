@@ -8,6 +8,7 @@ import {
   Camera, Cake, Heart, Instagram, UserPlus, UserCheck, ClipboardList,
   TrendingUp, AlertCircle, MessageSquareHeart, Lock, EyeOff, Database, Send,
   GitMerge, DollarSign, Flame, Filter, Receipt, Repeat, AtSign, BellOff, Trash2,
+  Pencil, Mail,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -55,11 +56,31 @@ const MODULES = [
         chips: [{ icon: Camera, label: 'Foto' }, { icon: ClipboardList, label: 'Ficha' }],
       },
       {
-        title: 'Finalizar com motivo',
-        desc: 'Ao terminar, clica em "Finalizar conversa" e escolhe: Agendado, Resolvido, Encaminhado ou Desistiu. Isso vai virar métrica depois.',
+        title: 'Responder citando uma mensagem',
+        desc: 'Passa o mouse numa mensagem e clica na setinha verde ↩ pra responder citando ela — igual WhatsApp. Aparece a faixa "Respondendo" acima do campo; a citação vai junto no WhatsApp do paciente e fica clicável aqui (leva até a original).',
+        chips: [{ icon: MessageSquare, label: 'Citar' }],
+      },
+      {
+        title: 'Editar e apagar mensagem enviada',
+        desc: 'Na sua mensagem, o lápis edita o texto (muda aqui e no WhatsApp) e a lixeira apaga (some pro paciente também). Quando o paciente apaga uma mensagem, ela aparece riscada aqui pra vocês saberem.',
+        chips: [{ icon: Pencil, label: 'Editar' }, { icon: Trash2, label: 'Apagar' }],
+      },
+      {
+        title: 'Marcar como não lida e filtrar',
+        desc: 'Botão direito na conversa → "Marcar como não lida" (volta o balãozinho azul pra não esquecer de responder). No topo, o botão "Não lidas" filtra só quem está esperando resposta.',
+        chips: [{ icon: Inbox, label: 'Não lidas' }],
+      },
+      {
+        title: '"Aguardando paciente" não prejudica a métrica',
+        desc: 'Quando o atendente já respondeu e a bola está com o paciente, a conversa ganha a tag ⏳ "Aguardando paciente" e NÃO fecha sozinha por inatividade — a demora é dele, não de vocês.',
+      },
+      {
+        title: 'Finalizar com motivo (personalizável)',
+        desc: 'Ao terminar, "Finalizar conversa" e escolhe o motivo: Agendado, Resolvido, Encaminhado, Paciente não respondeu, Desistiu — e vocês podem criar motivos próprios (+ Nova opção). Dá pra selecionar várias conversas e encerrar em lote. Tudo vira métrica depois.',
+        chips: [{ icon: Check, label: 'Motivos próprios' }, { icon: ClipboardList, label: 'Em lote' }],
       },
     ],
-    tip: 'Tickets sem atividade por 2h fecham automaticamente como "Expirado". Se o paciente voltar, o ticket reabre na Recepção sozinho — sem trabalho manual pra equipe.',
+    tip: 'Tickets sem atividade por 2h fecham automaticamente como "Expirado" — exceto quando está "Aguardando paciente". Se o paciente voltar, o ticket reabre na Recepção sozinho, sem trabalho manual pra equipe.',
     cta: { label: 'Abrir Conversas', to: '/painel/conversas' },
   },
   {
@@ -129,6 +150,11 @@ const MODULES = [
       {
         title: 'Origem detectada sozinha',
         desc: 'Não precisa perguntar "como conheceu a clínica?". A plataforma lê as primeiras mensagens do paciente e detecta automaticamente: Indicação, Instagram, Google, Facebook, Anúncio, Site... Tudo isso vira métrica em Métricas → Leads.',
+      },
+      {
+        title: 'Rotina e valores — próximos 30 dias',
+        desc: 'No Resumo da ficha, um card mostra quanto o paciente representa daqui pra frente: sessões por profissional, valor de cada e o total do período (com média por semana e o que ainda está em aberto). Útil pra falar o valor na hora, sem abrir o financeiro.',
+        chips: [{ icon: DollarSign, label: 'Total por período' }, { icon: TrendingUp, label: 'Média semanal' }],
       },
     ],
     tip: 'Use a aba Saúde pra registrar alergias, condições crônicas e medicações em uso — esses campos ficam visíveis no Resumo da ficha, ajudando profissionais a tomar decisão rápida durante o atendimento.',
@@ -214,8 +240,22 @@ const MODULES = [
         desc: '5 estados: Agendado · Confirmado · Concluído · Faltou · Cancelado. Marcar como Concluído já registra pagamento como Pago.',
       },
       {
-        title: 'Validações automáticas',
-        desc: 'Não deixa marcar fora do dia/horário do médico, nem dentro do intervalo, nem em conflito com outro paciente do mesmo profissional.',
+        title: 'Agendamento recorrente (pilates, tratamentos)',
+        desc: 'No modal, escolhe Semanal, Quinzenal ou Mensal. No semanal/quinzenal dá pra marcar VÁRIOS dias (ex: Ter + Qui = 2x por semana) e definir a duração por "nº de vezes" ou "por meses". Ex: pilates 3x/semana por 3 meses cria todas as sessões de uma vez.',
+        chips: [{ icon: Repeat, label: 'Recorrência' }],
+      },
+      {
+        title: 'Excluir só um ou a série toda',
+        desc: 'Ao apagar um agendamento que veio de recorrência, a plataforma pergunta: só este ou todos os X da série. Assim não precisa apagar um por um.',
+      },
+      {
+        title: 'Vários pacientes no mesmo horário (turma)',
+        desc: 'Pode marcar mais de uma pessoa no mesmo horário — turma de pilates com 6 alunos, ou vários profissionais atendendo ao mesmo tempo. O slot mostra todos empilhados com o total ("3 na turma").',
+        chips: [{ icon: Users, label: 'Turma' }],
+      },
+      {
+        title: 'Validações de expediente',
+        desc: 'Avisa se marcar fora do dia/horário do profissional ou dentro do intervalo dele. Horário repetido é liberado (por causa das turmas).',
       },
       {
         title: 'Integração com Conversas',
@@ -227,12 +267,22 @@ const MODULES = [
         chips: [{ icon: MessageSquare, label: 'WhatsApp em todo evento' }, { icon: Zap, label: 'Sem trabalho manual' }],
       },
       {
+        title: 'Lembretes automáticos — configurados aqui na hora',
+        desc: 'No modal do agendamento tem a seção "Lembretes automáticos": escolhe a antecedência (2h, 1 dia, 2 dias, 7 dias antes) e pode marcar VÁRIOS. O aviso sai no horário certo antes da consulta — não na hora de marcar (hoje só sai a confirmação de que foi criado). Dá pra salvar a combinação como padrão e reusar nos próximos.',
+        chips: [{ icon: BellRing, label: 'Múltiplos avisos' }, { icon: Star, label: 'Salvar padrão' }, { icon: Clock, label: 'Antes da consulta' }],
+      },
+      {
+        title: 'Valor vem do profissional',
+        desc: 'Se o profissional tem "valor por atendimento" no Catálogo, ao escolher ele o valor já vem preenchido (dá pra editar). Cada agendamento vira um lançamento no financeiro — então o total do paciente é a soma dos atendimentos dele.',
+        chips: [{ icon: DollarSign, label: 'Valor por profissional' }],
+      },
+      {
         title: 'Sugestões de telefone inteligentes',
         desc: 'No campo de telefone do agendamento, comece a digitar pelo DDD (sem precisar do 55) e a plataforma sugere pacientes que já conversaram com vocês. Pega contatos salvos e também números que aparecem no histórico do chat — mesmo paciente nunca cadastrado aparece na sugestão.',
         chips: [{ icon: Phone, label: 'Filtra do DDD' }],
       },
     ],
-    tip: 'Na lista de Conversas aparece uma tag roxa "📅 hoje 14:30" no contato que tem agendamento futuro. Visualmente indica quem espera consulta. E se ligar os lembretes automáticos lá na Administração, o paciente recebe mais um WhatsApp antes da hora — relembrando que tem consulta.',
+    tip: 'Na lista de Conversas aparece uma tag roxa "📅 hoje 14:30" no contato que tem agendamento futuro. E os lembretes agora se configuram AQUI na hora de marcar (não mais em Administração) — escolha quantos avisos e a antecedência, salve como padrão, e o paciente recebe o WhatsApp no momento certo antes da consulta.',
     cta: { label: 'Abrir Agenda', to: '/painel/agenda' },
   },
   {
@@ -332,14 +382,24 @@ const MODULES = [
     intro: 'A central dos grupos de WhatsApp da clínica. Responde no grupo, vê os integrantes, menciona quem precisa e silencia o que não importa — tudo de dentro da plataforma.',
     steps: [
       {
-        title: 'Abra um grupo',
-        desc: 'Na lista da esquerda os grupos aparecem com a última mensagem. Clica num pra carregar a conversa. O número azul mostra quantas mensagens não lidas — ao abrir, zera sozinho.',
+        title: 'Ache o grupo: busca por nome',
+        desc: 'Na lista da esquerda os grupos aparecem com a última mensagem. Use o campo "Buscar grupo por nome" no topo pra achar rápido. O número azul mostra as não lidas — ao abrir, zera sozinho.',
         chips: [{ icon: BellRing, label: 'Não lidas' }],
       },
       {
+        title: 'Renomear e marcar como não lido',
+        desc: 'Botão direito no grupo abre o menu: Renomear grupo (útil pros que vêm só com código — muda só aqui, não no WhatsApp), Marcar como não lido (volta o balãozinho) e Silenciar. Renomear também pelo lápis no topo do grupo aberto.',
+        chips: [{ icon: Pencil, label: 'Renomear' }, { icon: Mail, label: 'Não lido' }],
+      },
+      {
         title: 'Mande texto, áudio, mídia ou emoji',
-        desc: 'Mesmo composer das Conversas: digita e Enter, grava áudio no microfone, anexa imagem/PDF/vídeo no clipe, ou abre o seletor de emoji.',
+        desc: 'Mesmo composer das Conversas: digita e Enter, grava áudio no microfone, anexa imagem/PDF/vídeo no clipe, ou abre o seletor de emoji. Quem enviou aparece em cima da bolha (verde do nosso lado, roxo do cliente) — igual WhatsApp.',
         chips: [{ icon: Mic, label: 'Áudio' }, { icon: Paperclip, label: 'Anexo' }],
+      },
+      {
+        title: 'Responder e editar no grupo',
+        desc: 'Setinha ↩ pra responder citando uma mensagem (o quote vai pro WhatsApp do grupo), lápis pra editar o que você mandou. Mesma experiência das Conversas.',
+        chips: [{ icon: MessageSquare, label: 'Responder' }, { icon: Pencil, label: 'Editar' }],
       },
       {
         title: 'Mencione um integrante',
@@ -426,8 +486,13 @@ const MODULES = [
         desc: 'Nome, especialidade, registro (CRM/CRO), cor, dias e horários de atendimento, intervalo (almoço). Tudo isso vira validação na agenda.',
       },
       {
+        title: 'Valor por atendimento do profissional',
+        desc: 'Cada profissional pode ter um "valor por sessão". Ao escolher ele no agendamento, o valor já vem preenchido — e é o que vale (quando preenchido, manda na frente do preço do procedimento). Aparece também na coluna Valor/sessão da lista. Deixe 0 pra usar o preço do procedimento.',
+        chips: [{ icon: DollarSign, label: 'Valor/sessão' }],
+      },
+      {
         title: 'Procedimentos',
-        desc: 'Tipo (Consulta/Exame/Procedimento), duração padrão e valor particular. Pode ser específico de um profissional ou da clínica toda.',
+        desc: 'Tipo (Consulta/Exame/Procedimento), duração padrão e valor particular. Pode ser específico de um profissional ou da clínica toda. O campo "Mensagem do lembrete" define o texto do aviso automático desse procedimento (vai na antecedência escolhida na agenda, com {nome} e {data}).',
       },
       {
         title: 'Convênios e valores',
@@ -459,8 +524,18 @@ const MODULES = [
       },
       {
         title: 'Dê baixa quando o dinheiro entrar',
-        desc: 'No "A Receber", clica no check verde da linha e o status vira "Pago" — o valor passa a contar no recebido do mês na hora.',
+        desc: 'No "A Receber", clica no check verde da linha e escolhe a data do pagamento, juros (se atrasou) e a conta bancária que recebeu. O status vira "Pago" e entra no saldo daquela conta.',
         chips: [{ icon: Check, label: 'Marcar pago' }],
+      },
+      {
+        title: 'Contas bancárias e transferências',
+        desc: 'Cadastre suas contas (Sicoob, Itaú, Caixa da clínica...) com saldo inicial — o saldo de cada uma se atualiza com os lançamentos pagos. E registre transferência entre contas (ex: Sicoob → Itaú) pra o saldo bancário ficar certinho.',
+        chips: [{ icon: Repeat, label: 'Transferência' }, { icon: DollarSign, label: 'Saldo por conta' }],
+      },
+      {
+        title: 'Agenda alimenta o financeiro sozinha',
+        desc: 'Todo agendamento com valor vira um "a receber" automático no financeiro (com o nome do paciente). Marcou como Concluído/Pago? Já entra como recebido. Excluiu o agendamento? O "a receber" pendente é removido junto.',
+        chips: [{ icon: Zap, label: 'Automático' }],
       },
       {
         title: 'Parcele ou torne recorrente',
@@ -608,13 +683,13 @@ const MODULES = [
         desc: 'Status da instância em tempo real (Conectado / Aguardando / Desconectado). Botão "Gerar QR Code" mostra o QR pra escanear no celular. Cai a conexão? Reconecta pelo mesmo botão.',
       },
       {
-        title: 'Lembretes automáticos de agendamento',
-        desc: 'Ligue o switch e escolha a antecedência: 30 min, 1h, 24h, 48h ou 7 dias antes da consulta. A plataforma manda WhatsApp pro paciente sozinha, no horário certo, com o nome dele, data, hora e profissional. Preview da mensagem aparece embaixo pra você ver exatamente o que o paciente vai receber.',
-        chips: [{ icon: BellRing, label: 'Disparo automático' }, { icon: MessageSquare, label: 'Preview da msg' }, { icon: Clock, label: '30min a 7d antes' }],
+        title: 'Lembretes: agora são na Agenda',
+        desc: 'A configuração de lembrete saiu daqui — agora é escolhida na hora de marcar cada agendamento (múltiplos avisos + padrão salvo). Evita confusão de ter dois lugares. Aqui em Administração ficou só um aviso apontando pra Agenda.',
+        chips: [{ icon: BellRing, label: 'Foi pra Agenda' }],
       },
       {
         title: 'Setores',
-        desc: 'Crie setores como "Comercial", "Suporte", "Recepção". Cada conversa atribuída fica visível só para quem é desse setor (admin vê tudo).',
+        desc: 'Crie setores como "Comercial", "Suporte", "Recepção". Cada conversa atribuída fica visível só para quem é desse setor (admin vê tudo). Ao atribuir alguém ao setor, todos os usuários aparecem — inclusive você (admin), com o selo ADMIN.',
       },
       {
         title: 'Usuários',
@@ -849,7 +924,7 @@ function ModuleGuide({ module: m, done, onToggle }) {
       {/* Passos */}
       <div className="tut-steps">
         {m.steps.map((step, i) => (
-          <div key={i} className="tut-step">
+          <div key={i} className="tut-step" style={{ '--i': i }}>
             <div className="tut-step-num" style={{ background: m.color }}>
               {String(i + 1).padStart(2, '0')}
             </div>

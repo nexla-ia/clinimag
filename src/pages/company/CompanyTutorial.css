@@ -369,6 +369,24 @@
   border-radius: 22px;
   overflow: hidden;
   box-shadow: 0 12px 40px -20px rgba(15, 14, 27, 0.15);
+  animation: tut-guide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tut-guide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Entrada em cascata dos passos ao abrir o capítulo */
+@keyframes tut-step-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tut-step {
+    animation: tut-step-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--i, 0) * 60ms + 120ms);
+  }
 }
 
 .tut-guide-head {
