@@ -190,6 +190,10 @@ export default function CompanyAgenda() {
   const [reminderPresets, setReminderPresets] = useState([])
   const [savePresetOpen, setSavePresetOpen]   = useState(false)
   const [presetName, setPresetName]           = useState('')
+  const [blocks, setBlocks]                   = useState([])   // bloqueios de horário
+  const [blockModal, setBlockModal]           = useState(null) // { date, from, to, reason }
+  const [savingBlock, setSavingBlock]         = useState(false)
+  const [confirmUnblock, setConfirmUnblock]   = useState(null) // bloco a remover
   const [patientHistory, setPatientHistory] = useState([])
   const [patientAppts, setPatientAppts] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -291,6 +295,12 @@ export default function CompanyAgenda() {
       .gte('starts_at', from.toISOString())
       .lt('starts_at', to.toISOString())
       .then(({ data }) => { if (data) setAppointments(data) })
+    // Bloqueios da semana (graceful: tabela pode não existir ainda)
+    supabase.from('agenda_blocks').select('*')
+      .eq('instancia', instance)
+      .lt('starts_at', to.toISOString())
+      .gt('ends_at', from.toISOString())
+      .then(({ data, error }) => { if (!error) setBlocks(data || []) })
   }, [instance, weekStart])
 
   // Fecha context menu ao clicar fora ou pressionar Escape
@@ -526,6 +536,17 @@ export default function CompanyAgenda() {
       const sign = tz[0] === '-' ? -1 : 1
       const [h, m] = tz.slice(1).split(':').map(Number)
       return new Date(date.getTime() + sign * (h * 60 + m) * 60000).getUTCDay()
+    }
+
+    // Horário bloqueado (ausência) não aceita agendamento
+    if (isNew) {
+      const hitBlock = blocks.find(b => b.agenda_id === apptModal.agenda_id &&
+        startsAt.getTime() < new Date(b.ends_at).getTime() &&
+        new Date(b.starts_at).getTime() < endsAt.getTime())
+      if (hitBlock) {
+        setApptErr(`Horário bloqueado${hitBlock.reason ? ` (${hitBlock.reason})` : ''}. Escolha outro horário ou desbloqueie na agenda.`)
+        return
+      }
     }
 
     // Vários pacientes no mesmo horário são permitidos (turmas de pilates,
@@ -836,6 +857,57 @@ export default function CompanyAgenda() {
   }
   function apptAt(day, hhmm) { return apptsAt(day, hhmm)[0] || null }
 
+  // Bloqueio que cobre este slot (ausência/almoço). null se livre.
+  function blockAt(day, hhmm) {
+    if (!selectedAgenda) return null
+    const tz = session?.company?.timezone || '-03:00'
+    const slotStart = new Date(`${fmtDateInput(day)}T${hhmm}:00${tz}`).getTime()
+    const slotEnd   = slotStart + (selectedAgenda.slot_minutes || 30) * 60_000
+    return blocks.find(b => {
+      if (b.agenda_id !== selectedAgenda.id) return false
+      const bStart = new Date(b.starts_at).getTime()
+      const bEnd   = new Date(b.ends_at).getTime()
+      return slotStart < bEnd && bStart < slotEnd
+    }) || null
+  }
+
+  function openBlockModal(day, hhmm) {
+    const d = day || weekStart
+    const start = hhmm || (selectedAgenda ? minutesToTime(timeToMinutes(selectedAgenda.start_time)) : '08:00')
+    // fim padrão = 1h depois
+    const endMin = Math.min(timeToMinutes(start) + 60, timeToMinutes(selectedAgenda?.end_time || '18:00'))
+    setBlockModal({ date: fmtDateInput(d), from: start, to: minutesToTime(endMin), reason: '' })
+  }
+
+  async function handleSaveBlock() {
+    if (!blockModal || !selectedAgenda || savingBlock) return
+    const tz = session?.company?.timezone || '-03:00'
+    const starts = new Date(`${blockModal.date}T${blockModal.from}:00${tz}`)
+    const ends = new Date(`${blockModal.date}T${blockModal.to}:00${tz}`)
+    if (ends <= starts) { setApptErr('O fim do bloqueio precisa ser depois do início'); return }
+    setSavingBlock(true)
+    const row = {
+      instancia: instance, agenda_id: selectedAgenda.id,
+      starts_at: starts.toISOString(), ends_at: ends.toISOString(),
+      reason: blockModal.reason?.trim() || null, created_by: session?.user?.email || null,
+    }
+    const { data, error } = await supabase.from('agenda_blocks').insert(row).select('*').single()
+    setSavingBlock(false)
+    if (error) {
+      setApptErr(/agenda_blocks/.test(error.message) ? 'Falta rodar a migration agenda_blocks no Supabase.' : 'Erro: ' + error.message)
+      return
+    }
+    setBlocks(prev => [...prev, data])
+    setBlockModal(null)
+    setApptErr('')
+  }
+
+  async function handleRemoveBlock(block) {
+    await supabase.from('agenda_blocks').delete().eq('id', block.id)
+    setBlocks(prev => prev.filter(b => b.id !== block.id))
+    setConfirmUnblock(null)
+  }
+
   function isWorkingDay(day) {
     if (!selectedAgenda) return false
     return (selectedAgenda.working_days || []).includes(day.getDay())
@@ -987,6 +1059,10 @@ export default function CompanyAgenda() {
                   <button className="nx-btn-ghost" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => setWeekStart(getMonday(new Date()))}>
                     Hoje
                   </button>
+                  <button className="nx-btn-ghost" style={{ fontSize: 12, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    onClick={() => openBlockModal(null, null)} title="Bloquear um horário (ausência, almoço...)">
+                    <Lock size={13} /> Bloquear
+                  </button>
                 </div>
               </div>
 
@@ -1024,13 +1100,20 @@ export default function CompanyAgenda() {
                       {weekDays.map((d, i) => {
                         const working = isWorkingDay(d)
                         const appts = working ? apptsAt(d, hhmm) : []
+                        const block = working ? blockAt(d, hhmm) : null
                         const slotKey = `${fmtDateInput(d)}_${hhmm}`
                         const isDragOver = dragOverSlot === slotKey
+                        // fundo listrado (bloqueado)
+                        const blockedBg = 'repeating-linear-gradient(45deg, #F1F5F9, #F1F5F9 6px, #E2E8F0 6px, #E2E8F0 12px)'
                         return (
                           <div key={i}
-                            onClick={() => !draggingId && working && openNewAppt(d, hhmm)}
+                            onClick={() => {
+                              if (draggingId || !working) return
+                              if (block) { setConfirmUnblock(block); return }
+                              openNewAppt(d, hhmm)
+                            }}
                             onDragOver={e => {
-                              if (!working) return
+                              if (!working || block) return
                               // Turma: pode soltar em qualquer horário de trabalho
                               e.preventDefault()
                               e.dataTransfer.dropEffect = 'move'
@@ -1041,7 +1124,7 @@ export default function CompanyAgenda() {
                             }}
                             onDrop={async e => {
                               e.preventDefault()
-                              if (!working) return
+                              if (!working || block) return
                               const apptId = e.dataTransfer.getData('apptId')
                               if (!apptId) return
                               const droppedAppt = appointments.find(a => a.id === apptId)
@@ -1055,9 +1138,10 @@ export default function CompanyAgenda() {
                               const { error } = await supabase.from('appointments').update({ starts_at: newStartsAt.toISOString() }).eq('id', apptId)
                               if (error) setAppointments(prev => prev.map(a => a.id === apptId ? droppedAppt : a))
                             }}
+                            title={block ? `Bloqueado${block.reason ? ': ' + block.reason : ''} — clique pra desbloquear` : undefined}
                             style={{
                               minHeight: 46, borderLeft: '1px solid var(--border)',
-                              background: isDragOver ? '#DBEAFE' : !working ? '#F9FAFB' : 'transparent',
+                              background: isDragOver ? '#DBEAFE' : block ? blockedBg : !working ? '#F9FAFB' : 'transparent',
                               cursor: working ? 'pointer' : 'not-allowed',
                               padding: 3, position: 'relative',
                               transition: 'background 0.1s',
@@ -1066,9 +1150,17 @@ export default function CompanyAgenda() {
                               display: 'flex', flexDirection: 'column', gap: 2,
                               minWidth: 0, // impede nome longo de esticar a coluna do grid
                             }}
-                            onMouseEnter={e => { if (working && !appts.length && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
-                            onMouseLeave={e => { if (working && !appts.length && !isDragOver) e.currentTarget.style.background = 'transparent' }}
+                            onMouseEnter={e => { if (working && !appts.length && !block && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
+                            onMouseLeave={e => { if (working && !appts.length && !block && !isDragOver) e.currentTarget.style.background = 'transparent' }}
                           >
+                            {block && !appts.length && (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%', color: '#64748B', fontSize: 10, fontWeight: 700 }}>
+                                <Lock size={11} />
+                                {block.reason
+                                  ? <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{block.reason}</span>
+                                  : 'Bloqueado'}
+                              </div>
+                            )}
                             {appts.map((appt, idx) => {
                               const status = STATUS_OPTIONS.find(s => s.value === appt.status)
                               if (!status) return null
@@ -1273,6 +1365,70 @@ export default function CompanyAgenda() {
         onConfirm={() => doDeleteAppt(confirmDeleteApptDirect, 'este', false)}
         onCancel={() => setConfirmDeleteApptDirect(null)}
       />
+
+      <ConfirmModal
+        open={!!confirmUnblock}
+        variant="warning"
+        title="Desbloquear horário"
+        message={`Liberar este horário${confirmUnblock?.reason ? ` (${confirmUnblock.reason})` : ''} pra voltar a aceitar agendamentos?`}
+        confirmLabel="Desbloquear"
+        onConfirm={() => handleRemoveBlock(confirmUnblock)}
+        onCancel={() => setConfirmUnblock(null)}
+      />
+
+      {/* Modal de bloqueio de horário */}
+      {blockModal && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(4px)', padding: '1.5rem' }}>
+          <div className="nx-card" style={{ width: '100%', maxWidth: 400 }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#F1F5F9', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>
+                  <Lock size={15} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Bloquear horário</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{selectedAgenda?.name}</div>
+                </div>
+              </div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setBlockModal(null)}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Data</label>
+                <input className="nx-input" type="date" value={blockModal.date}
+                  onChange={e => setBlockModal(p => ({ ...p, date: e.target.value }))} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={labelStyle}>Das</label>
+                  <input className="nx-input" type="time" value={blockModal.from}
+                    onChange={e => setBlockModal(p => ({ ...p, from: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Até</label>
+                  <input className="nx-input" type="time" value={blockModal.to}
+                    onChange={e => setBlockModal(p => ({ ...p, to: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>Motivo (opcional)</label>
+                <input className="nx-input" placeholder="Ex: Ausente, Almoço, Férias"
+                  value={blockModal.reason} onChange={e => setBlockModal(p => ({ ...p, reason: e.target.value }))} />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Os horários entre "das" e "até" ficam bloqueados e não aceitam agendamento. Pra liberar depois, clica no horário bloqueado.
+              </div>
+              {apptErr && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626' }}>{apptErr}</div>}
+            </div>
+            <div style={{ padding: '0 1.5rem 1.25rem', display: 'flex', gap: 10 }}>
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => { setBlockModal(null); setApptErr('') }}>Cancelar</button>
+              <button className="nx-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSaveBlock} disabled={savingBlock}>
+                {savingBlock ? 'Bloqueando...' : 'Bloquear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
 
       {/* Excluir agendamento que veio de uma recorrência: só este ou a série toda */}
       {seriesDelete && createPortal(
