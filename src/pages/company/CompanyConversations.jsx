@@ -36,6 +36,43 @@ function parseTimestamp(val) {
 
 function getTimestamp(row) { return parseTimestamp(row.horaLastMessage) || row.created_at || null }
 
+// ── Canonicalização de número BR (o "9" extra do celular) ───────────────────
+// O WhatsApp entrega as mensagens do CLIENTE com o número SEM o 9 extra
+// (ex.: 556981117022). Mas quando o atendente abre a conversa pela ficha/agenda,
+// o número às vezes vem COM o 9 (5569981117022). Isso "rachava" a conversa em
+// duas: as respostas do cliente numa thread e o que o atendente enviava na
+// outra — cada usuário via só metade. Canonicalizamos tudo pro MESMO formato
+// (sem o 9) pra juntar as duas e casar com o que o WhatsApp entrega.
+function normalizeBRDigits(raw) {
+  let d = (raw || '').replace(/@.*/, '').replace(/\D/g, '')
+  if (!d) return ''
+  if (d.length === 11 || d.length === 10) d = '55' + d
+  if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
+  return d
+}
+function canonSession(numero) {
+  if (!numero) return numero
+  if (String(numero).includes('@g.us')) return numero
+  const d = normalizeBRDigits(numero)
+  return d ? `${d}@s.whatsapp.net` : numero
+}
+// Todas as formas do MESMO número que podem existir no banco (com e sem o 9).
+function numeroVariants(numero) {
+  const out = new Set()
+  const bare = String(numero || '').replace(/@.*/, '')
+  if (bare) { out.add(bare); out.add(`${bare}@s.whatsapp.net`) }
+  const d = normalizeBRDigits(numero)
+  if (d) {
+    out.add(d); out.add(`${d}@s.whatsapp.net`)
+    if (d.length === 12 && d.startsWith('55')) {
+      const with9 = '55' + d.slice(2, 4) + '9' + d.slice(4)  // reinsere o 9 extra
+      out.add(with9); out.add(`${with9}@s.whatsapp.net`)
+    }
+  }
+  return [...out]
+}
+function sameConversation(a, b) { return canonSession(a) === canonSession(b) }
+
 const INJECTED_PROMPT_RE = /responda em portugu[eê]s|de forma objetiva|solicite\s|n[aã]o informar|indicar que|apresentaremos|breve explica[çc][aã]o|orienta[çc][õo]es gerais|avalia[çc][aã]o pr[eé]-operat/i
 
 const URL_REGEX = /(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+\.[^\s<>"]{2,})/gi
@@ -319,7 +356,7 @@ export default function CompanyConversations() {
       .then(({ data }) => {
         if (data) {
           const map = {}
-          data.forEach(r => { map[r.session_id] = r.last_read_at })
+          data.forEach(r => { map[canonSession(r.session_id)] = r.last_read_at })
           setReadsMap(map)
         }
         setReadsLoaded(true)
@@ -449,8 +486,8 @@ export default function CompanyConversations() {
     const target = searchParams.get('contact')
     if (!target || loadingContacts) return
     const cleanTarget = target.replace(/\D/g, '')
-    const sessionId = `${cleanTarget}@s.whatsapp.net`
-    const existing = contacts.find(c => c.session_id === sessionId || c.phone === cleanTarget)
+    const sessionId = canonSession(cleanTarget)  // sem o 9 extra, casa com o WhatsApp
+    const existing = contacts.find(c => sameConversation(c.session_id, sessionId) || c.phone === cleanTarget)
     if (existing) {
       setSelected(existing)
       // Se está finalizada, força aba certa para visualizar
@@ -514,7 +551,7 @@ export default function CompanyConversations() {
       .then(({ data }) => {
         if (data) {
           const map = {}
-          data.forEach(r => { map[r.numero] = r })
+          data.forEach(r => { map[canonSession(r.numero)] = r })
           setAttendancesMap(map)
         }
       })
@@ -535,9 +572,9 @@ export default function CompanyConversations() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendances', filter: `instancia=eq.${instance}` },
         (p) => {
           if (p.eventType === 'DELETE') {
-            setAttendancesMap(prev => { const n = { ...prev }; delete n[p.old.numero]; return n })
+            setAttendancesMap(prev => { const n = { ...prev }; delete n[canonSession(p.old.numero)]; return n })
           } else if (p.new) {
-            setAttendancesMap(prev => ({ ...prev, [p.new.numero]: p.new }))
+            setAttendancesMap(prev => ({ ...prev, [canonSession(p.new.numero)]: p.new }))
           }
         })
       .subscribe()
@@ -552,15 +589,27 @@ export default function CompanyConversations() {
     // até 50.000 mensagens só para deduplicar no cliente.
     fetchConversaContatos(instance)
       .then((rows) => {
-        const unique = (rows || []).map((r) => ({
-          session_id: r.numero,
-          phone: formatPhone(r.numero),
-          lastTs: getTimestamp(r),
-          outsideAssumed: r.outside_assumed,
-          preview: r.preview || '',
-          lastTipo: r.last_tipo || '',
-        }))
-        setContacts(unique)
+        // Junta as duas formas do mesmo número (com/sem o 9) numa conversa só.
+        // A RPC já vem ordenada por recência, então o 1º de cada canônico é o
+        // mais recente — mantemos ele e só marcamos outsideAssumed se algum tiver.
+        const byCanon = new Map()
+        ;(rows || []).forEach((r) => {
+          const sid = canonSession(r.numero)
+          if (byCanon.has(sid)) {
+            const e = byCanon.get(sid)
+            e.outsideAssumed = e.outsideAssumed || r.outside_assumed
+            return
+          }
+          byCanon.set(sid, {
+            session_id: sid,
+            phone: formatPhone(sid),
+            lastTs: getTimestamp(r),
+            outsideAssumed: r.outside_assumed,
+            preview: r.preview || '',
+            lastTipo: r.last_tipo || '',
+          })
+        })
+        setContacts([...byCanon.values()])
         setLoadingContacts(false)
       })
   }, [instance])
@@ -688,7 +737,7 @@ export default function CompanyConversations() {
       .then(({ data }) => {
         if (data) {
           const map = {}
-          data.forEach(r => { map[r.session_id] = r.reason || 'resolvido' })
+          data.forEach(r => { map[canonSession(r.session_id)] = r.reason || 'resolvido' })
           setClosedMap(map)
         }
         setClosedLoaded(true)
@@ -744,8 +793,9 @@ export default function CompanyConversations() {
           if (row.aplicativo && row.aplicativo !== 'whatsapp') return
           // Mensagem de grupo → tela de grupos, não toca aqui
           if (row.idgrupo) return
-          const sid = row.numero
-          if (!sid || sid.includes('@g.us')) return
+          if (!row.numero || String(row.numero).includes('@g.us')) return
+          const sid = canonSession(row.numero)  // junta as duas formas (com/sem 9)
+          if (!sid) return
           const incomingType = (row.type || '').toLowerCase()
           const ts = getTimestamp(row)
 
@@ -759,7 +809,7 @@ export default function CompanyConversations() {
           })
 
           const isClientMsg = incomingType === 'cliente' || incomingType === 'human'
-          if (isClientMsg && selectedRef.current?.session_id !== sid) {
+          if (isClientMsg && canonSession(selectedRef.current?.session_id) !== sid) {
             setUnreadCounts(prev => ({ ...prev, [sid]: (prev[sid] || 0) + 1 }))
           }
 
@@ -776,7 +826,7 @@ export default function CompanyConversations() {
             return [{ session_id: sid, phone: formatPhone(sid), lastTs: ts, outsideAssumed: isOutsideHuman, preview: newPreview, lastTipo: incomingType }, ...prev]
           })
 
-          if (selectedRef.current?.session_id === sid) {
+          if (canonSession(selectedRef.current?.session_id) === sid) {
             const sentNome = sentCacheRef.current.find(
               s => s.content === getMessageContent(row) && (Date.now() - s.at) < 30000
             )?.nome || null
@@ -836,7 +886,7 @@ export default function CompanyConversations() {
         { event: 'INSERT', schema: 'public', table: 'conversations', filter: `instancia=eq.${instance}` },
         (p) => {
           if (!p.new) return
-          setClosedMap(prev => ({ ...prev, [p.new.session_id]: p.new.reason || 'resolvido' }))
+          setClosedMap(prev => ({ ...prev, [canonSession(p.new.session_id)]: p.new.reason || 'resolvido' }))
           setSelected(prev => prev?.session_id === p.new.session_id ? null : prev)
         }
       )
@@ -863,7 +913,7 @@ export default function CompanyConversations() {
     setHasMoreMsgs(false)
     supabase.from(CONV_TABLE).select('*')
       .eq('instancia', instance)
-      .eq('numero', selected.session_id)
+      .in('numero', numeroVariants(selected.session_id))
       .is('idgrupo', null)
       .or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .order('id', { ascending: false })
@@ -898,7 +948,7 @@ export default function CompanyConversations() {
     const { data, error } = await supabase.from(CONV_TABLE)
       .select('*')
       .eq('instancia', instance)
-      .eq('numero', selected.session_id)
+      .in('numero', numeroVariants(selected.session_id))
       .is('idgrupo', null)
       .or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .lt('id', oldestId)
@@ -1367,10 +1417,11 @@ export default function CompanyConversations() {
     setSending(true)
     try {
       // Auto-assume se ainda não está atribuído a ninguém
-      if (!attendancesMap[selected.session_id] && !closedMap[selected.session_id]) {
+      const canonSid = canonSession(selected.session_id)
+      if (!attendancesMap[canonSid] && !closedMap[canonSid]) {
         const name = session?.user?.name || 'Atendente'
         const newAtt = {
-          numero: selected.session_id, instancia: instance,
+          numero: canonSid, instancia: instance,
           sector_id: userSector?.id || null,
           sector_name: userSector?.name || null,
           sector_color: userSector?.color || '#6B7280',
@@ -1378,7 +1429,7 @@ export default function CompanyConversations() {
           assumed_at: new Date().toISOString(),
         }
         await supabase.from('attendances').upsert(newAtt, { onConflict: 'numero,instancia' })
-        setAttendancesMap(prev => ({ ...prev, [selected.session_id]: newAtt }))
+        setAttendancesMap(prev => ({ ...prev, [canonSid]: newAtt }))
         setTab('meu-setor')
       }
       const text = msgText.trim()
@@ -1409,7 +1460,7 @@ export default function CompanyConversations() {
       // normal não depende da migration que adicionou esse parâmetro.
       const rpcParams = {
         p_instancia: instance,
-        p_numero: selected.session_id,
+        p_numero: canonSid,
         p_mensagem: mensagemPayload,
         p_type: 'atendente',
         p_hora: new Date().toISOString(),
@@ -1454,8 +1505,8 @@ export default function CompanyConversations() {
           file_mime: file?.mime || null,
           file_name: file?.name || null,
           file_kind: file?.kind || null,
-          session_id: selected.session_id,
-          phone: selected.phone,
+          session_id: canonSid,
+          phone: canonSid.replace(/@.*/, ''),
           instancia: instance,
           api_instancia: apiInstancia,
           ai_enabled: session?.company?.ai_enabled !== false,
@@ -1502,7 +1553,7 @@ export default function CompanyConversations() {
             .from('mensagens_geral')
             .select('id')
             .eq('instancia', instResp)
-            .eq('numero', selected.session_id)
+            .in('numero', numeroVariants(selected.session_id))
             .eq('mensagem', msgResp)
             .eq('type', 'atendente')
             .order('id', { ascending: false })
@@ -1636,7 +1687,7 @@ export default function CompanyConversations() {
       const { data } = await supabase.from(CONV_TABLE)
         .select('*')
         .eq('instancia', instance)
-        .eq('numero', selected.session_id)
+        .in('numero', numeroVariants(selected.session_id))
         .is('idgrupo', null)
         .or('aplicativo.eq.whatsapp,aplicativo.is.null')
         .ilike('mensagem', `%${esc}%`)
@@ -1656,7 +1707,7 @@ export default function CompanyConversations() {
     setJumpingTo(row.id)
     const oldestId = messages[0]?.id
     let query = supabase.from(CONV_TABLE).select('*')
-      .eq('instancia', instance).eq('numero', selected.session_id)
+      .eq('instancia', instance).in('numero', numeroVariants(selected.session_id))
       .is('idgrupo', null).or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .gte('id', row.id).order('id', { ascending: false }).limit(1000)
     if (oldestId) query = query.lt('id', oldestId)
