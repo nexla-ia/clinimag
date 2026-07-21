@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -260,6 +260,11 @@ export default function CompanyConversations() {
   const [savingContact, setSavingContact] = useState(false)
   const [editingMsgId, setEditingMsgId]   = useState(null)
   const [replyingTo, setReplyingTo]       = useState(null) // { id_mensagem, content, type, numero }
+  const [searchOpen, setSearchOpen]       = useState(false) // busca dentro da conversa (estilo WhatsApp)
+  const [searchTerm, setSearchTerm]       = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [jumpingTo, setJumpingTo]         = useState(null)   // id da msg sendo carregada pra pular
   const [confirmDelMsg, setConfirmDelMsg] = useState(null)
   const [editingText, setEditingText]     = useState('')
   const [savingEdit, setSavingEdit]       = useState(false)
@@ -841,10 +846,13 @@ export default function CompanyConversations() {
 
   const MSG_PAGE = 50
 
-  // Ao trocar de conversa, cancela qualquer resposta/edição em andamento
+  // Ao trocar de conversa, cancela qualquer resposta/edição/busca em andamento
   useEffect(() => {
     setReplyingTo(null)
     setEditingMsgId(null)
+    setSearchOpen(false)
+    setSearchTerm('')
+    setSearchResults([])
   }, [selected?.session_id])
 
   // Carrega mensagens da conversa selecionada (apenas as 50 mais recentes)
@@ -1587,6 +1595,114 @@ export default function CompanyConversations() {
     setTimeout(() => { el.style.boxShadow = 'none'; el.style.transform = 'none' }, 1100)
   }
 
+  // Rola até uma mensagem pelo id do banco (usado pela busca) e destaca em azul.
+  function flashDbMessage(id) {
+    const el = document.querySelector(`[data-db-id="${id}"]`)
+    if (!el) return false
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.transition = 'box-shadow 0.25s, transform 0.25s'
+    el.style.boxShadow = '0 0 0 3px #2563EB99'
+    el.style.borderRadius = '10px'
+    el.style.transform = 'scale(1.015)'
+    setTimeout(() => { el.style.boxShadow = 'none'; el.style.transform = 'none' }, 1300)
+    return true
+  }
+
+  // Mapeia uma linha do banco pro formato de mensagem da tela.
+  function rowToMsg(r) {
+    return {
+      id: r.id,
+      id_mensagem: r.id_mensagem || null,
+      quoted_id_mensagem: r.quoted_id_mensagem || null,
+      quoted_text: r.quoted_text || null,
+      type: getMessageType(r),
+      content: getMessageContent(r),
+      base64: r.base64 || null,
+      apagada: r.apagada || false,
+      nome: r.nome || null,
+      ts: getTimestamp(r),
+    }
+  }
+
+  // Busca dentro da conversa (histórico inteiro, não só o que está carregado).
+  useEffect(() => {
+    if (!searchOpen || !selected || !instance) return
+    const q = searchTerm.trim()
+    if (q.length < 2) { setSearchResults([]); setSearchLoading(false); return }
+    let cancel = false
+    setSearchLoading(true)
+    const esc = q.replace(/[\\%_]/g, s => '\\' + s)
+    const h = setTimeout(async () => {
+      const { data } = await supabase.from(CONV_TABLE)
+        .select('*')
+        .eq('instancia', instance)
+        .eq('numero', selected.session_id)
+        .is('idgrupo', null)
+        .or('aplicativo.eq.whatsapp,aplicativo.is.null')
+        .ilike('mensagem', `%${esc}%`)
+        .order('id', { ascending: false })
+        .limit(80)
+      if (cancel) return
+      setSearchResults((data || []).filter(r => !isToolMessage(r) && !r.apagada))
+      setSearchLoading(false)
+    }, 300)
+    return () => { cancel = true; clearTimeout(h) }
+  }, [searchTerm, searchOpen, selected?.session_id, instance])
+
+  // Pula pra uma mensagem achada na busca. Se ela for antiga (fora da janela
+  // carregada), busca o intervalo até ela antes de rolar.
+  async function jumpToSearchResult(row) {
+    if (messages.some(m => m.id === row.id)) { flashDbMessage(row.id); return }
+    setJumpingTo(row.id)
+    const oldestId = messages[0]?.id
+    let query = supabase.from(CONV_TABLE).select('*')
+      .eq('instancia', instance).eq('numero', selected.session_id)
+      .is('idgrupo', null).or('aplicativo.eq.whatsapp,aplicativo.is.null')
+      .gte('id', row.id).order('id', { ascending: false }).limit(1000)
+    if (oldestId) query = query.lt('id', oldestId)
+    const { data } = await query
+    if (data) {
+      const mapped = [...data].reverse().filter(r => !isToolMessage(r)).map(rowToMsg)
+      setMessages(prev => {
+        const have = new Set(prev.map(m => m.id))
+        return [...mapped.filter(m => !have.has(m.id)), ...prev]
+      })
+      setHasMoreMsgs(true) // ainda pode haver mais antigas antes do resultado
+    }
+    setJumpingTo(null)
+    // espera o React pintar as novas bolhas antes de rolar
+    setTimeout(() => flashDbMessage(row.id), 180)
+  }
+
+  // Trecho do resultado com o termo destacado (janela em volta do match).
+  function searchSnippet(row, term) {
+    const t = getMessageContent(row)
+    const q = term.trim()
+    const i = t.toLowerCase().indexOf(q.toLowerCase())
+    if (i < 0) return t
+    const start = Math.max(0, i - 24)
+    return (
+      <>
+        {start > 0 ? '…' : ''}{t.slice(start, i)}
+        <mark style={{ background: '#FDE68A', color: 'inherit', padding: '0 1px', borderRadius: 2 }}>{t.slice(i, i + q.length)}</mark>
+        {t.slice(i + q.length)}
+      </>
+    )
+  }
+  function searchWho(row) {
+    const ty = (row.type || '').toLowerCase()
+    if (ty === 'cliente') return resolveName(selected?.phone) !== selected?.phone ? resolveName(selected?.phone) : 'Cliente'
+    if (ty === 'atendente' || ty === 'humano') return row.nome || 'Você'
+    return 'IA'
+  }
+  function searchDate(row) {
+    const ts = getTimestamp(row)
+    if (!ts) return ''
+    const d = new Date(ts)
+    if (isNaN(d)) return ''
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }
+
   async function handleReopen(contact) {
     if (!contact || !instance) return
     await supabase.from('conversations').delete().eq('session_id', contact.session_id).eq('instancia', instance)
@@ -1947,6 +2063,14 @@ export default function CompanyConversations() {
                   </>
                 )
               })()}
+              <button
+                className="nx-btn-ghost"
+                style={{ fontSize: 12, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 6, color: searchOpen ? '#2563EB' : 'var(--text-muted)', borderColor: searchOpen ? '#BFDBFE' : undefined, background: searchOpen ? '#EFF6FF' : undefined }}
+                onClick={() => setSearchOpen(v => !v)}
+                title="Pesquisar nesta conversa"
+              >
+                <Search size={15} /> <span className="btn-label">Pesquisar</span>
+              </button>
               {!isClosed && (() => {
                 const cleanNum = selected.phone.replace(/\D/g, '')
                 const saved = savedContacts[cleanNum]
@@ -2074,6 +2198,53 @@ export default function CompanyConversations() {
                 </>
               )}
             </div>
+
+            {/* Busca dentro da conversa (histórico inteiro) */}
+            {searchOpen && (
+              <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px' }}>
+                  <Search size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                  <input
+                    autoFocus
+                    placeholder="Pesquisar palavras nesta conversa..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Escape') setSearchOpen(false) }}
+                    style={{ flex: 1, fontSize: 13, border: 'none', background: 'transparent', outline: 'none', color: 'var(--text-primary)' }}
+                  />
+                  {searchTerm.trim().length >= 2 && (
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0, ...(searchLoading ? {} : {}) }}>
+                      {searchLoading ? '...' : `${searchResults.length} resultado${searchResults.length === 1 ? '' : 's'}`}
+                    </span>
+                  )}
+                  <button onClick={() => setSearchOpen(false)} title="Fechar busca" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'inline-flex', flexShrink: 0 }}><X size={16} /></button>
+                </div>
+                {searchTerm.trim().length >= 2 && (
+                  <div style={{ maxHeight: 280, overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
+                    {searchLoading ? (
+                      <div style={{ padding: '14px 16px', fontSize: 12.5, color: 'var(--text-muted)' }}>Procurando...</div>
+                    ) : searchResults.length === 0 ? (
+                      <div style={{ padding: '14px 16px', fontSize: 12.5, color: 'var(--text-muted)' }}>Nenhuma mensagem com “{searchTerm.trim()}”.</div>
+                    ) : searchResults.map(r => (
+                      <button
+                        key={r.id}
+                        onClick={() => jumpToSearchResult(r)}
+                        disabled={jumpingTo === r.id}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', padding: '9px 16px', cursor: 'pointer' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover, #F8FAFC)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: (r.type || '').toLowerCase() === 'cliente' ? 'var(--text-secondary)' : '#16A34A' }}>{searchWho(r)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--text-muted)', flexShrink: 0 }}>{jumpingTo === r.id ? 'abrindo...' : searchDate(r)}</span>
+                        </div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{searchSnippet(r, searchTerm)}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Banner: conversa assumida por outro atendente (não-dono e não-admin) */}
             {(() => {
@@ -2231,7 +2402,7 @@ export default function CompanyConversations() {
                 const isImage      = isCliente && /^(esta imagem|a imagem|esse documento|este documento|essa imagem|o documento|a foto|essa foto)/i.test(msg.content.trim())
                 const labelColor   = isCliente ? 'var(--text-muted)' : isAtendente ? '#16A34A' : '#2563EB'
                 return (
-                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined}>
+                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} data-db-id={msg.id}>
                     <div className="msg-label" style={{
                       display: 'flex', alignItems: 'center', gap: 4,
                       justifyContent: isLeft ? 'flex-start' : 'flex-end',

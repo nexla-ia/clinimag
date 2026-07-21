@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen } from 'lucide-react'
+import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
@@ -143,6 +143,11 @@ export default function CompanyGroups() {
   const [lightbox, setLightbox] = useState(null)       // src da imagem em tela cheia
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
+  const [searchOpen, setSearchOpen]       = useState(false) // busca dentro do grupo (estilo WhatsApp)
+  const [searchTerm, setSearchTerm]       = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [jumpingTo, setJumpingTo]         = useState(null)
   const [showEmoji, setShowEmoji] = useState(false)
   const [mentionMembers, setMentionMembers] = useState([])   // lista de membros para mention
   const [mentionLoading, setMentionLoading] = useState(false)
@@ -353,7 +358,95 @@ export default function CompanyGroups() {
 
   const MSG_PAGE = 50
 
-  useEffect(() => { setReplyingTo(null); setEditingMsgId(null) }, [selected?.idgrupo])
+  useEffect(() => {
+    setReplyingTo(null); setEditingMsgId(null)
+    setSearchOpen(false); setSearchTerm(''); setSearchResults([])
+  }, [selected?.idgrupo])
+
+  // Busca dentro do grupo (histórico inteiro, não só o que está carregado)
+  useEffect(() => {
+    if (!searchOpen || !selected || !instance) return
+    const q = searchTerm.trim()
+    if (q.length < 2) { setSearchResults([]); setSearchLoading(false); return }
+    let cancel = false
+    setSearchLoading(true)
+    const esc = q.replace(/[\\%_]/g, s => '\\' + s)
+    const h = setTimeout(async () => {
+      const { data } = await supabase.from(CONV_TABLE)
+        .select('*')
+        .eq('instancia', instance)
+        .eq('idgrupo', selected.idgrupo)
+        .ilike('mensagem', `%${esc}%`)
+        .order('id', { ascending: false })
+        .limit(80)
+      if (cancel) return
+      setSearchResults((data || []).filter(r => !r.apagada))
+      setSearchLoading(false)
+    }, 300)
+    return () => { cancel = true; clearTimeout(h) }
+  }, [searchTerm, searchOpen, selected?.idgrupo, instance])
+
+  // Rola até a mensagem pelo id do banco e destaca (usado pela busca)
+  function flashDbMessage(id) {
+    const el = document.querySelector(`[data-db-id="${id}"]`)
+    if (!el) return false
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.transition = 'box-shadow 0.25s, transform 0.25s'
+    el.style.boxShadow = '0 0 0 3px #4F46E599'
+    el.style.borderRadius = '10px'
+    el.style.transform = 'scale(1.015)'
+    setTimeout(() => { el.style.boxShadow = 'none'; el.style.transform = 'none' }, 1300)
+    return true
+  }
+
+  // Pula pra mensagem achada; se for antiga (fora da janela), carrega o intervalo
+  async function jumpToSearchResult(row) {
+    if (messages.some(m => m.id === row.id)) { flashDbMessage(row.id); return }
+    setJumpingTo(row.id)
+    const oldestId = messages[0]?.id
+    let query = supabase.from(CONV_TABLE).select('*')
+      .eq('instancia', instance).eq('idgrupo', selected.idgrupo)
+      .gte('id', row.id).order('id', { ascending: false }).limit(1000)
+    if (oldestId) query = query.lt('id', oldestId)
+    const { data } = await query
+    if (data) {
+      const older = [...data].reverse()
+      setMessages(prev => {
+        const have = new Set(prev.map(m => m.id))
+        return [...older.filter(m => !have.has(m.id)), ...prev]
+      })
+      setHasMoreMsgs(true)
+    }
+    setJumpingTo(null)
+    setTimeout(() => flashDbMessage(row.id), 180)
+  }
+
+  function searchSnippet(row, term) {
+    const t = row.mensagem || ''
+    const q = term.trim()
+    const i = t.toLowerCase().indexOf(q.toLowerCase())
+    if (i < 0) return t
+    const start = Math.max(0, i - 24)
+    return (
+      <>
+        {start > 0 ? '…' : ''}{t.slice(start, i)}
+        <mark style={{ background: '#FDE68A', color: 'inherit', padding: '0 1px', borderRadius: 2 }}>{t.slice(i, i + q.length)}</mark>
+        {t.slice(i + q.length)}
+      </>
+    )
+  }
+  function searchWho(row) {
+    const ty = (row.type || '').toLowerCase()
+    if (ty === 'atendente' || ty === 'humano') return row.nome || 'Você'
+    return row.nome || (row.numero || '').replace(/@.*$/, '') || 'Membro'
+  }
+  function searchDate(row) {
+    const iso = parseTs(row)
+    if (!iso) return ''
+    const d = new Date(iso)
+    if (isNaN(d)) return ''
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }
 
   useEffect(() => {
     if (!selected || !instance) return
@@ -996,6 +1089,13 @@ export default function CompanyGroups() {
                   <Pencil size={13} />
                 </button>
               </div>
+              <button
+                onClick={() => setSearchOpen(v => !v)}
+                title="Pesquisar neste grupo"
+                style={{ background: searchOpen ? '#EEF2FF' : 'none', border: '1px solid ' + (searchOpen ? '#C7D2FE' : 'transparent'), borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: searchOpen ? '#4F46E5' : 'var(--text-muted)', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              >
+                <Search size={15} />
+              </button>
               <TagPicker
                 instancia={instance}
                 numero={selected.idgrupo}
@@ -1003,6 +1103,53 @@ export default function CompanyGroups() {
                 anchor="bottom-right"
               />
             </div>
+
+            {/* Busca dentro do grupo (histórico inteiro) */}
+            {searchOpen && (
+              <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px' }}>
+                  <Search size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                  <input
+                    autoFocus
+                    placeholder="Pesquisar palavras neste grupo..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Escape') setSearchOpen(false) }}
+                    style={{ flex: 1, fontSize: 13, border: 'none', background: 'transparent', outline: 'none', color: 'var(--text-primary)' }}
+                  />
+                  {searchTerm.trim().length >= 2 && (
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
+                      {searchLoading ? '...' : `${searchResults.length} resultado${searchResults.length === 1 ? '' : 's'}`}
+                    </span>
+                  )}
+                  <button onClick={() => setSearchOpen(false)} title="Fechar busca" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'inline-flex', flexShrink: 0 }}><X size={16} /></button>
+                </div>
+                {searchTerm.trim().length >= 2 && (
+                  <div style={{ maxHeight: 280, overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
+                    {searchLoading ? (
+                      <div style={{ padding: '14px 16px', fontSize: 12.5, color: 'var(--text-muted)' }}>Procurando...</div>
+                    ) : searchResults.length === 0 ? (
+                      <div style={{ padding: '14px 16px', fontSize: 12.5, color: 'var(--text-muted)' }}>Nenhuma mensagem com “{searchTerm.trim()}”.</div>
+                    ) : searchResults.map(r => (
+                      <button
+                        key={r.id}
+                        onClick={() => jumpToSearchResult(r)}
+                        disabled={jumpingTo === r.id}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', padding: '9px 16px', cursor: 'pointer' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: (r.type || '').toLowerCase() === 'atendente' || (r.type || '').toLowerCase() === 'humano' ? '#16A34A' : '#4F46E5' }}>{searchWho(r)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--text-muted)', flexShrink: 0 }}>{jumpingTo === r.id ? 'abrindo...' : searchDate(r)}</span>
+                        </div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{searchSnippet(r, searchTerm)}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Painel de integrantes do grupo */}
             {groupInfoOpen && (
@@ -1156,7 +1303,7 @@ export default function CompanyGroups() {
                 const ts = parseTs(msg)
                 const media = detectMedia(msg.base64)
                 return (
-                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
+                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} data-db-id={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
                       {!isAtendente && (
                         <span
