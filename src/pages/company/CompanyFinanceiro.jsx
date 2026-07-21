@@ -224,6 +224,8 @@ export default function CompanyFinanceiro() {
   const [categories, setCategories] = useState([])
   const [bankAccounts, setBankAccounts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)  // erro no carregamento (mostra aviso + tentar de novo)
+  const [reloadKey, setReloadKey] = useState(0)     // bump pra recarregar
 
   const [filterMonth, setFilterMonth] = useState(currentMonthStr())
   const [filterStatus, setFilterStatus] = useState('todos')
@@ -249,7 +251,9 @@ export default function CompanyFinanceiro() {
 
   useEffect(() => {
     if (!instance || !isAdmin) return
+    let cancelled = false
     setLoading(true)
+    setLoadError(null)
     const y = new Date().getFullYear()
     Promise.all([
       supabase.from('financial_transactions').select('*').eq('instancia', instance)
@@ -259,14 +263,29 @@ export default function CompanyFinanceiro() {
         .in('instancia', [instance, '_default_']).order('nome'),
       supabase.from('bank_accounts').select('*').eq('instancia', instance).order('nome'),
       supabase.from('bank_transfers').select('*').eq('instancia', instance).order('data', { ascending: false }),
-    ]).then(([{ data: tx }, { data: cats }, { data: banks }, { data: trs }]) => {
-      if (tx) setTransactions(tx)
-      if (cats) setCategories(cats)
-      if (banks) setBankAccounts(banks)
-      if (trs) setTransfers(trs)
+    ]).then(([txRes, catRes, bankRes, trRes]) => {
+      if (cancelled) return
+      // A lista de lançamentos é o essencial: se ela falhar, NÃO deixa a tela
+      // vazia sem explicação (parecia "não tem conta nenhuma"). Mostra o erro.
+      if (txRes.error) {
+        console.error('[financeiro] falha ao carregar lançamentos:', txRes.error)
+        setLoadError(txRes.error.message || 'Não foi possível carregar os lançamentos.')
+        setLoading(false)
+        return
+      }
+      setTransactions(txRes.data || [])
+      if (!catRes.error && catRes.data) setCategories(catRes.data)
+      if (!bankRes.error && bankRes.data) setBankAccounts(bankRes.data)
+      if (!trRes.error && trRes.data) setTransfers(trRes.data)
+      setLoading(false)
+    }).catch(err => {
+      if (cancelled) return
+      console.error('[financeiro] erro inesperado no carregamento:', err)
+      setLoadError(err?.message || 'Erro de conexão ao carregar o financeiro.')
       setLoading(false)
     })
-  }, [instance])
+    return () => { cancelled = true }
+  }, [instance, isAdmin, reloadKey])
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const catMap = useMemo(() => {
@@ -656,6 +675,20 @@ export default function CompanyFinanceiro() {
         ))}
       </div>
 
+      {/* Aviso de falha no carregamento — evita a tela "vazia" sem explicação */}
+      {loadError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
+          <AlertTriangle size={18} color={C.rose} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#991B1B' }}>Não foi possível carregar os lançamentos</div>
+            <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 2 }}>Sem conexão ou instabilidade no servidor. Seus dados estão salvos — é só tentar de novo.</div>
+          </div>
+          <button className="nx-btn-primary" onClick={() => setReloadKey(k => k + 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap', ...sora }}>
+            <RefreshCw size={13} /> Tentar de novo
+          </button>
+        </div>
+      )}
+
       {/* ── Visão Geral ── */}
       {tab === 'visaogeral' && (() => {
         const { months6, ytdRec, ytdDesp, ytdSaldo, topContatosList, inadTotal, catPie } = visaoData
@@ -858,7 +891,7 @@ export default function CompanyFinanceiro() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem', color: C.muted, gap: 8 }}>
               <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Carregando...
             </div>
-          ) : filteredTx.length === 0 ? (
+          ) : loadError ? null : filteredTx.length === 0 ? (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '3rem', textAlign: 'center', color: C.muted }}>
               <DollarSign size={28} style={{ opacity: 0.15, marginBottom: 10 }} />
               <div style={{ fontSize: 14 }}>Nenhum lançamento neste período.</div>
