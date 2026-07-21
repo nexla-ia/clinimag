@@ -231,6 +231,7 @@ export default function CompanyFinanceiro() {
   const [filterStatus, setFilterStatus] = useState('todos')
   const [filterSearch, setFilterSearch] = useState('')
   const [filterForma, setFilterForma] = useState('todos')
+  const [scope, setScope] = useState('mes')   // 'mes' = mês selecionado · 'vencidas' = todas vencidas (qualquer mês)
   const [dreYear, setDreYear] = useState(new Date().getFullYear())
   const [catPeriod, setCatPeriod] = useState(currentMonthStr())
   const [catTipo, setCatTipo] = useState('receita')
@@ -255,10 +256,28 @@ export default function CompanyFinanceiro() {
     setLoading(true)
     setLoadError(null)
     const y = new Date().getFullYear()
+    // O PostgREST devolve no máximo 1000 linhas por request. Clínicas com muito
+    // movimento (receitas de agendamentos) passam disso, e como vinha ordenado
+    // por vencimento DESC, os lançamentos mais ANTIGOS (contas vencidas!) eram
+    // cortados e sumiam. Paginamos até trazer tudo do período.
+    async function fetchAllTransactions() {
+      const PAGE = 1000
+      let from = 0, all = []
+      for (let guard = 0; guard < 50; guard++) {
+        const { data, error } = await supabase.from('financial_transactions').select('*')
+          .eq('instancia', instance)
+          .gte('vencimento', `${y-1}-01-01`).lte('vencimento', `${y+1}-12-31`)
+          .order('vencimento', { ascending: false })
+          .range(from, from + PAGE - 1)
+        if (error) return { error }
+        all = all.concat(data || [])
+        if (!data || data.length < PAGE) break
+        from += PAGE
+      }
+      return { data: all }
+    }
     Promise.all([
-      supabase.from('financial_transactions').select('*').eq('instancia', instance)
-        .gte('vencimento', `${y-1}-01-01`).lte('vencimento', `${y+1}-12-31`)
-        .order('vencimento', { ascending: false }),
+      fetchAllTransactions(),
       supabase.from('financial_categories').select('*')
         .in('instancia', [instance, '_default_']).order('nome'),
       supabase.from('bank_accounts').select('*').eq('instancia', instance).order('nome'),
@@ -329,13 +348,24 @@ export default function CompanyFinanceiro() {
   }, [transactions, cm])
 
   const tipoAtual = tab === 'receber' ? 'receita' : 'despesa'
+  // Quantas contas do tipo atual estão vencidas (pendente + venc. no passado) —
+  // independente do mês. Alimenta o selo do botão "Vencidas".
+  const overdueCount = useMemo(
+    () => transactions.filter(t => t.tipo === tipoAtual && isOverdue(t.vencimento, t.status)).length,
+    [transactions, tipoAtual]
+  )
   const filteredTx = useMemo(() => {
     if (tab !== 'receber' && tab !== 'pagar') return []
     const q = filterSearch.toLowerCase().trim()
     return transactions.filter(t => {
       if (t.tipo !== tipoAtual) return false
-      if (!t.vencimento?.startsWith(filterMonth)) return false
-      if (filterStatus !== 'todos' && t.status !== filterStatus) return false
+      if (scope === 'vencidas') {
+        // Todas as vencidas, de qualquer mês (mês/status não se aplicam aqui)
+        if (!isOverdue(t.vencimento, t.status)) return false
+      } else {
+        if (!t.vencimento?.startsWith(filterMonth)) return false
+        if (filterStatus !== 'todos' && t.status !== filterStatus) return false
+      }
       if (filterForma !== 'todos' && t.forma_pagamento !== filterForma) return false
       if (q && !(t.descricao||'').toLowerCase().includes(q) && !(t.contact_nome||'').toLowerCase().includes(q)) return false
       return true
@@ -344,7 +374,7 @@ export default function CompanyFinanceiro() {
       if (ao !== bo) return ao - bo
       return (a.vencimento||'').localeCompare(b.vencimento||'')
     })
-  }, [transactions, tab, tipoAtual, filterMonth, filterStatus, filterSearch, filterForma])
+  }, [transactions, tab, tipoAtual, filterMonth, filterStatus, filterSearch, filterForma, scope])
 
   // Fluxo de caixa chart data (10 months)
   const fluxoData = useMemo(() => {
@@ -864,16 +894,30 @@ export default function CompanyFinanceiro() {
       {(tab === 'receber' || tab === 'pagar') && (
         <>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
-            <div style={{ position: 'relative' }}>
-              <Calendar size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
-              <input type="month" className="nx-input" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ paddingLeft: 28, fontSize: 13, width: 160, ...sora }} />
+            {/* Escopo: mês selecionado vs todas as vencidas (qualquer mês) */}
+            <div style={{ display: 'inline-flex', background: '#F1F5F9', borderRadius: 10, padding: 3, gap: 2 }}>
+              <button onClick={() => setScope('mes')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: scope === 'mes' ? '#fff' : 'transparent', color: scope === 'mes' ? C.navy : C.muted, boxShadow: scope === 'mes' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', ...sora }}>
+                Do mês
+              </button>
+              <button onClick={() => setScope('vencidas')} title="Todas as contas vencidas, de qualquer mês" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: scope === 'vencidas' ? '#fff' : 'transparent', color: scope === 'vencidas' ? '#B45309' : (overdueCount ? '#B45309' : C.muted), boxShadow: scope === 'vencidas' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', ...sora }}>
+                <AlertTriangle size={12} /> Vencidas
+                {overdueCount > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 20, padding: '0 6px', minWidth: 16, textAlign: 'center' }}>{overdueCount}</span>}
+              </button>
             </div>
-            <select className="nx-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 13, width: 130, ...sora }}>
-              <option value="todos">Todos status</option>
-              <option value="pendente">Pendente</option>
-              <option value="pago">Pago</option>
-              <option value="cancelado">Cancelado</option>
-            </select>
+            {scope === 'mes' && (
+              <div style={{ position: 'relative' }}>
+                <Calendar size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
+                <input type="month" className="nx-input" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ paddingLeft: 28, fontSize: 13, width: 160, ...sora }} />
+              </div>
+            )}
+            {scope === 'mes' && (
+              <select className="nx-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 13, width: 130, ...sora }}>
+                <option value="todos">Todos status</option>
+                <option value="pendente">Pendente</option>
+                <option value="pago">Pago</option>
+                <option value="cancelado">Cancelado</option>
+              </select>
+            )}
             <select className="nx-select" value={filterForma} onChange={e => setFilterForma(e.target.value)} style={{ fontSize: 13, width: 150, ...sora }}>
               <option value="todos">Todas formas</option>
               {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
@@ -892,17 +936,24 @@ export default function CompanyFinanceiro() {
               <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Carregando...
             </div>
           ) : loadError ? null : filteredTx.length === 0 ? (
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '3rem', textAlign: 'center', color: C.muted }}>
-              <DollarSign size={28} style={{ opacity: 0.15, marginBottom: 10 }} />
-              <div style={{ fontSize: 14 }}>Nenhum lançamento neste período.</div>
-              <button className="nx-btn-ghost" onClick={openNew} style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <Plus size={13} /> Criar lançamento
-              </button>
-            </div>
+            scope === 'vencidas' ? (
+              <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 14, padding: '3rem', textAlign: 'center', color: C.emerald }}>
+                <Check size={28} style={{ opacity: 0.4, marginBottom: 10 }} />
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Nenhuma conta vencida — tudo em dia! 🎉</div>
+              </div>
+            ) : (
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '3rem', textAlign: 'center', color: C.muted }}>
+                <DollarSign size={28} style={{ opacity: 0.15, marginBottom: 10 }} />
+                <div style={{ fontSize: 14 }}>Nenhum lançamento neste período.</div>
+                <button className="nx-btn-ghost" onClick={openNew} style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                  <Plus size={13} /> Criar lançamento
+                </button>
+              </div>
+            )
           ) : (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
               {filteredTx.map((tx, i) => (
-                <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} last={i === filteredTx.length-1} />
+                <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} showDays={scope === 'vencidas'} last={i === filteredTx.length-1} />
               ))}
             </div>
           )}
