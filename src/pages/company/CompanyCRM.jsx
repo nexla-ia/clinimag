@@ -41,6 +41,9 @@ const DEFAULT_STAGES = [
   { nome: 'Perdido',          cor: '#DC2626', posicao: 6, alerta_dias: null },
 ]
 
+// Paleta pras etapas personalizadas
+const STAGE_COLORS = ['#64748B','#2563EB','#7C3AED','#0891B2','#D97706','#059669','#DC2626','#DB2777','#4F46E5','#0F766E']
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function daysIn(dateStr) {
   if (!dateStr) return 0
@@ -93,6 +96,9 @@ export default function CompanyCRM() {
   const [panel, setPanel]             = useState(null)
   const [panelNote, setPanelNote]     = useState('')
   const [newModal, setNewModal]       = useState(false)
+  const [stageModal, setStageModal]   = useState(null)  // { id, nome, cor, alerta_dias } — null = fechado
+  const [savingStage, setSavingStage] = useState(false)
+  const [confirmDelStage, setConfirmDelStage] = useState(null)
   const [newForm, setNewForm]         = useState({ nome:'', phone:'', email:'', origem:'', temperatura:'morno', stage_id:'', observacoes:'' })
   const [saving, setSaving]           = useState(false)
   const [confirmDel, setConfirmDel]   = useState(null)
@@ -369,6 +375,69 @@ export default function CompanyCRM() {
     await supabase.from('crm_contacts').update(changes).eq('id', id)
     setContacts(p => p.map(c => c.id===id ? {...c,...changes} : c))
     if (panel?.id === id) setPanel(p => ({...p,...changes}))
+  }
+
+  // ── Etapas (colunas) — criar / editar / mover / excluir ─────────────────────
+  function openStageModal(stage) {
+    setStageModal(stage
+      ? { id: stage.id, nome: stage.nome, cor: stage.cor || STAGE_COLORS[0], alerta_dias: stage.alerta_dias ?? '' }
+      : { id: null, nome: '', cor: STAGE_COLORS[0], alerta_dias: '' })
+  }
+
+  async function handleSaveStage() {
+    if (!stageModal || savingStage) return
+    const nome = (stageModal.nome || '').trim()
+    if (!nome) return
+    const alerta = stageModal.alerta_dias === '' || stageModal.alerta_dias == null
+      ? null : (parseInt(stageModal.alerta_dias) || null)
+    setSavingStage(true)
+    if (stageModal.id) {
+      const { error } = await supabase.from('crm_stages')
+        .update({ nome, cor: stageModal.cor, alerta_dias: alerta }).eq('id', stageModal.id)
+      if (!error) setStages(prev => prev.map(s => s.id === stageModal.id ? { ...s, nome, cor: stageModal.cor, alerta_dias: alerta } : s))
+      else { alert('Erro: ' + error.message); setSavingStage(false); return }
+    } else {
+      const maxPos = Math.max(-1, ...funStages.map(s => s.posicao ?? 0))
+      const { data, error } = await supabase.from('crm_stages')
+        .insert({ instancia: instance, funil_id: activeFunnel, nome, cor: stageModal.cor, alerta_dias: alerta, posicao: maxPos + 1 })
+        .select().single()
+      if (!error && data) setStages(prev => [...prev, data])
+      else { alert('Erro: ' + error.message); setSavingStage(false); return }
+    }
+    setSavingStage(false)
+    setStageModal(null)
+  }
+
+  // Troca a posição com a etapa vizinha (mover ← / →)
+  async function handleMoveStage(stage, dir) {
+    const idx = funStages.findIndex(s => s.id === stage.id)
+    const j = idx + dir
+    if (j < 0 || j >= funStages.length) return
+    const other = funStages[j]
+    const a = stage.posicao ?? idx, b = other.posicao ?? j
+    setStages(prev => prev.map(s => s.id === stage.id ? { ...s, posicao: b } : s.id === other.id ? { ...s, posicao: a } : s))
+    await Promise.all([
+      supabase.from('crm_stages').update({ posicao: b }).eq('id', stage.id),
+      supabase.from('crm_stages').update({ posicao: a }).eq('id', other.id),
+    ])
+  }
+
+  // Exclui a etapa. Se tiver leads, move-os pra primeira etapa restante.
+  async function handleDeleteStage(stage) {
+    const remaining = funStages.filter(s => s.id !== stage.id)
+    const fallback = remaining[0]
+    const inStage = (byStage[stage.id] || [])
+    if (inStage.length && fallback) {
+      const now = new Date().toISOString()
+      await supabase.from('crm_contacts')
+        .update({ stage_id: fallback.id, data_entrada_etapa: now })
+        .eq('instancia', instance).eq('stage_id', stage.id)
+      setContacts(prev => prev.map(c => c.stage_id === stage.id ? { ...c, stage_id: fallback.id, data_entrada_etapa: now } : c))
+    }
+    await supabase.from('crm_stages').delete().eq('id', stage.id)
+    setStages(prev => prev.filter(s => s.id !== stage.id))
+    setConfirmDelStage(null)
+    setStageModal(null)
   }
 
   async function deleteContact(id) {
@@ -771,8 +840,13 @@ export default function CompanyCRM() {
               <div style={{ padding:'12px 14px 10px', borderBottom:`1px solid ${C.border}`, background:C.card, flexShrink:0 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                   <div style={{ width:10,height:10,borderRadius:'50%',background:stage.cor,flexShrink:0 }}/>
-                  <span style={{ fontWeight:700, fontSize:12.5, color:C.navy, flex:1 }}>{stage.nome}</span>
-                  <span style={{ fontSize:11, fontWeight:700, color:'#fff', background:stage.cor, borderRadius:20, padding:'1px 8px', minWidth:20, textAlign:'center' }}>{stageTotal}</span>
+                  <span style={{ fontWeight:700, fontSize:12.5, color:C.navy, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{stage.nome}</span>
+                  <button onClick={() => openStageModal(stage)} title="Editar etapa"
+                    className="crm-stage-edit"
+                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted, padding:2, display:'inline-flex', flexShrink:0 }}>
+                    <Edit2 size={12}/>
+                  </button>
+                  <span style={{ fontSize:11, fontWeight:700, color:'#fff', background:stage.cor, borderRadius:20, padding:'1px 8px', minWidth:20, textAlign:'center', flexShrink:0 }}>{stageTotal}</span>
                 </div>
                 {stage.alerta_dias && (
                   <div style={{ fontSize:9.5, color:C.muted, marginTop:4, paddingLeft:18 }}>alerta após {stage.alerta_dias}d</div>
@@ -864,6 +938,14 @@ export default function CompanyCRM() {
             </div>
           )
         })}
+
+        {/* Coluna: adicionar nova etapa */}
+        <button onClick={() => openStageModal(null)}
+          style={{ width:200, flexShrink:0, alignSelf:'flex-start', border:`1.5px dashed ${C.border}`, borderRadius:14, background:'transparent', color:C.muted, cursor:'pointer', padding:'16px 14px', display:'flex', alignItems:'center', justifyContent:'center', gap:6, fontSize:12.5, fontWeight:700, transition:'all 0.15s' }}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blue}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted}}>
+          <Plus size={14}/> Nova etapa
+        </button>
       </div>}
 
       {/* ── Side Panel ── */}
@@ -1190,6 +1272,102 @@ export default function CompanyCRM() {
                 style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 20px',borderRadius:8,background:C.navy,color:'#fff',border:'none',cursor:newForm.phone.trim()?'pointer':'not-allowed',fontSize:13,fontWeight:700,opacity:newForm.phone.trim()?1:0.5 }}>
                 {saving ? <Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/> : <UserPlus size={13}/>}
                 Adicionar Lead
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: criar/editar etapa ── */}
+      {stageModal && (() => {
+        const editing = !!stageModal.id
+        const idx = editing ? funStages.findIndex(s => s.id === stageModal.id) : -1
+        const liveStage = editing ? funStages.find(s => s.id === stageModal.id) : null
+        return (
+          <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',zIndex:260,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}
+            onClick={e=>{if(e.target===e.currentTarget)setStageModal(null)}}>
+            <div style={{ background:C.card,borderRadius:16,padding:'24px',width:420,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+              <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18 }}>
+                <div style={{ fontWeight:800,fontSize:16,color:C.navy }}>{editing ? 'Editar etapa' : 'Nova etapa'}</div>
+                <button onClick={()=>setStageModal(null)} style={{ width:28,height:28,borderRadius:7,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.muted }}><X size={14}/></button>
+              </div>
+
+              <div style={{ display:'flex',flexDirection:'column',gap:14 }}>
+                <div>
+                  <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:5 }}>Nome da etapa</label>
+                  <input autoFocus value={stageModal.nome} maxLength={40}
+                    onChange={e=>setStageModal(p=>({...p,nome:e.target.value}))}
+                    onKeyDown={e=>{ if(e.key==='Enter') handleSaveStage() }}
+                    placeholder="Ex: Aguardando retorno"
+                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:8,padding:'9px 11px',fontSize:13,color:C.navy,background:C.card,outline:'none',boxSizing:'border-box' }}/>
+                </div>
+
+                <div>
+                  <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:6 }}>Cor</label>
+                  <div style={{ display:'flex',gap:8,flexWrap:'wrap' }}>
+                    {STAGE_COLORS.map(c => (
+                      <button key={c} type="button" onClick={()=>setStageModal(p=>({...p,cor:c}))}
+                        style={{ width:24,height:24,borderRadius:'50%',background:c,cursor:'pointer',border:'none',outline:stageModal.cor===c?`2px solid ${c}`:'2px solid transparent',outlineOffset:2 }}/>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:5 }}>Alertar se parar (dias)</label>
+                  <input type="number" min="1" value={stageModal.alerta_dias ?? ''}
+                    onChange={e=>setStageModal(p=>({...p,alerta_dias:e.target.value}))}
+                    placeholder="deixe vazio pra não alertar"
+                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:8,padding:'9px 11px',fontSize:13,color:C.navy,background:C.card,outline:'none',boxSizing:'border-box' }}/>
+                  <div style={{ fontSize:10.5,color:C.muted,marginTop:5 }}>O lead vira "parado" se ficar mais que isso na etapa. Vazio = sem alerta (ex: Perdido/Fidelizado).</div>
+                </div>
+
+                {editing && funStages.length > 1 && (
+                  <div style={{ display:'flex',alignItems:'center',gap:8,borderTop:`1px solid ${C.border}`,paddingTop:12 }}>
+                    <span style={{ fontSize:11,fontWeight:600,color:C.muted,flex:1 }}>Posição no funil</span>
+                    <button onClick={()=>handleMoveStage(liveStage, -1)} disabled={idx<=0} title="Mover pra esquerda"
+                      style={{ width:30,height:30,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:idx<=0?'not-allowed':'pointer',color:C.slate,opacity:idx<=0?0.4:1,display:'flex',alignItems:'center',justifyContent:'center' }}><ChevronRight size={14} style={{transform:'rotate(180deg)'}}/></button>
+                    <button onClick={()=>handleMoveStage(liveStage, +1)} disabled={idx>=funStages.length-1} title="Mover pra direita"
+                      style={{ width:30,height:30,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:idx>=funStages.length-1?'not-allowed':'pointer',color:C.slate,opacity:idx>=funStages.length-1?0.4:1,display:'flex',alignItems:'center',justifyContent:'center' }}><ChevronRight size={14}/></button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display:'flex',gap:8,marginTop:22,alignItems:'center' }}>
+                {editing && funStages.length > 1 && (
+                  <button onClick={()=>setConfirmDelStage(liveStage)}
+                    style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:8,border:'1px solid #FECACA',background:'#FEF2F2',color:'#DC2626',cursor:'pointer',fontSize:13,fontWeight:600 }}>
+                    <Trash2 size={13}/> Excluir
+                  </button>
+                )}
+                <div style={{ flex:1 }}/>
+                <button onClick={()=>setStageModal(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13,color:C.slate }}>Cancelar</button>
+                <button onClick={handleSaveStage} disabled={!stageModal.nome.trim()||savingStage}
+                  style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 20px',borderRadius:8,background:C.navy,color:'#fff',border:'none',cursor:stageModal.nome.trim()?'pointer':'not-allowed',fontSize:13,fontWeight:700,opacity:stageModal.nome.trim()?1:0.5 }}>
+                  {savingStage ? <Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/> : <Check size={13}/>}
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Confirm: excluir etapa ── */}
+      {confirmDelStage && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',zIndex:270,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}
+          onClick={e=>{if(e.target===e.currentTarget)setConfirmDelStage(null)}}>
+          <div style={{ background:C.card,borderRadius:16,padding:'24px',width:400,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontWeight:800,fontSize:15,color:C.navy,marginBottom:8 }}>Excluir "{confirmDelStage.nome}"?</div>
+            <div style={{ fontSize:12.5,color:C.slate,lineHeight:1.6,marginBottom:18 }}>
+              {(byStage[confirmDelStage.id]||[]).length > 0
+                ? <>Os <strong>{(byStage[confirmDelStage.id]||[]).length} leads</strong> desta etapa vão pra <strong>{funStages.find(s=>s.id!==confirmDelStage.id)?.nome}</strong>. Essa ação não pode ser desfeita.</>
+                : <>A etapa será removida do funil. Essa ação não pode ser desfeita.</>}
+            </div>
+            <div style={{ display:'flex',gap:8,justifyContent:'flex-end' }}>
+              <button onClick={()=>setConfirmDelStage(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13,color:C.slate }}>Cancelar</button>
+              <button onClick={()=>handleDeleteStage(confirmDelStage)}
+                style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 18px',borderRadius:8,background:'#DC2626',color:'#fff',border:'none',cursor:'pointer',fontSize:13,fontWeight:700 }}>
+                <Trash2 size={13}/> Excluir etapa
               </button>
             </div>
           </div>
