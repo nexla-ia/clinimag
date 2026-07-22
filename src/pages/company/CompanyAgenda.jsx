@@ -54,6 +54,9 @@ function shadeHex(hex, factor) {
   return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')
 }
 
+// Cor BEM fraca por dia da semana (0=Dom … 6=Sáb) — só pra distinguir as colunas.
+const DAY_TINTS = ['#F2F0F7', '#EDF2FB', '#ECF6EF', '#FBF3EA', '#FAEDF2', '#FCF7E6', '#EEF1F5']
+
 function getMonday(date) {
   const d = new Date(date)
   d.setHours(0, 0, 0, 0)
@@ -1064,7 +1067,7 @@ export default function CompanyAgenda() {
                           padding: '7px 6px', textAlign: 'center', borderLeft: '1px solid #CBD5E1',
                           fontSize: 12, fontWeight: 600,
                           color: isToday ? '#1D4ED8' : isWeekend ? 'var(--text-muted)' : 'var(--text-secondary)',
-                          background: isToday ? '#DBEAFE' : isWeekend ? '#EEF1F5' : 'transparent',
+                          background: isToday ? '#DBEAFE' : shadeHex(DAY_TINTS[d.getDay()], 0.04),
                           borderBottom: isToday ? '2px solid #2563EB' : undefined,
                         }}>
                           <div>{DAYS_OF_WEEK[d.getDay()].label}</div>
@@ -1091,13 +1094,13 @@ export default function CompanyAgenda() {
                         const slotKey = `${fmtDateInput(d)}_${hhmm}`
                         const isDragOver = dragOverSlot === slotKey
                         const isToday = d.toDateString() === new Date().toDateString()
-                        const isWeekend = d.getDay() === 0 || d.getDay() === 6
-                        // fundo base da célula (coluna de hoje destacada em azul; fim de
-                        // semana levemente cinza; dias úteis deixam a linha zebra aparecer)
+                        // fundo base da célula: coluna de hoje em azul mais forte; os
+                        // outros dias com uma cor bem fraca própria (pra diferenciar as
+                        // colunas). O zebra das linhas vira um tom um pouco mais escuro.
+                        const dayTint = DAY_TINTS[d.getDay()]
                         const cellBase = !working ? '#F9FAFB'
-                          : isToday ? '#EAF2FE'
-                          : isWeekend ? '#F6F7FA'
-                          : 'transparent'
+                          : isToday ? (idx % 2 ? '#E3EDFB' : '#EAF2FE')
+                          : (idx % 2 ? shadeHex(dayTint, 0.035) : dayTint)
                         // fundo listrado (bloqueado)
                         const blockedBg = 'repeating-linear-gradient(45deg, #F1F5F9, #F1F5F9 6px, #E2E8F0 6px, #E2E8F0 12px)'
                         return (
