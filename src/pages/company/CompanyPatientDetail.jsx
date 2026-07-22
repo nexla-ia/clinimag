@@ -95,6 +95,7 @@ export default function CompanyPatientDetail() {
   const [anamneses, setAnamneses] = useState([])
   const [orcamentos, setOrcamentos] = useState([])
   const [procedures, setProcedures] = useState([])
+  const [professionals, setProfessionals] = useState([])
   const [anamneseTemplates, setAnamneseTemplates] = useState([])
   const [anamneseModal, setAnamneseModal] = useState(null)
   const [orcamentoModal, setOrcamentoModal] = useState(null)
@@ -111,8 +112,11 @@ export default function CompanyPatientDetail() {
         if (p.numero) {
           // contact_numero nos appointments é salvo só com dígitos (sem @s.whatsapp.net)
           const numDigits = (p.numero || '').replace(/@.*$/, '').replace(/\D/g, '')
+          // NÃO embutir professionals(name): não existe FK appointments→professionals
+          // no schema, então o PostgREST devolvia 400 e a ficha inteira quebrava.
+          // O nome do profissional é resolvido pelo professional_id (mapa carregado à parte).
           supabase.from('appointments')
-            .select('*, agendas(name, color), professionals(name)')
+            .select('*, agendas(name, color)')
             .eq('instancia', instance)
             .eq('contact_numero', numDigits)
             .order('starts_at', { ascending: false })
@@ -145,6 +149,10 @@ export default function CompanyPatientDetail() {
       .select('id,name,price_particular')
       .eq('instancia', instance).order('name')
       .then(({ data: pr }) => { if (pr) setProcedures(pr) })
+    supabase.from('professionals')
+      .select('id, name')
+      .eq('instancia', instance)
+      .then(({ data: pros }) => { if (pros) setProfessionals(pros) })
   }, [id, instance])
 
   async function handleAttachUpload(files) {
@@ -462,6 +470,36 @@ export default function CompanyPatientDetail() {
     navigate('/painel/contatos')
   }
 
+  // Quanto o paciente representa daqui pra frente, por profissional. Como cada
+  // agendamento carrega o valor de quem atende, o total é a soma deles.
+  // IMPORTANTE: este useMemo tem que ficar ANTES dos early returns abaixo —
+  // hook depois de `return` muda a quantidade de hooks entre renders e quebra
+  // a ficha inteira (React #310, tela branca).
+  const routine = useMemo(() => {
+    const proName = {}; professionals.forEach(p => { proName[p.id] = p.name })
+    const now = new Date()
+    const until = new Date(now); until.setDate(until.getDate() + 30)
+    const inWindow = appointments.filter(a =>
+      a.status !== 'cancelado' &&
+      new Date(a.starts_at) > now &&
+      new Date(a.starts_at) <= until
+    )
+    const byPro = {}
+    inWindow.forEach(a => {
+      const name = proName[a.professional_id] || a.professionals?.name || 'Sem profissional definido'
+      if (!byPro[name]) byPro[name] = { name, count: 0, total: 0, prices: new Set() }
+      byPro[name].count += 1
+      byPro[name].total += Number(a.price || 0)
+      byPro[name].prices.add(Number(a.price || 0))
+    })
+    const rows = Object.values(byPro).sort((a, b) => b.total - a.total)
+    const total = rows.reduce((s, r) => s + r.total, 0)
+    const pending = inWindow
+      .filter(a => a.payment_status !== 'pago')
+      .reduce((s, a) => s + Number(a.price || 0), 0)
+    return { rows, total, pending, count: inWindow.length }
+  }, [appointments, professionals])
+
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Carregando ficha...</div>
   if (!patient) return (
     <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>
@@ -481,32 +519,6 @@ export default function CompanyPatientDetail() {
   const pastAppts = appointments.filter(a => new Date(a.starts_at) <= new Date() || a.status === 'cancelado')
   const concluded = appointments.filter(a => a.status === 'concluido').length
   const totalSpent = appointments.filter(a => a.payment_status === 'pago').reduce((s, a) => s + Number(a.price || 0), 0)
-
-  // Quanto o paciente representa daqui pra frente, por profissional. Como cada
-  // agendamento carrega o valor de quem atende, o total é a soma deles.
-  const routine = useMemo(() => {
-    const now = new Date()
-    const until = new Date(now); until.setDate(until.getDate() + 30)
-    const inWindow = appointments.filter(a =>
-      a.status !== 'cancelado' &&
-      new Date(a.starts_at) > now &&
-      new Date(a.starts_at) <= until
-    )
-    const byPro = {}
-    inWindow.forEach(a => {
-      const name = a.professionals?.name || 'Sem profissional definido'
-      if (!byPro[name]) byPro[name] = { name, count: 0, total: 0, prices: new Set() }
-      byPro[name].count += 1
-      byPro[name].total += Number(a.price || 0)
-      byPro[name].prices.add(Number(a.price || 0))
-    })
-    const rows = Object.values(byPro).sort((a, b) => b.total - a.total)
-    const total = rows.reduce((s, r) => s + r.total, 0)
-    const pending = inWindow
-      .filter(a => a.payment_status !== 'pago')
-      .reduce((s, a) => s + Number(a.price || 0), 0)
-    return { rows, total, pending, count: inWindow.length }
-  }, [appointments])
 
   return (
     <div className="pat-root">
