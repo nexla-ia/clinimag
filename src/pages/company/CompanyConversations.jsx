@@ -1571,6 +1571,9 @@ export default function CompanyConversations() {
         .catch(e => console.warn('webhook envio:', e))
     } finally {
       setSending(false)
+      // Mantém o foco na caixa de texto pra digitar a próxima sem clicar de novo
+      // (cobre o envio pelo botão, que joga o foco pro botão). Igual WhatsApp.
+      setTimeout(() => composerRef.current?.focus(), 0)
     }
   }
 
@@ -2866,7 +2869,9 @@ export default function CompanyConversations() {
                       }
                       if (e.key === 'Escape' && replyingTo) { setReplyingTo(null) }
                     }}
-                    disabled={sending || recording || !canRespond(selected)}
+                    // NÃO desabilita durante o envio: a caixa continua focada e já dá
+                    // pra digitar a próxima (o texto é limpo no início do handleSend).
+                    disabled={recording || !canRespond(selected)}
                   />
                   <input
                     ref={fileInputRef}

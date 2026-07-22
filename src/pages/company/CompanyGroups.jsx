@@ -736,6 +736,8 @@ export default function CompanyGroups() {
       }
     } finally {
       setSending(false)
+      // Mantém o foco na caixa pra digitar a próxima sem clicar de novo (igual WhatsApp)
+      setTimeout(() => composerRef.current?.focus(), 0)
     }
   }
 
@@ -1663,7 +1665,8 @@ export default function CompanyGroups() {
                     if (e.key === 'Escape') { setMentionOpen(false); if (replyingTo) setReplyingTo(null); return }
                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
                   }}
-                  disabled={sending || recording}
+                  // não desabilita no envio: caixa continua focada pra digitar a próxima
+                  disabled={recording}
                 />
                 <input ref={fileInputRef} type="file" accept="image/*,application/pdf,video/*" style={{ display: 'none' }} onChange={handlePickFile} />
                 {!recording && !recordedAudio && !attachedFile && (
