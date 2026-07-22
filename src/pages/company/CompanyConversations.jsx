@@ -34,7 +34,17 @@ function parseTimestamp(val) {
   return val
 }
 
-function getTimestamp(row) { return parseTimestamp(row.horaLastMessage) || row.created_at || null }
+// Prioriza created_at (UTC confiável do banco). O horaLastMessage às vezes vem
+// gravado em -03:00 (São Paulo) pelo n8n, o que fica 1h errado pra clínicas em
+// outro fuso (ex: -04:00 RO/AM). Formatamos sempre a partir do UTC + offset da clínica.
+function getTimestamp(row) { return row.created_at || parseTimestamp(row.horaLastMessage) || null }
+
+// Offset "-04:00" / "-03:00" → minutos (-240 / -180)
+function tzOffsetMinutes(tz) {
+  const m = /^([+-])(\d{2}):?(\d{2})$/.exec((tz || '-03:00').trim())
+  if (!m) return -180
+  return (m[1] === '-' ? -1 : 1) * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10))
+}
 
 // ── Canonicalização de número BR (o "9" extra do celular) ───────────────────
 // O WhatsApp entrega as mensagens do CLIENTE com o número SEM o 9 extra
@@ -126,15 +136,19 @@ function isToolMessage(row) {
   return false
 }
 
-function formatMsgTime(ts) {
+// Formata um instante UTC no fuso da clínica (tz = offset tipo "-04:00").
+function formatMsgTime(ts, tz) {
   if (!ts) return ''
-  const date = new Date(ts)
-  const now = new Date()
-  const hhmm = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-  if (date.toDateString() === now.toDateString()) return hhmm
-  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
-  if (date.toDateString() === yesterday.toDateString()) return `Ontem ${hhmm}`
-  return `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${hhmm}`
+  const t = new Date(ts)
+  if (isNaN(t)) return ''
+  const off = tzOffsetMinutes(tz) * 60000
+  const loc = new Date(t.getTime() + off)          // desloca pro fuso da clínica
+  const nowLoc = new Date(Date.now() + off)
+  const hhmm = `${String(loc.getUTCHours()).padStart(2, '0')}:${String(loc.getUTCMinutes()).padStart(2, '0')}`
+  const sameDay = d => d.getUTCFullYear() === loc.getUTCFullYear() && d.getUTCMonth() === loc.getUTCMonth() && d.getUTCDate() === loc.getUTCDate()
+  if (sameDay(nowLoc)) return hhmm
+  if (sameDay(new Date(nowLoc.getTime() - 86400000))) return `Ontem ${hhmm}`
+  return `${String(loc.getUTCDate()).padStart(2, '0')}/${String(loc.getUTCMonth() + 1).padStart(2, '0')} ${hhmm}`
 }
 
 function formatApptShort(ts) {
@@ -244,6 +258,7 @@ export default function CompanyConversations() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const instance      = session?.company?.instance
+  const companyTz     = session?.company?.timezone || '-03:00'  // offset da clínica pros horários
   const apiInstancia  = session?.company?.api_instancia
   const contactsTable = session?.company?.contacts_table
 
@@ -1750,11 +1765,7 @@ export default function CompanyConversations() {
     return 'IA'
   }
   function searchDate(row) {
-    const ts = getTimestamp(row)
-    if (!ts) return ''
-    const d = new Date(ts)
-    if (isNaN(d)) return ''
-    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    return formatMsgTime(getTimestamp(row), companyTz)
   }
 
   async function handleReopen(contact) {
@@ -2710,7 +2721,7 @@ export default function CompanyConversations() {
                       )}
                       {msg.ts && (
                         <div className="msg-time" style={{ textAlign: isLeft ? 'left' : 'right' }}>
-                          {formatMsgTime(msg.ts)}
+                          {formatMsgTime(msg.ts, companyTz)}
                         </div>
                       )}
                     </div>

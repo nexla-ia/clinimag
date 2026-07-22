@@ -34,19 +34,29 @@ function renderTextWithLinks(text, linkStyle) {
   })
 }
 
-function formatTime(ts) {
+// Offset "-04:00" → minutos. Formata sempre a partir do UTC + fuso da clínica.
+function tzOffsetMinutes(tz) {
+  const m = /^([+-])(\d{2}):?(\d{2})$/.exec((tz || '-03:00').trim())
+  if (!m) return -180
+  return (m[1] === '-' ? -1 : 1) * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10))
+}
+function formatTime(ts, tz) {
   if (!ts) return ''
-  const date = new Date(ts)
-  const now = new Date()
-  const hhmm = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-  if (date.toDateString() === now.toDateString()) return hhmm
-  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
-  if (date.toDateString() === yesterday.toDateString()) return `Ontem ${hhmm}`
-  return `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${hhmm}`
+  const t = new Date(ts)
+  if (isNaN(t)) return ''
+  const off = tzOffsetMinutes(tz) * 60000
+  const loc = new Date(t.getTime() + off)
+  const nowLoc = new Date(Date.now() + off)
+  const hhmm = `${String(loc.getUTCHours()).padStart(2, '0')}:${String(loc.getUTCMinutes()).padStart(2, '0')}`
+  const sameDay = d => d.getUTCFullYear() === loc.getUTCFullYear() && d.getUTCMonth() === loc.getUTCMonth() && d.getUTCDate() === loc.getUTCDate()
+  if (sameDay(nowLoc)) return hhmm
+  if (sameDay(new Date(nowLoc.getTime() - 86400000))) return `Ontem ${hhmm}`
+  return `${String(loc.getUTCDate()).padStart(2, '0')}/${String(loc.getUTCMonth() + 1).padStart(2, '0')} ${hhmm}`
 }
 
+// created_at (UTC do banco) primeiro; horaLastMessage às vezes vem em -03:00 (n8n)
 function parseTs(row) {
-  const raw = row.horaLastMessage || row.created_at
+  const raw = row.created_at || row.horaLastMessage
   if (!raw) return null
   if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
     const [date, time] = raw.split(' ')
@@ -102,6 +112,7 @@ export default function CompanyGroups() {
   const { session } = useAuth()
   const navigate = useNavigate()
   const instance = session?.company?.instance
+  const companyTz = session?.company?.timezone || '-03:00'
   const apiInstancia = session?.company?.api_instancia
   const instanceOwner = session?.company?.numero_base || null
   const [groups, setGroups] = useState([])
@@ -441,11 +452,7 @@ export default function CompanyGroups() {
     return row.nome || (row.numero || '').replace(/@.*$/, '') || 'Membro'
   }
   function searchDate(row) {
-    const iso = parseTs(row)
-    if (!iso) return ''
-    const d = new Date(iso)
-    if (isNaN(d)) return ''
-    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    return formatTime(parseTs(row), companyTz)
   }
 
   useEffect(() => {
@@ -1019,7 +1026,7 @@ export default function CompanyGroups() {
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                       <span style={{ fontSize: 11, color: unread ? '#2563EB' : 'var(--text-muted)', fontWeight: unread ? 700 : 400 }}>
-                        {formatTime(g.lastTs)}
+                        {formatTime(g.lastTs, companyTz)}
                       </span>
                       {unread > 0 && (
                         <div style={{ minWidth: 20, height: 20, borderRadius: 10, background: '#2563EB', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
@@ -1437,7 +1444,7 @@ export default function CompanyGroups() {
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          {formatTime(ts)}
+                          {formatTime(ts, companyTz)}
                         </span>
                         {/* Responder: qualquer mensagem que já tem id_mensagem */}
                         {msg.id_mensagem && editingMsgId !== msg.id && (
