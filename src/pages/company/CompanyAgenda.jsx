@@ -1058,15 +1058,18 @@ export default function CompanyAgenda() {
                     <div />
                     {weekDays.map((d, i) => {
                       const isToday = d.toDateString() === new Date().toDateString()
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6
                       return (
                         <div key={i} style={{
-                          padding: '8px 6px', textAlign: 'center', borderLeft: '1px solid var(--border)',
+                          padding: '7px 6px', textAlign: 'center', borderLeft: '1px solid #CBD5E1',
                           fontSize: 12, fontWeight: 600,
-                          color: isToday ? '#2563EB' : 'var(--text-secondary)',
-                          background: isToday ? '#EFF6FF' : 'transparent',
+                          color: isToday ? '#1D4ED8' : isWeekend ? 'var(--text-muted)' : 'var(--text-secondary)',
+                          background: isToday ? '#DBEAFE' : isWeekend ? '#EEF1F5' : 'transparent',
+                          borderBottom: isToday ? '2px solid #2563EB' : undefined,
                         }}>
                           <div>{DAYS_OF_WEEK[d.getDay()].label}</div>
                           <div style={{ fontSize: 14, fontWeight: 700 }}>{String(d.getDate()).padStart(2, '0')}/{String(d.getMonth() + 1).padStart(2, '0')}</div>
+                          {isToday && <div style={{ fontSize: 8.5, fontWeight: 800, color: '#2563EB', letterSpacing: '0.08em', marginTop: 1 }}>HOJE</div>}
                         </div>
                       )
                     })}
@@ -1087,6 +1090,14 @@ export default function CompanyAgenda() {
                         const block = working ? blockAt(d, hhmm) : null
                         const slotKey = `${fmtDateInput(d)}_${hhmm}`
                         const isDragOver = dragOverSlot === slotKey
+                        const isToday = d.toDateString() === new Date().toDateString()
+                        const isWeekend = d.getDay() === 0 || d.getDay() === 6
+                        // fundo base da célula (coluna de hoje destacada em azul; fim de
+                        // semana levemente cinza; dias úteis deixam a linha zebra aparecer)
+                        const cellBase = !working ? '#F9FAFB'
+                          : isToday ? '#EAF2FE'
+                          : isWeekend ? '#F6F7FA'
+                          : 'transparent'
                         // fundo listrado (bloqueado)
                         const blockedBg = 'repeating-linear-gradient(45deg, #F1F5F9, #F1F5F9 6px, #E2E8F0 6px, #E2E8F0 12px)'
                         return (
@@ -1124,8 +1135,10 @@ export default function CompanyAgenda() {
                             }}
                             title={block ? `Bloqueado${block.reason ? ': ' + block.reason : ''} — clique pra desbloquear` : undefined}
                             style={{
-                              minHeight: 46, borderLeft: '1px solid var(--border)',
-                              background: isDragOver ? '#DBEAFE' : block ? blockedBg : !working ? '#F9FAFB' : 'transparent',
+                              minHeight: 46,
+                              borderLeft: isToday ? '2px solid #93C5FD' : '1px solid #CBD5E1',
+                              borderRight: isToday ? '2px solid #93C5FD' : undefined,
+                              background: isDragOver ? '#DBEAFE' : block ? blockedBg : cellBase,
                               cursor: working ? 'pointer' : 'not-allowed',
                               padding: 3, position: 'relative',
                               transition: 'background 0.1s',
@@ -1134,8 +1147,8 @@ export default function CompanyAgenda() {
                               display: 'flex', flexDirection: 'column', gap: 2,
                               minWidth: 0, // impede nome longo de esticar a coluna do grid
                             }}
-                            onMouseEnter={e => { if (working && !appts.length && !block && !draggingId) e.currentTarget.style.background = '#EFF6FF' }}
-                            onMouseLeave={e => { if (working && !appts.length && !block && !isDragOver) e.currentTarget.style.background = 'transparent' }}
+                            onMouseEnter={e => { if (working && !appts.length && !block && !draggingId) e.currentTarget.style.background = '#DBEAFE' }}
+                            onMouseLeave={e => { if (working && !appts.length && !block && !isDragOver) e.currentTarget.style.background = cellBase }}
                           >
                             {block && !appts.length && (
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%', color: '#64748B', fontSize: 10, fontWeight: 700 }}>
