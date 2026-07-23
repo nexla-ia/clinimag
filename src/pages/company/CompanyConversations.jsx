@@ -2541,13 +2541,21 @@ export default function CompanyConversations() {
                             {(msg.quoted_id_mensagem || msg.quoted_text) && (() => {
                               const orig = msg.quoted_id_mensagem ? messages.find(m => m.id_mensagem === msg.quoted_id_mensagem) : null
                               const origIsCliente = orig ? orig.type === 'cliente' : false
-                              const author = !orig ? '' : origIsCliente
+                              let author = !orig ? '' : origIsCliente
                                 ? (resolveName(selected?.phone) !== selected?.phone ? resolveName(selected?.phone) : 'Cliente')
                                 : (orig.nome || 'Você')
                               // Sem a original carregada, mostra o trecho citado que o WhatsApp mandou.
-                              const origText = orig
-                                ? ((orig.content || '').replace(/^\*[^*]+\*:\n?/, '').trim() || (orig.base64 ? '📎 Mídia' : ''))
-                                : (msg.quoted_text || '(mensagem original)')
+                              // O quoted_text às vezes vem como "*Andrielly:*\nteste" — separa autor + texto.
+                              let origText
+                              if (orig) {
+                                origText = (orig.content || '').replace(/^\*[^*]+\*:\n?/, '').trim() || (orig.base64 ? '📎 Mídia' : '')
+                              } else {
+                                const raw = (msg.quoted_text || '').trim()
+                                // quoted_text vem "*Andrielly:*\nteste" (: dentro) ou "*Andrielly*:\n..." (: fora)
+                                const m = raw.match(/^\*([^*]+?):?\*:?\s*\n?([\s\S]*)$/)
+                                if (m) { author = m[1].replace(/:$/, '').trim(); origText = m[2].trim() }
+                                else origText = raw || '(mensagem original)'
+                              }
                               const canScroll = !!orig
                               const accent = isAtendente ? 'rgba(255,255,255,0.9)' : '#16A34A'
                               return (

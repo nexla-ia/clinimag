@@ -1372,18 +1372,28 @@ export default function CompanyGroups() {
                       )}
                       <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : (contactOnly ? 0 : undefined), ...(contactOnly ? { background: 'transparent', boxShadow: 'none', border: 'none' } : {}) }}>
                         {/* Bloco de citação (respondendo outra mensagem do grupo) */}
-                        {msg.quoted_id_mensagem && (() => {
-                          const orig = messages.find(m => m.id_mensagem === msg.quoted_id_mensagem)
-                          const author = !orig ? '' : (orig.nome || senderLabel(orig) || 'Alguém')
-                          const origText = !orig ? '(original não carregada)'
-                            : ((orig.mensagem || '').trim() || (orig.base64 ? '📎 Mídia' : ''))
+                        {(msg.quoted_id_mensagem || msg.quoted_text) && (() => {
+                          const orig = msg.quoted_id_mensagem ? messages.find(m => m.id_mensagem === msg.quoted_id_mensagem) : null
+                          let author = !orig ? '' : (orig.nome || senderLabel(orig) || 'Alguém')
+                          // Sem a original carregada, usa o quoted_text ("*Nome:*\ntexto") separando autor + texto.
+                          let origText
+                          if (orig) {
+                            origText = (orig.mensagem || '').trim() || (orig.base64 ? '📎 Mídia' : '')
+                          } else {
+                            const raw = (msg.quoted_text || '').trim()
+                            // quoted_text vem "*Andrielly:*\nteste" (: dentro) ou "*Andrielly*:\n..." (: fora)
+                            const m = raw.match(/^\*([^*]+?):?\*:?\s*\n?([\s\S]*)$/)
+                            if (m) { author = m[1].replace(/:$/, '').trim(); origText = m[2].trim() }
+                            else origText = raw || '(mensagem original)'
+                          }
+                          const canScroll = !!orig
                           const accent = isAtendente ? 'rgba(255,255,255,0.9)' : '#4F46E5'
                           return (
                             <div
-                              onClick={() => scrollToOriginal(msg.quoted_id_mensagem)}
-                              title="Ir para a mensagem original"
+                              onClick={() => canScroll && scrollToOriginal(msg.quoted_id_mensagem)}
+                              title={canScroll ? 'Ir para a mensagem original' : undefined}
                               style={{
-                                display: 'flex', gap: 8, cursor: 'pointer', marginBottom: 6,
+                                display: 'flex', gap: 8, cursor: canScroll ? 'pointer' : 'default', marginBottom: 6,
                                 background: isAtendente ? 'rgba(255,255,255,0.15)' : 'rgba(79,70,229,0.08)',
                                 borderRadius: 6, padding: '5px 9px', maxWidth: 260,
                               }}>
