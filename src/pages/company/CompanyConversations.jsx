@@ -2519,8 +2519,11 @@ export default function CompanyConversations() {
                         const fileLine = fileLineMatch?.[1] || null
                         const extraText = fileLineMatch?.[3]?.trim() || ''
                         const isPlaceholder = !!fileLine
-                        const displayContent = isPlaceholder ? extraText : rawContent
                         const cards = contactCardsOf(msg.contact_card)
+                        // "📇 Nome" é só rótulo pra lista/preview — dentro da bolha o
+                        // cartão já mostra tudo, então não repete o texto.
+                        const contactLabelOnly = cards.length > 0 && /^📇/.test(rawContent.trim())
+                        const displayContent = contactLabelOnly ? '' : (isPlaceholder ? extraText : rawContent)
                         const hasOnlyMedia = media && !displayContent
                         // Só um contato compartilhado (sem texto/mídia) → bolha "nua", o cartão é tudo
                         const contactOnly = cards.length > 0 && !displayContent && !media
@@ -2641,31 +2644,52 @@ export default function CompanyConversations() {
                             {/* Cartão de contato compartilhado (vCard) */}
                             {cards.map((cc, ci) => (
                               <div key={ci} style={{
-                                background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10,
-                                overflow: 'hidden', minWidth: 232, maxWidth: 280,
+                                background: '#fff', border: '1px solid #E9EDF3', borderRadius: 14,
+                                overflow: 'hidden', minWidth: 248, maxWidth: 290,
                                 marginBottom: displayContent ? 6 : 0,
+                                boxShadow: '0 1px 2px rgba(15,23,42,0.05), 0 8px 20px -8px rgba(15,23,42,0.14)',
                               }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
-                                  <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, background: '#EFF6FF', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>
-                                    {cc.name ? cc.name.trim().charAt(0).toUpperCase() : <User size={18} />}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 15px 13px' }}>
+                                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                                    <div style={{
+                                      width: 46, height: 46, borderRadius: '50%',
+                                      background: 'linear-gradient(140deg, #EFF5FF 0%, #DBE8FF 100%)',
+                                      boxShadow: 'inset 0 0 0 1px rgba(37,99,235,0.14)',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      color: '#2563EB', fontWeight: 800, fontSize: 18, letterSpacing: '-0.02em',
+                                    }}>
+                                      {cc.name ? cc.name.trim().charAt(0).toUpperCase() : <User size={20} />}
+                                    </div>
+                                    <div style={{
+                                      position: 'absolute', right: -2, bottom: -2, width: 18, height: 18, borderRadius: '50%',
+                                      background: '#2563EB', border: '2px solid #fff',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+                                    }}>
+                                      <User size={9} strokeWidth={2.6} />
+                                    </div>
                                   </div>
                                   <div style={{ minWidth: 0, flex: 1 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cc.name}</div>
-                                    <div style={{ fontSize: 12, color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>{cc.phone || 'sem número'}</div>
+                                    <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.09em', color: '#9AA6B6', textTransform: 'uppercase', marginBottom: 1 }}>Contato</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.25 }}>{cc.name}</div>
+                                    <div style={{ fontSize: 12.5, color: '#64748B', fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>{cc.phone || 'sem número'}</div>
                                   </div>
                                 </div>
-                                <div style={{ display: 'flex', borderTop: '1px solid #E2E8F0' }}>
+                                <div style={{ display: 'flex', borderTop: '1px solid #EEF1F6' }}>
                                   <button
                                     onClick={e => { e.stopPropagation(); if (cc.digits) navigate(`/painel/conversas?contact=${cc.digits}`) }}
                                     disabled={!cc.digits}
-                                    style={{ flex: 1, padding: '8px', border: 'none', borderRight: '1px solid #E2E8F0', background: 'none', color: cc.digits ? '#16A34A' : '#94A3B8', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                                    <MessageSquare size={13} /> Conversar
+                                    onMouseEnter={e => { if (cc.digits) e.currentTarget.style.background = '#F0FDF4' }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                                    style={{ flex: 1, padding: '10px 8px', border: 'none', borderRight: '1px solid #EEF1F6', background: 'transparent', color: cc.digits ? '#16A34A' : '#B6C0CE', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 0.12s' }}>
+                                    <MessageSquare size={14} /> Conversar
                                   </button>
                                   <button
                                     onClick={e => { e.stopPropagation(); if (!cc.digits) return; const existing = savedContacts[cc.digits]; setSaveContactModal({ id: existing?.id || null, numero: cc.digits, nome: existing?.nome || cc.name || '', notes: '' }) }}
                                     disabled={!cc.digits}
-                                    style={{ flex: 1, padding: '8px', border: 'none', background: 'none', color: cc.digits ? '#2563EB' : '#94A3B8', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                                    <UserPlus size={13} /> Salvar
+                                    onMouseEnter={e => { if (cc.digits) e.currentTarget.style.background = '#EFF6FF' }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                                    style={{ flex: 1, padding: '10px 8px', border: 'none', background: 'transparent', color: cc.digits ? '#2563EB' : '#B6C0CE', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 0.12s' }}>
+                                    <UserPlus size={14} /> Salvar
                                   </button>
                                 </div>
                               </div>
