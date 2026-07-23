@@ -1482,6 +1482,13 @@ export default function CompanyConversations() {
       const file = attachedFile
       // Foto do reply antes de limpar o estado (o envio é assíncrono)
       const replySnap = replyingTo
+      // Resposta nativa (balão de citação) só com id do WhatsApp. Sem ele
+      // (mensagem antiga), embute a citação no próprio texto.
+      const nativeQuote = !!replySnap?.id_mensagem
+      const citation = (replySnap && !nativeQuote)
+        ? `↩️ _${(replySnap.content || 'mensagem').replace(/\s+/g, ' ').trim().slice(0, 120)}_\n\n`
+        : ''
+      const sentText = citation + text
       setReplyingTo(null)
       setMsgText('')
       setRecordedAudio(null)
@@ -1492,10 +1499,10 @@ export default function CompanyConversations() {
         ? (file.kind === 'image' ? '🖼️ ' : file.kind === 'pdf' ? '📄 ' : file.kind === 'video' ? '🎬 ' : '📎 ') + file.name
         : null
       const mensagemPayload = audio
-        ? (text || '🎤 Áudio')
+        ? (sentText || '🎤 Áudio')
         : file
-          ? (text ? `${filePrefix}\n${text}` : filePrefix)
-          : text
+          ? (sentText ? `${filePrefix}\n${sentText}` : filePrefix)
+          : sentText
       const mediaBase64 = audio?.base64 || file?.base64 || null
       const senderName = session?.user?.name || null
       sentCacheRef.current = [
@@ -1513,7 +1520,7 @@ export default function CompanyConversations() {
         p_base64: mediaBase64,
         p_nome: senderName,
       }
-      if (replySnap?.id_mensagem) rpcParams.p_quoted = replySnap.id_mensagem
+      if (nativeQuote) rpcParams.p_quoted = replySnap.id_mensagem
       let { error: insErr } = await supabase.rpc('send_mensagem_geral', rpcParams)
       // Se a migration do reply ainda não rodou, reenvia sem o vínculo (a
       // mensagem vai igual, só não fica marcada como resposta no banco).
@@ -1525,11 +1532,12 @@ export default function CompanyConversations() {
       }
       if (insErr) console.error('send_mensagem_geral:', insErr)
 
-      // Respondendo uma mensagem → webhook próprio (monta o quote na Evolution)
-      const webhookUrl = replySnap
+      // Resposta nativa → webhook próprio (monta o quote na Evolution); senão
+      // envio normal (a citação já vai embutida no texto).
+      const webhookUrl = nativeQuote
         ? 'https://n8n.nexladesenvolvimento.com.br/webhook/respondermensagem'
         : 'https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla'
-      const quotedPayload = replySnap ? {
+      const quotedPayload = nativeQuote ? {
         quoted_id:        replySnap.id_mensagem,
         quoted_text:      replySnap.content,
         // A original era nossa (atendente/IA)? A Evolution precisa disso pra key
@@ -1542,7 +1550,7 @@ export default function CompanyConversations() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: sentText,
           mensagem: mensagemPayload,
           audio_base64: audio?.base64 || null,
           audio_mime: audio?.mime || null,
@@ -1667,13 +1675,15 @@ export default function CompanyConversations() {
     }
   }
 
-  // Começa a responder uma mensagem (cita ela). Só dá pra citar mensagem que
-  // já tem id_mensagem do WhatsApp — sem ele a Evolution não sabe o que citar.
+  // Começa a responder uma mensagem (cita ela). Com id_mensagem do WhatsApp
+  // vira resposta nativa (balão de citação). Sem ele (mensagem antiga), a
+  // citação vai embutida no texto — assim dá pra responder qualquer mensagem,
+  // inclusive as nossas.
   function startReply(msg) {
-    if (!msg?.id_mensagem) return
+    if (!msg || msg.apagada) return
     const clean = (msg.content || '').replace(/^\*[^*]+\*:\n?/, '').trim()
     setReplyingTo({
-      id_mensagem: msg.id_mensagem,
+      id_mensagem: msg.id_mensagem || null,
       content: clean.slice(0, 200) || (msg.base64 ? '📎 Mídia' : ''),
       type: msg.type,
       numero: selected?.session_id,
@@ -2768,7 +2778,7 @@ export default function CompanyConversations() {
                       })()}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end', gap: 5 }}>
-                      {msg.id_mensagem && !msg.apagada && editingMsgId !== msg.id && (
+                      {!msg.apagada && editingMsgId !== msg.id && (
                         <button
                           onClick={() => startReply(msg)}
                           title="Responder"

@@ -640,16 +640,24 @@ export default function CompanyGroups() {
     if (!text && !audio && !attachedFile) return
     if (!selected || sending) return
     setSending(true)
+    const replySnap = replyingTo
+    // Resposta nativa (balão de citação no WhatsApp) só é possível com o id do
+    // WhatsApp. Sem ele (mensagem antiga ou enviada com menção), embute uma
+    // citação curta no próprio texto pro cliente ver o que estamos reforçando.
+    const nativeQuote = !!replySnap?.id_mensagem
+    const citation = (replySnap && !nativeQuote)
+      ? `↩️ _${(replySnap.content || 'mensagem').replace(/\s+/g, ' ').trim().slice(0, 120)}_\n\n`
+      : ''
+    const sentText = citation + text
     const filePrefix = attachedFile
       ? (attachedFile.kind === 'image' ? '🖼️ ' : attachedFile.kind === 'pdf' ? '📄 ' : attachedFile.kind === 'video' ? '🎬 ' : '📎 ') + attachedFile.name
       : null
     const mensagemPayload = audio
-      ? (text || '🎤 Áudio')
+      ? (sentText || '🎤 Áudio')
       : attachedFile
-        ? (text ? `${filePrefix}\n${text}` : filePrefix)
-        : text
+        ? (sentText ? `${filePrefix}\n${sentText}` : filePrefix)
+        : sentText
     const mediaBase64 = audio?.base64 || attachedFile?.base64 || null
-    const replySnap = replyingTo
     setReplyingTo(null)
     setMsgText('')
     setRecordedAudio(null)
@@ -669,7 +677,7 @@ export default function CompanyGroups() {
         horaLastMessage: hora,
         created_at: hora,
       }
-      if (replySnap?.id_mensagem) insertObj.quoted_id_mensagem = replySnap.id_mensagem
+      if (nativeQuote) insertObj.quoted_id_mensagem = replySnap.id_mensagem
       let ins = await supabase.from(CONV_TABLE).insert(insertObj).select('id').single()
       // Se a coluna quoted ainda não existe, reinsere sem ela (mensagem vai igual)
       if (ins.error && insertObj.quoted_id_mensagem && /quoted_id_mensagem/i.test(ins.error.message || '')) {
@@ -685,8 +693,8 @@ export default function CompanyGroups() {
         setSendErr('A mensagem não foi salva: ' + insErr.message)
         setTimeout(() => setSendErr(''), 6000)
       }
-      if (/@\d+/.test(text) && !replySnap) {
-        // Mensagem com menção → só para infogrupo
+      if (/@\d+/.test(text) && !nativeQuote) {
+        // Mensagem com menção → só para infogrupo (resposta embutida vai junto).
         fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -696,17 +704,30 @@ export default function CompanyGroups() {
             apikey:       apiInstancia,
             idgrupo:      selected.idgrupo,
             nomegrupo:    selected.nomegrupo || null,
-            mensagem:     text,
+            mensagem:     sentText,
             sender_name:  session?.user?.name,
             sender_email: session?.user?.email,
           }),
-        }).catch(e => console.warn('webhook mencao:', e))
+        })
+          .then(r => r.text())
+          .then(t => {
+            // Se o infogrupo devolver o id_mensagem (mesmo formato do envioNexla:
+            // instancia / mensagem / id_mensagem), grava — assim a mensagem com
+            // menção fica respondível/editável depois.
+            const lines = (t || '').trim().split('\n')
+            const msgId = lines.length >= 3 ? lines[lines.length - 1].trim() : ''
+            if (insertedId && msgId && !/\s/.test(msgId)) {
+              supabase.from(CONV_TABLE).update({ id_mensagem: msgId }).eq('id', insertedId).then(() => {})
+              setMessages(prev => prev.map(m => m.id === insertedId ? { ...m, id_mensagem: msgId } : m))
+            }
+          })
+          .catch(e => console.warn('webhook mencao:', e))
       } else {
-        // Respondendo em grupo → webhook próprio de grupo; senão envioNexla
-        const webhookUrl = replySnap
+        // Resposta nativa → webhook próprio de grupo; senão envioNexla
+        const webhookUrl = nativeQuote
           ? 'https://n8n.nexladesenvolvimento.com.br/webhook/respondermensagemgrupo'
           : 'https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla'
-        const quotedPayload = replySnap ? {
+        const quotedPayload = nativeQuote ? {
           quoted_id:          replySnap.id_mensagem,
           quoted_text:        replySnap.content,
           quoted_fromMe:      ['atendente', 'humano', 'ia', 'bot'].includes((replySnap.type || '').toLowerCase()),
@@ -717,7 +738,7 @@ export default function CompanyGroups() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            message: text,
+            message: sentText,
             mensagem: mensagemPayload,
             audio_base64: audio?.base64 || null,
             audio_mime: audio?.mime || null,
@@ -824,9 +845,11 @@ export default function CompanyGroups() {
   }
 
   function startReply(msg) {
-    if (!msg?.id_mensagem) return
+    if (!msg || msg.apagada) return
     setReplyingTo({
-      id_mensagem: msg.id_mensagem,
+      // Pode ser null (mensagem antiga/menção sem id do WhatsApp) — nesse caso
+      // a citação vai embutida no texto em vez de resposta nativa.
+      id_mensagem: msg.id_mensagem || null,
       content: (msg.mensagem || '').slice(0, 200) || (msg.base64 ? '📎 Mídia' : ''),
       nome: msg.nome || null,
       type: msg.type || null,
@@ -1538,8 +1561,9 @@ export default function CompanyGroups() {
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                           {formatTime(ts, companyTz)}
                         </span>
-                        {/* Responder: qualquer mensagem que já tem id_mensagem */}
-                        {msg.id_mensagem && editingMsgId !== msg.id && (
+                        {/* Responder: qualquer mensagem (inclusive as nossas). Com
+                            id_mensagem vira citação nativa; sem ele, citação embutida. */}
+                        {!msg.apagada && editingMsgId !== msg.id && (
                           <button
                             onClick={() => startReply(msg)}
                             title="Responder"
@@ -1592,7 +1616,9 @@ export default function CompanyGroups() {
                   <Reply size={14} style={{ color: '#4F46E5', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5' }}>
-                      Respondendo {replyingTo.nome ? `a ${replyingTo.nome}` : 'à mensagem'}
+                      {['atendente', 'humano', 'ia', 'bot'].includes((replyingTo.type || '').toLowerCase())
+                        ? 'Respondendo à sua mensagem'
+                        : `Respondendo ${replyingTo.nome ? `a ${replyingTo.nome}` : 'à mensagem'}`}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {replyingTo.content || '(mídia)'}
