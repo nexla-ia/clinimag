@@ -575,15 +575,22 @@ export default function CompanyConversations() {
     if (!saveContactModal?.nome.trim()) return
     setSavingContact(true)
     const { id, numero, nome, notes } = saveContactModal
-    const { error } = id
-      ? await supabase.from('saved_contacts').update({ nome: nome.trim(), notes: notes?.trim() || null }).eq('id', id)
+    const payload = { nome: nome.trim(), notes: notes?.trim() || null }
+    const { data, error } = id
+      ? await supabase.from('saved_contacts').update(payload).eq('id', id).select('*').single()
       : await supabase.from('saved_contacts').insert({
           numero, instancia: instance,
-          nome: nome.trim(), notes: notes?.trim() || null,
+          ...payload,
           created_by_email: session?.user?.email,
-        })
+        }).select('*').single()
     setSavingContact(false)
-    if (!error) setSaveContactModal(null)
+    if (!error) {
+      // Atualiza o header na hora (sem depender do realtime da saved_contacts,
+      // que pode não estar habilitado) — assim o nome aparece já ao salvar.
+      const row = data || { id: id || null, numero, ...payload }
+      setSavedContacts(prev => ({ ...prev, [row.numero]: { ...(prev[row.numero] || {}), ...row } }))
+      setSaveContactModal(null)
+    }
     else setToast({ message: 'Erro ao salvar: ' + error.message, color: '#DC2626' })
   }
 
@@ -2155,12 +2162,22 @@ export default function CompanyConversations() {
                         </div>
                       )
                     })()}
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{ fontWeight: 500, fontSize: 14, color: 'var(--text-primary)', cursor: saved ? 'pointer' : 'default' }}
-                        onClick={() => saved && navigate(`/painel/contatos/${saved.id}`)}
-                      >
-                        {headerName || selected.phone}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div
+                          style={{ fontWeight: 500, fontSize: 14, color: 'var(--text-primary)', cursor: saved ? 'pointer' : 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          onClick={() => saved && navigate(`/painel/contatos/${saved.id}`)}
+                        >
+                          {headerName || selected.phone}
+                        </div>
+                        {/* Lápis pra dar/editar o nome — igual ao renomear grupo */}
+                        <button
+                          onClick={() => openSaveContact(selected)}
+                          title={saved ? 'Editar o nome desse contato' : 'Dar um nome pra esse contato'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'var(--text-muted)', flexShrink: 0, display: 'inline-flex' }}
+                        >
+                          <Pencil size={12} />
+                        </button>
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
                         {headerName && <span style={{ fontFamily: 'monospace' }}>{selected.phone}</span>}
@@ -3155,7 +3172,7 @@ export default function CompanyConversations() {
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-                  {saveContactModal.id ? 'Editar paciente' : 'Salvar paciente'}
+                  {saveContactModal.id ? 'Editar contato' : 'Salvar contato'}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
                   {saveContactModal.numero}
