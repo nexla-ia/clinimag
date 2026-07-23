@@ -39,6 +39,34 @@ function parseTimestamp(val) {
 // outro fuso (ex: -04:00 RO/AM). Formatamos sempre a partir do UTC + offset da clínica.
 function getTimestamp(row) { return row.created_at || parseTimestamp(row.horaLastMessage) || null }
 
+// ── Contato compartilhado (vCard do WhatsApp) ───────────────────────────────
+// Extrai nome + telefone de um vCard. O TEL vem tipo:
+//   TEL;type=CELL;waid=556981161007:+55 69 8116-1007
+function parseVCard(vcard) {
+  const lines = String(vcard || '').split(/\r?\n/)
+  let name = '', phone = '', digits = ''
+  for (const l of lines) {
+    if (/^FN:/i.test(l)) name = l.slice(3).trim()
+    else if (/^TEL/i.test(l)) {
+      const w = l.match(/waid=(\d+)/i)
+      if (w && !digits) digits = w[1]
+      const val = l.split(':').slice(1).join(':').trim()  // valor depois do 1º ":"
+      if (val && !phone) phone = val
+    }
+  }
+  if (!digits) digits = (phone || '').replace(/\D/g, '')
+  return { name, phone: phone || (digits ? '+' + digits : ''), digits }
+}
+// Normaliza o contact_card (1 contato ou vários) numa lista { name, phone, digits }
+function contactCardsOf(card) {
+  if (!card) return []
+  const arr = Array.isArray(card) ? card : (Array.isArray(card.contacts) ? card.contacts : [card])
+  return arr.map(c => {
+    const p = parseVCard(c?.vcard)
+    return { name: c?.displayName || p.name || p.phone || 'Contato', phone: p.phone, digits: p.digits }
+  }).filter(c => c.digits || c.phone || c.name)
+}
+
 // Offset "-04:00" / "-03:00" → minutos (-240 / -180)
 function tzOffsetMinutes(tz) {
   const m = /^([+-])(\d{2}):?(\d{2})$/.exec((tz || '-03:00').trim())
@@ -852,6 +880,7 @@ export default function CompanyConversations() {
                 id_mensagem: row.id_mensagem || null,
                 quoted_id_mensagem: row.quoted_id_mensagem || null,
                 quoted_text: row.quoted_text || null,
+                contact_card: row.contact_card || null,
                 type: getMessageType(row),
                 content: getMessageContent(row),
                 base64: row.base64 || null,
@@ -942,6 +971,7 @@ export default function CompanyConversations() {
             id_mensagem: r.id_mensagem || null,
             quoted_id_mensagem: r.quoted_id_mensagem || null,
             quoted_text: r.quoted_text || null,
+            contact_card: r.contact_card || null,
             type: getMessageType(r),
             content: getMessageContent(r),
             base64: r.base64 || null,
@@ -977,6 +1007,7 @@ export default function CompanyConversations() {
         id_mensagem: r.id_mensagem || null,
         quoted_id_mensagem: r.quoted_id_mensagem || null,
         quoted_text: r.quoted_text || null,
+        contact_card: r.contact_card || null,
         type: getMessageType(r),
         content: getMessageContent(r),
         base64: r.base64 || null,
@@ -1684,6 +1715,7 @@ export default function CompanyConversations() {
       id_mensagem: r.id_mensagem || null,
       quoted_id_mensagem: r.quoted_id_mensagem || null,
       quoted_text: r.quoted_text || null,
+      contact_card: r.contact_card || null,
       type: getMessageType(r),
       content: getMessageContent(r),
       base64: r.base64 || null,
@@ -2488,12 +2520,16 @@ export default function CompanyConversations() {
                         const extraText = fileLineMatch?.[3]?.trim() || ''
                         const isPlaceholder = !!fileLine
                         const displayContent = isPlaceholder ? extraText : rawContent
+                        const cards = contactCardsOf(msg.contact_card)
                         const hasOnlyMedia = media && !displayContent
+                        // Só um contato compartilhado (sem texto/mídia) → bolha "nua", o cartão é tudo
+                        const contactOnly = cards.length > 0 && !displayContent && !media
+                        const bare = hasOnlyMedia || contactOnly
                         const bubbleStyle = isAtendente
-                          ? hasOnlyMedia
+                          ? bare
                             ? { background: 'transparent', padding: 0, boxShadow: 'none', border: 'none' }
                             : { background: '#16A34A', color: '#fff', borderBottomRightRadius: 4 }
-                          : hasOnlyMedia
+                          : bare
                             ? { background: 'transparent', padding: 0, boxShadow: 'none', border: 'none' }
                             : {}
                         return (
@@ -2602,6 +2638,38 @@ export default function CompanyConversations() {
                                 </div>
                               </div>
                             )}
+                            {/* Cartão de contato compartilhado (vCard) */}
+                            {cards.map((cc, ci) => (
+                              <div key={ci} style={{
+                                background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10,
+                                overflow: 'hidden', minWidth: 232, maxWidth: 280,
+                                marginBottom: displayContent ? 6 : 0,
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
+                                  <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, background: '#EFF6FF', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>
+                                    {cc.name ? cc.name.trim().charAt(0).toUpperCase() : <User size={18} />}
+                                  </div>
+                                  <div style={{ minWidth: 0, flex: 1 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cc.name}</div>
+                                    <div style={{ fontSize: 12, color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>{cc.phone || 'sem número'}</div>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', borderTop: '1px solid #E2E8F0' }}>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); if (cc.digits) navigate(`/painel/conversas?contact=${cc.digits}`) }}
+                                    disabled={!cc.digits}
+                                    style={{ flex: 1, padding: '8px', border: 'none', borderRight: '1px solid #E2E8F0', background: 'none', color: cc.digits ? '#16A34A' : '#94A3B8', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                                    <MessageSquare size={13} /> Conversar
+                                  </button>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); if (!cc.digits) return; const existing = savedContacts[cc.digits]; setSaveContactModal({ id: existing?.id || null, numero: cc.digits, nome: existing?.nome || cc.name || '', notes: '' }) }}
+                                    disabled={!cc.digits}
+                                    style={{ flex: 1, padding: '8px', border: 'none', background: 'none', color: cc.digits ? '#2563EB' : '#94A3B8', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                                    <UserPlus size={13} /> Salvar
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                             {isAtendente && editingMsgId === msg.id ? (
                               <div>
                                 <textarea
