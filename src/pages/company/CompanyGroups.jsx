@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search } from 'lucide-react'
+import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
@@ -52,6 +52,31 @@ function formatTime(ts, tz) {
   if (sameDay(nowLoc)) return hhmm
   if (sameDay(new Date(nowLoc.getTime() - 86400000))) return `Ontem ${hhmm}`
   return `${String(loc.getUTCDate()).padStart(2, '0')}/${String(loc.getUTCMonth() + 1).padStart(2, '0')} ${hhmm}`
+}
+
+// ── Contato compartilhado (vCard do WhatsApp) ───────────────────────────────
+function parseVCard(vcard) {
+  const lines = String(vcard || '').split(/\r?\n/)
+  let name = '', phone = '', digits = ''
+  for (const l of lines) {
+    if (/^FN:/i.test(l)) name = l.slice(3).trim()
+    else if (/^TEL/i.test(l)) {
+      const w = l.match(/waid=(\d+)/i)
+      if (w && !digits) digits = w[1]
+      const val = l.split(':').slice(1).join(':').trim()
+      if (val && !phone) phone = val
+    }
+  }
+  if (!digits) digits = (phone || '').replace(/\D/g, '')
+  return { name, phone: phone || (digits ? '+' + digits : ''), digits }
+}
+function contactCardsOf(card) {
+  if (!card) return []
+  const arr = Array.isArray(card) ? card : (Array.isArray(card.contacts) ? card.contacts : [card])
+  return arr.map(c => {
+    const p = parseVCard(c?.vcard)
+    return { name: c?.displayName || p.name || p.phone || 'Contato', phone: p.phone, digits: p.digits }
+  }).filter(c => c.digits || c.phone || c.name)
 }
 
 // created_at (UTC do banco) primeiro; horaLastMessage às vezes vem em -03:00 (n8n)
@@ -1311,6 +1336,10 @@ export default function CompanyGroups() {
                 const isAtendente = type === 'atendente' || type === 'humano'
                 const ts = parseTs(msg)
                 const media = detectMedia(msg.base64)
+                const cards = contactCardsOf(msg.contact_card)
+                // "📇 Nome" é só rótulo pra lista — dentro da bolha o cartão já mostra tudo
+                const contactLabelOnly = cards.length > 0 && /^📇/.test((msg.mensagem || '').trim())
+                const contactOnly = cards.length > 0 && contactLabelOnly && !media
                 return (
                   <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} data-db-id={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
@@ -1341,7 +1370,7 @@ export default function CompanyGroups() {
                           {msg.nome}
                         </span>
                       )}
-                      <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : undefined }}>
+                      <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : (contactOnly ? 0 : undefined), ...(contactOnly ? { background: 'transparent', boxShadow: 'none', border: 'none' } : {}) }}>
                         {/* Bloco de citação (respondendo outra mensagem do grupo) */}
                         {msg.quoted_id_mensagem && (() => {
                           const orig = messages.find(m => m.id_mensagem === msg.quoted_id_mensagem)
@@ -1404,6 +1433,59 @@ export default function CompanyGroups() {
                             </div>
                           </a>
                         )}
+                        {/* Cartão de contato compartilhado (vCard) */}
+                        {cards.map((cc, ci) => (
+                          <div key={ci} style={{
+                            background: '#fff', border: '1px solid #E9EDF3', borderRadius: 14,
+                            overflow: 'hidden', minWidth: 248, maxWidth: 290,
+                            marginBottom: (contactOnly ? 0 : 6),
+                            boxShadow: '0 1px 2px rgba(15,23,42,0.05), 0 8px 20px -8px rgba(15,23,42,0.14)',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 15px 13px' }}>
+                              <div style={{ position: 'relative', flexShrink: 0 }}>
+                                <div style={{
+                                  width: 46, height: 46, borderRadius: '50%',
+                                  background: 'linear-gradient(140deg, #EEF2FF 0%, #DDE3FF 100%)',
+                                  boxShadow: 'inset 0 0 0 1px rgba(79,70,229,0.14)',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  color: '#4F46E5', fontWeight: 800, fontSize: 18, letterSpacing: '-0.02em',
+                                }}>
+                                  {cc.name ? cc.name.trim().charAt(0).toUpperCase() : <User size={20} />}
+                                </div>
+                                <div style={{
+                                  position: 'absolute', right: -2, bottom: -2, width: 18, height: 18, borderRadius: '50%',
+                                  background: '#4F46E5', border: '2px solid #fff',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+                                }}>
+                                  <User size={9} strokeWidth={2.6} />
+                                </div>
+                              </div>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.09em', color: '#9AA6B6', textTransform: 'uppercase', marginBottom: 1 }}>Contato</div>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.25 }}>{cc.name}</div>
+                                <div style={{ fontSize: 12.5, color: '#64748B', fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>{cc.phone || 'sem número'}</div>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', borderTop: '1px solid #EEF1F6' }}>
+                              <button
+                                onClick={e => { e.stopPropagation(); if (cc.digits) navigate(`/painel/conversas?contact=${cc.digits}`) }}
+                                disabled={!cc.digits}
+                                onMouseEnter={e => { if (cc.digits) e.currentTarget.style.background = '#F0FDF4' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                                style={{ flex: 1, padding: '10px 8px', border: 'none', borderRight: '1px solid #EEF1F6', background: 'transparent', color: cc.digits ? '#16A34A' : '#B6C0CE', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 0.12s' }}>
+                                <MessageCircle size={14} /> Conversar
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); if (cc.digits) handleSaveMember(cc.digits, cc.name) }}
+                                disabled={!cc.digits || savingContact === cc.digits}
+                                onMouseEnter={e => { if (cc.digits) e.currentTarget.style.background = '#EEF2FF' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                                style={{ flex: 1, padding: '10px 8px', border: 'none', background: 'transparent', color: cc.digits ? '#4F46E5' : '#B6C0CE', fontWeight: 700, fontSize: 12.5, cursor: cc.digits ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 0.12s' }}>
+                                {savedContact === cc.digits ? <><Check size={14} /> Salvo!</> : <><UserPlus size={14} /> Salvar</>}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                         {editingMsgId === msg.id ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
                             <textarea
@@ -1432,7 +1514,7 @@ export default function CompanyGroups() {
                               </button>
                             </div>
                           </div>
-                        ) : (!media || media.type === 'pdf') && msg.mensagem && (
+                        ) : (!media || media.type === 'pdf') && msg.mensagem && !contactLabelOnly && (
                           <span style={{ whiteSpace: 'pre-wrap' }}>
                             {renderTextWithLinks(msg.mensagem, {
                               color: (msg.type || '').toLowerCase() === 'atendente' || (msg.type || '').toLowerCase() === 'humano'
