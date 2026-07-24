@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search } from 'lucide-react'
+import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2 } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
@@ -77,6 +77,39 @@ function contactCardsOf(card) {
     const p = parseVCard(c?.vcard)
     return { name: c?.displayName || p.name || p.phone || 'Contato', phone: p.phone, digits: p.digits }
   }).filter(c => c.digits || c.phone || c.name)
+}
+
+// Extrai lat/long de coordenadas soltas ou de um link do Google Maps.
+function parseLatLng(raw) {
+  const s = (raw || '').trim()
+  if (!s) return null
+  const isValid = (lat, lng) => Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)
+  const tries = [
+    /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/,
+    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
+    /[?&#](?:q|query|ll|sll|destination|center|daddr)=(-?\d{1,3}\.\d+),\s*(-?\d{1,3}\.\d+)/i,
+  ]
+  for (const re of tries) {
+    const m = s.match(re)
+    if (m) { const lat = +m[1], lng = +m[2]; if (isValid(lat, lng)) return { lat, lng } }
+  }
+  const d3 = s.match(/!3d(-?\d{1,3}\.\d+)/), d4 = s.match(/!4d(-?\d{1,3}\.\d+)/)
+  if (d3 && d4) { const lat = +d3[1], lng = +d4[1]; if (isValid(lat, lng)) return { lat, lng } }
+  return null
+}
+
+// Normaliza o campo location da mensagem → { lat, lng, name, address, url }
+function locationOf(loc) {
+  if (!loc) return null
+  const lat = Number(loc.latitude ?? loc.lat)
+  const lng = Number(loc.longitude ?? loc.lng)
+  if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) return null
+  return {
+    lat, lng,
+    name: (loc.name || '').trim(),
+    address: (loc.address || '').trim(),
+    url: `https://www.google.com/maps?q=${lat},${lng}`,
+  }
 }
 
 // created_at (UTC do banco) primeiro; horaLastMessage às vezes vem em -03:00 (n8n)
@@ -164,6 +197,8 @@ export default function CompanyGroups() {
   const [recordedAudio, setRecordedAudio] = useState(null)
   const [recordTime, setRecordTime] = useState(0)
   const [attachedFile, setAttachedFile] = useState(null)
+  const [locationModal, setLocationModal] = useState(null) // { input, name, address } | null
+  const [sendingLocation, setSendingLocation] = useState(false)
   const [mutedGroups, setMutedGroupsState] = useState(() => getMutedGroups(instance))
   const [contextMenu, setContextMenu] = useState(null) // { x, y, group }
   const [tagFilter, setTagFilter] = useState([])
@@ -655,6 +690,81 @@ export default function CompanyGroups() {
   }
 
   function discardFile() { setAttachedFile(null) }
+
+  // Envia uma localização (pin) para o grupo. Insere na conversa e dispara pro
+  // webhook locamed (que chama o sendLocation da Evolution).
+  async function handleSendLocation() {
+    if (!locationModal || sendingLocation || !selected) return
+    const coords = parseLatLng(locationModal.input)
+    if (!coords) return
+    const { lat, lng } = coords
+    const name = (locationModal.name || '').trim()
+    const address = (locationModal.address || '').trim()
+    setSendingLocation(true)
+    try {
+      const hora = new Date().toISOString()
+      const loc = { latitude: lat, longitude: lng, name: name || null, address: address || null }
+      const fallbackText = '📍 ' + (name || address || 'Localização')
+      const baseRow = {
+        instancia: instance,
+        numero: instanceOwner || selected.idgrupo,
+        idgrupo: selected.idgrupo,
+        nomegrupo: selected.nomegrupo || null,
+        mensagem: fallbackText,
+        type: 'atendente',
+        nome: session?.user?.name || null,
+        horaLastMessage: hora,
+        created_at: hora,
+      }
+      let ins = await supabase.from(CONV_TABLE).insert({ ...baseRow, location: loc }).select('id').single()
+      if (ins.error && /location/i.test(ins.error.message || '')) {
+        ins = await supabase.from(CONV_TABLE).insert(baseRow).select('id').single()
+        setSendErr('Localização enviada, mas o cartão no chat precisa da migration no Supabase.')
+        setTimeout(() => setSendErr(''), 6000)
+      }
+      if (ins.error) {
+        setSendErr('A localização não foi salva: ' + ins.error.message)
+        setTimeout(() => setSendErr(''), 6000)
+      }
+      const insertedId = ins.data?.id
+      fetch('https://n8n.nexladesenvolvimento.com.br/webhook/locamed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: selected.idgrupo,
+          session_id: selected.idgrupo,
+          idgrupo: selected.idgrupo,
+          nomegrupo: selected.nomegrupo || null,
+          instancia: instance,
+          api_instancia: apiInstancia,
+          latitude: lat,
+          longitude: lng,
+          name: name || null,
+          address: address || null,
+          sender_name: session?.user?.name,
+          sender_email: session?.user?.email,
+          company: session?.company?.name,
+        }),
+      })
+        .then(r => r.text())
+        .then(t => {
+          if (/^ERRO/i.test((t || '').trim())) {
+            setSendErr('⚠️ O WhatsApp está com instabilidade e a localização NÃO foi entregue no grupo. Tente de novo.')
+            setTimeout(() => setSendErr(''), 8000)
+            return
+          }
+          const lines = (t || '').trim().split('\n')
+          const msgId = lines.length >= 3 ? lines[lines.length - 1].trim() : ''
+          if (insertedId && msgId && !/\s/.test(msgId)) {
+            supabase.from(CONV_TABLE).update({ id_mensagem: msgId }).eq('id', insertedId).then(() => {})
+          }
+        })
+        .catch(e => console.warn('webhook locamed grupo:', e))
+      setLocationModal(null)
+    } finally {
+      setSendingLocation(false)
+    }
+  }
 
   async function handleSend() {
     let audio = recordedAudio
@@ -1383,9 +1493,12 @@ export default function CompanyGroups() {
                 const ts = parseTs(msg)
                 const media = detectMedia(msg.base64)
                 const cards = contactCardsOf(msg.contact_card)
-                // "📇 Nome" é só rótulo pra lista — dentro da bolha o cartão já mostra tudo
+                const loc = locationOf(msg.location)
+                // "📇 Nome" / "📍 ..." é só rótulo pra lista — dentro da bolha o cartão já mostra tudo
                 const contactLabelOnly = cards.length > 0 && /^📇/.test((msg.mensagem || '').trim())
+                const locationLabelOnly = !!loc && /^📍/.test((msg.mensagem || '').trim())
                 const contactOnly = cards.length > 0 && contactLabelOnly && !media
+                const locationOnly = !!loc && locationLabelOnly && !media && cards.length === 0
                 return (
                   <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} data-db-id={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
@@ -1416,7 +1529,7 @@ export default function CompanyGroups() {
                           {msg.nome}
                         </span>
                       )}
-                      <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : (contactOnly ? 0 : undefined), ...(contactOnly ? { background: 'transparent', boxShadow: 'none', border: 'none' } : {}) }}>
+                      <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : ((contactOnly || locationOnly) ? 0 : undefined), ...((contactOnly || locationOnly) ? { background: 'transparent', boxShadow: 'none', border: 'none' } : {}) }}>
                         {/* Bloco de citação (respondendo outra mensagem do grupo) */}
                         {(msg.quoted_id_mensagem || msg.quoted_text) && (() => {
                           const orig = msg.quoted_id_mensagem ? messages.find(m => m.id_mensagem === msg.quoted_id_mensagem) : null
@@ -1542,6 +1655,41 @@ export default function CompanyGroups() {
                             </div>
                           </div>
                         ))}
+                        {/* Cartão de localização (pin) */}
+                        {loc && (
+                          <a href={loc.url} target="_blank" rel="noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              display: 'block', textDecoration: 'none',
+                              background: '#fff', border: '1px solid #E9EDF3', borderRadius: 14,
+                              overflow: 'hidden', minWidth: 230, maxWidth: 280,
+                              marginBottom: (!locationLabelOnly && msg.mensagem && !contactLabelOnly) ? 6 : 0,
+                              boxShadow: '0 1px 2px rgba(15,23,42,0.05), 0 8px 20px -8px rgba(15,23,42,0.14)',
+                            }}>
+                            <div style={{
+                              height: 72, background: 'linear-gradient(135deg, #E6F4EA 0%, #D3EAF7 100%)',
+                              position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              borderBottom: '1px solid #EEF1F6',
+                            }}>
+                              <div style={{ position: 'absolute', inset: 0, opacity: 0.5, backgroundImage: 'linear-gradient(0deg, rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
+                              <div style={{
+                                width: 40, height: 40, borderRadius: '50%', background: '#DC2626',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+                                boxShadow: '0 4px 10px -2px rgba(220,38,38,0.5)', zIndex: 1,
+                              }}>
+                                <MapPin size={20} fill="#fff" />
+                              </div>
+                            </div>
+                            <div style={{ padding: '11px 14px 8px' }}>
+                              <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.09em', color: '#9AA6B6', textTransform: 'uppercase', marginBottom: 2 }}>Localização</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>{loc.name || 'Local compartilhado'}</div>
+                              {loc.address && <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 1 }}>{loc.address}</div>}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderTop: '1px solid #EEF1F6', padding: '9px 8px', color: '#2563EB', fontWeight: 700, fontSize: 12.5 }}>
+                              <ExternalLink size={14} /> Abrir no mapa
+                            </div>
+                          </a>
+                        )}
                         {editingMsgId === msg.id ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
                             <textarea
@@ -1570,7 +1718,7 @@ export default function CompanyGroups() {
                               </button>
                             </div>
                           </div>
-                        ) : (!media || media.type === 'pdf') && msg.mensagem && !contactLabelOnly && (
+                        ) : (!media || media.type === 'pdf') && msg.mensagem && !contactLabelOnly && !locationLabelOnly && (
                           <span style={{ whiteSpace: 'pre-wrap' }}>
                             {renderTextWithLinks(msg.mensagem, {
                               color: (msg.type || '').toLowerCase() === 'atendente' || (msg.type || '').toLowerCase() === 'humano'
@@ -1851,6 +1999,13 @@ export default function CompanyGroups() {
                     >
                       <Mic size={15} />
                     </button>
+                    <button
+                      onClick={() => setLocationModal({ input: '', name: '', address: '' })}
+                      title="Enviar localização"
+                      style={{ padding: '0 14px', flexShrink: 0, background: '#fff', border: '1px solid var(--border)', borderRadius: 8, color: '#6B7280', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      <MapPin size={15} />
+                    </button>
                   </>
                 )}
                 <button
@@ -1968,6 +2123,69 @@ export default function CompanyGroups() {
       </>,
       document.body
     )}
+
+    {locationModal && createPortal(
+      (() => {
+        const coords = parseLatLng(locationModal.input)
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+            backdropFilter: 'blur(4px)', padding: '1.5rem',
+          }}>
+            <div className="nx-card" style={{ width: '100%', maxWidth: 440 }}>
+              <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <MapPin size={18} style={{ color: '#DC2626' }} />
+                  <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Enviar localização</div>
+                </div>
+                <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => setLocationModal(null)}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Link do Google Maps ou coordenadas</label>
+                  <textarea className="nx-input" rows={2} autoFocus
+                    placeholder="Cole o link do Google Maps  (ou: -8.7616, -63.9022)"
+                    value={locationModal.input}
+                    onChange={e => setLocationModal(p => ({ ...p, input: e.target.value }))} />
+                  {locationModal.input.trim() && (
+                    coords
+                      ? <div style={{ fontSize: 11.5, color: '#16A34A', marginTop: 6, display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+                          <CheckCircle2 size={13} /> Coordenadas encontradas: {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                        </div>
+                      : <div style={{ fontSize: 11.5, color: '#D97706', marginTop: 6, lineHeight: 1.5 }}>
+                          Não achei as coordenadas nesse texto. Cole o <strong>link completo</strong> do Google Maps (o link curto <em>maps.app.goo.gl</em> abra antes no navegador), ou digite <strong>latitude, longitude</strong>.
+                        </div>
+                  )}
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nome do local (opcional)</label>
+                  <input className="nx-input" placeholder="Ex: Clínica Med Mag"
+                    value={locationModal.name}
+                    onChange={e => setLocationModal(p => ({ ...p, name: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Endereço (opcional)</label>
+                  <input className="nx-input" placeholder="Ex: Av. Principal, 123 - Centro"
+                    value={locationModal.address}
+                    onChange={e => setLocationModal(p => ({ ...p, address: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', display: 'flex', gap: 10 }}>
+                <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setLocationModal(null)}>Cancelar</button>
+                <button className="nx-btn-primary" style={{ flex: 1, justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={handleSendLocation}
+                  disabled={!coords || sendingLocation}>
+                  <MapPin size={14} /> {sendingLocation ? 'Enviando...' : 'Enviar localização'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()
+    , document.body)}
 
     {lightbox && createPortal(
       <div
