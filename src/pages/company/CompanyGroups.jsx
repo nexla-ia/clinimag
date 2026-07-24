@@ -1527,7 +1527,7 @@ export default function CompanyGroups() {
                 const locationOnly = !!loc && locationLabelOnly && !media && cards.length === 0
                 return (
                   <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} data-db-id={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: editingMsgId === msg.id ? '94%' : '70%' }}>
                       {!isAtendente && (
                         <span
                           onClick={(e) => {
@@ -1717,7 +1717,7 @@ export default function CompanyGroups() {
                           </a>
                         )}
                         {editingMsgId === msg.id ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 220 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', minWidth: 'min(400px, 78vw)' }}>
                             <textarea
                               autoFocus
                               value={editingText}
@@ -1726,11 +1726,11 @@ export default function CompanyGroups() {
                                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSaveEdit(msg) }
                                 if (e.key === 'Escape') { setEditingMsgId(null); setEditingText('') }
                               }}
-                              rows={2}
+                              rows={5}
                               style={{
-                                width: '100%', resize: 'vertical', minHeight: 40, borderRadius: 8,
-                                border: 'none', padding: '7px 9px', fontSize: 13, fontFamily: 'inherit',
-                                color: '#0F172A', lineHeight: 1.4,
+                                width: '100%', resize: 'vertical', minHeight: 120, maxHeight: 360, overflowY: 'auto',
+                                borderRadius: 8, border: 'none', padding: '9px 11px', fontSize: 14, fontFamily: 'inherit',
+                                color: '#0F172A', lineHeight: 1.5,
                               }}
                             />
                             <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>

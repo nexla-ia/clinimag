@@ -2731,7 +2731,7 @@ export default function CompanyConversations() {
                             ? { background: 'transparent', padding: 0, boxShadow: 'none', border: 'none' }
                             : {}
                         return (
-                          <div className="msg-bubble" style={bubbleStyle}>
+                          <div className="msg-bubble" style={{ ...bubbleStyle, ...(editingMsgId === msg.id ? { maxWidth: '94%' } : {}) }}>
                             {/* Bloco de citação (respondendo a outra mensagem) */}
                             {(msg.quoted_id_mensagem || msg.quoted_text) && (() => {
                               const orig = msg.quoted_id_mensagem ? messages.find(m => m.id_mensagem === msg.quoted_id_mensagem) : null
@@ -2934,9 +2934,10 @@ export default function CompanyConversations() {
                               </a>
                             )}
                             {isAtendente && editingMsgId === msg.id ? (
-                              <div>
+                              <div style={{ width: '100%', minWidth: 'min(400px, 78vw)' }}>
                                 <textarea
                                   autoFocus
+                                  rows={5}
                                   value={editingText}
                                   onChange={e => setEditingText(e.target.value)}
                                   onKeyDown={e => {
@@ -2944,12 +2945,12 @@ export default function CompanyConversations() {
                                     if (e.key === 'Escape') { setEditingMsgId(null); setEditingText('') }
                                   }}
                                   style={{
-                                    width: '100%', minHeight: 44, maxHeight: 120, boxSizing: 'border-box',
+                                    width: '100%', minHeight: 120, maxHeight: 340, overflowY: 'auto', boxSizing: 'border-box',
                                     background: 'rgba(255,255,255,0.15)',
                                     border: '1.5px solid rgba(255,255,255,0.45)',
-                                    borderRadius: 8, padding: '8px 10px',
-                                    color: '#fff', fontSize: 13.5,
-                                    lineHeight: 1.5, resize: 'none',
+                                    borderRadius: 8, padding: '9px 11px',
+                                    color: '#fff', fontSize: 14,
+                                    lineHeight: 1.5, resize: 'vertical',
                                     fontFamily: 'inherit', outline: 'none',
                                   }}
                                 />
