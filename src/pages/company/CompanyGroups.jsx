@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2 } from 'lucide-react'
+import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2, LocateFixed } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import './Company.css'
@@ -197,8 +197,9 @@ export default function CompanyGroups() {
   const [recordedAudio, setRecordedAudio] = useState(null)
   const [recordTime, setRecordTime] = useState(0)
   const [attachedFile, setAttachedFile] = useState(null)
-  const [locationModal, setLocationModal] = useState(null) // { input, name, address } | null
+  const [locationModal, setLocationModal] = useState(null) // { input, name, address, geoError } | null
   const [sendingLocation, setSendingLocation] = useState(false)
+  const [geoLoading, setGeoLoading] = useState(false)
   const [mutedGroups, setMutedGroupsState] = useState(() => getMutedGroups(instance))
   const [contextMenu, setContextMenu] = useState(null) // { x, y, group }
   const [tagFilter, setTagFilter] = useState([])
@@ -690,6 +691,31 @@ export default function CompanyGroups() {
   }
 
   function discardFile() { setAttachedFile(null) }
+
+  // Pega a localização atual do aparelho (GPS/navegador), igual ao WhatsApp.
+  function grabCurrentLocation() {
+    if (!navigator.geolocation) {
+      setLocationModal(p => p && ({ ...p, geoError: 'Seu navegador não suporta localização.' }))
+      return
+    }
+    setGeoLoading(true)
+    setLocationModal(p => p && ({ ...p, geoError: '' }))
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setGeoLoading(false)
+        const { latitude, longitude } = pos.coords
+        setLocationModal(p => p && ({ ...p, input: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`, geoError: '' }))
+      },
+      err => {
+        setGeoLoading(false)
+        const msg = err.code === 1 ? 'Permissão de localização negada — libere no cadeado 🔒 do navegador e tente de novo.'
+          : err.code === 3 ? 'Demorou pra pegar a localização. Tente de novo.'
+          : 'Não consegui pegar sua localização. Cole o link do Google Maps.'
+        setLocationModal(p => p && ({ ...p, geoError: msg }))
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  }
 
   // Envia uma localização (pin) para o grupo. Insere na conversa e dispara pro
   // webhook locamed (que chama o sendLocation da Evolution).
@@ -2158,6 +2184,21 @@ export default function CompanyGroups() {
                       : <div style={{ fontSize: 11.5, color: '#D97706', marginTop: 6, lineHeight: 1.5 }}>
                           Não achei as coordenadas nesse texto. Cole o <strong>link completo</strong> do Google Maps (o link curto <em>maps.app.goo.gl</em> abra antes no navegador), ou digite <strong>latitude, longitude</strong>.
                         </div>
+                  )}
+                  {/* Localização atual (GPS), igual ao WhatsApp */}
+                  <button
+                    onClick={grabCurrentLocation}
+                    disabled={geoLoading}
+                    style={{
+                      marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                      padding: '9px 12px', borderRadius: 8, border: '1px dashed #93C5FD',
+                      background: '#F0F7FF', color: '#2563EB', fontSize: 12.5, fontWeight: 700,
+                      cursor: geoLoading ? 'default' : 'pointer', opacity: geoLoading ? 0.7 : 1,
+                    }}>
+                    <LocateFixed size={15} /> {geoLoading ? 'Obtendo sua localização…' : 'Usar minha localização atual'}
+                  </button>
+                  {locationModal.geoError && (
+                    <div style={{ fontSize: 11.5, color: '#DC2626', marginTop: 6, lineHeight: 1.5 }}>{locationModal.geoError}</div>
                   )}
                 </div>
                 <div>

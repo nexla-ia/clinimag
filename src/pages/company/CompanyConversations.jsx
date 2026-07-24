@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -373,8 +373,9 @@ export default function CompanyConversations() {
   const [contextMenu, setContextMenu] = useState(null) // { x, y, contact }
   const [saveContactModal, setSaveContactModal] = useState(null) // { numero, nome, notes }
   const [savingContact, setSavingContact] = useState(false)
-  const [locationModal, setLocationModal] = useState(null) // { input, name, address } | null
+  const [locationModal, setLocationModal] = useState(null) // { input, name, address, geoError } | null
   const [sendingLocation, setSendingLocation] = useState(false)
+  const [geoLoading, setGeoLoading] = useState(false)
   const [editingMsgId, setEditingMsgId]   = useState(null)
   const [replyingTo, setReplyingTo]       = useState(null) // { id_mensagem, content, type, numero }
   const [searchOpen, setSearchOpen]       = useState(false) // busca dentro da conversa (estilo WhatsApp)
@@ -1503,6 +1504,32 @@ export default function CompanyConversations() {
 
   function discardFile() {
     setAttachedFile(null)
+  }
+
+  // Pega a localização atual do aparelho (GPS/navegador), igual ao "enviar
+  // localização atual" do WhatsApp, e preenche as coordenadas no modal.
+  function grabCurrentLocation() {
+    if (!navigator.geolocation) {
+      setLocationModal(p => p && ({ ...p, geoError: 'Seu navegador não suporta localização.' }))
+      return
+    }
+    setGeoLoading(true)
+    setLocationModal(p => p && ({ ...p, geoError: '' }))
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setGeoLoading(false)
+        const { latitude, longitude } = pos.coords
+        setLocationModal(p => p && ({ ...p, input: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`, geoError: '' }))
+      },
+      err => {
+        setGeoLoading(false)
+        const msg = err.code === 1 ? 'Permissão de localização negada — libere no cadeado 🔒 do navegador e tente de novo.'
+          : err.code === 3 ? 'Demorou pra pegar a localização. Tente de novo.'
+          : 'Não consegui pegar sua localização. Cole o link do Google Maps.'
+        setLocationModal(p => p && ({ ...p, geoError: msg }))
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
   }
 
   // Envia uma localização (pin). A pessoa cola o link do Google Maps ou as
@@ -3436,6 +3463,21 @@ export default function CompanyConversations() {
                         : <div style={{ fontSize: 11.5, color: '#D97706', marginTop: 6, lineHeight: 1.5 }}>
                             Não achei as coordenadas nesse texto. Cole o <strong>link completo</strong> do Google Maps (o link curto <em>maps.app.goo.gl</em> abra antes no navegador), ou digite <strong>latitude, longitude</strong>.
                           </div>
+                    )}
+                    {/* Localização atual (GPS), igual ao WhatsApp */}
+                    <button
+                      onClick={grabCurrentLocation}
+                      disabled={geoLoading}
+                      style={{
+                        marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '9px 12px', borderRadius: 8, border: '1px dashed #93C5FD',
+                        background: '#F0F7FF', color: '#2563EB', fontSize: 12.5, fontWeight: 700,
+                        cursor: geoLoading ? 'default' : 'pointer', opacity: geoLoading ? 0.7 : 1,
+                      }}>
+                      <LocateFixed size={15} /> {geoLoading ? 'Obtendo sua localização…' : 'Usar minha localização atual'}
+                    </button>
+                    {locationModal.geoError && (
+                      <div style={{ fontSize: 11.5, color: '#DC2626', marginTop: 6, lineHeight: 1.5 }}>{locationModal.geoError}</div>
                     )}
                   </div>
                   <div>
