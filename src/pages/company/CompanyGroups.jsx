@@ -605,9 +605,7 @@ export default function CompanyGroups() {
 
   function discardAudio() { setRecordedAudio(null); setRecordTime(0) }
 
-  async function handlePickFile(e) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
+  async function attachFile(file) {
     if (!file) return
     // O arquivo viaja como base64 (~1,33x o tamanho) num JSON até o Supabase e
     // o n8n — que corta em 16 MB. Acima de ~10 MB o envio quebra nos dois.
@@ -628,7 +626,32 @@ export default function CompanyGroups() {
       : file.type === 'application/pdf' ? 'pdf'
       : file.type.startsWith('video/') ? 'video'
       : 'file'
-    setAttachedFile({ base64, mime: file.type || 'application/octet-stream', name: file.name, size: file.size, kind })
+    setAttachedFile({ base64, mime: file.type || 'application/octet-stream', name: file.name || `arquivo-${Date.now()}`, size: file.size, kind })
+  }
+
+  async function handlePickFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    await attachFile(file)
+  }
+
+  // Colar imagem da área de transferência (Ctrl+V) — ex: um print de tela.
+  async function handlePaste(e) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (it.kind !== 'file') continue
+      const file = it.getAsFile()
+      if (!file || !file.size) continue
+      const t = file.type || ''
+      if (!(t.startsWith('image/') || t === 'application/pdf' || t.startsWith('video/'))) continue
+      e.preventDefault()
+      const ext = t.split('/')[1] || 'png'
+      const named = file.name ? file : new File([file], `captura-${Date.now()}.${ext}`, { type: t })
+      await attachFile(named)
+      return
+    }
   }
 
   function discardFile() { setAttachedFile(null) }
@@ -1786,6 +1809,7 @@ export default function CompanyGroups() {
                   placeholder={attachedFile ? 'Mensagem opcional para acompanhar o arquivo…' : recordedAudio ? 'Mensagem opcional para acompanhar o áudio…' : 'Mensagem para o grupo…  (Shift+Enter pula linha)'}
                   value={msgText}
                   onChange={handleMsgChange}
+                  onPaste={handlePaste}
                   onKeyDown={e => {
                     if (e.key === 'Escape') { setMentionOpen(false); if (replyingTo) setReplyingTo(null); return }
                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
