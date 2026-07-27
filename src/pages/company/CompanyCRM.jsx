@@ -67,6 +67,13 @@ function relTime(dateStr) {
   if (d === 1) return 'ontem'
   return `${d}d atrás`
 }
+// Telefone canônico (tira o "9" extra do celular BR) pra casar o mesmo contato
+// entre crm_contacts, saved_contacts e clientes (que às vezes têm o 9, às vezes não).
+function normPhone(p) {
+  let d = (p || '').replace(/@.*/, '').replace(/\D/g, '')
+  if (d.length === 13 && d[4] === '9') d = d.slice(0, 4) + d.slice(5)
+  return d
+}
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function CompanyCRM() {
@@ -77,6 +84,7 @@ export default function CompanyCRM() {
   const [funnels, setFunnels]         = useState([])
   const [stages, setStages]           = useState([])
   const [contacts, setContacts]       = useState([])
+  const [nameMap, setNameMap]         = useState({}) // telefone canônico → nome (contatos salvos + clientes)
   const [panelTimeline, setPanelTimeline] = useState([])
   const [panelLoading, setPanelLoading]  = useState(false)
   const [users, setUsers]               = useState([])
@@ -103,17 +111,32 @@ export default function CompanyCRM() {
   const [saving, setSaving]           = useState(false)
   const [confirmDel, setConfirmDel]   = useState(null)
 
+  // Busca TODAS as linhas de uma tabela paginando (o PostgREST corta em 1000,
+  // mesmo com .limit maior). applyFilters recebe o query builder e devolve ele.
+  async function fetchAll(table, columns, applyFilters) {
+    let from = 0, out = []
+    for (;;) {
+      const { data, error } = await applyFilters(supabase.from(table).select(columns)).range(from, from + 999)
+      if (error) break
+      out.push(...(data || []))
+      if (!data || data.length < 1000) break
+      from += 1000
+    }
+    return out
+  }
+
   // ── Load ───────────────────────────────────────────────────────────────────
   async function load() {
     if (!instance) return
     setLoading(true)
-    const [{ data: fn }, { data: st }, { data: ct }, { data: kc }, { data: ls }] = await Promise.all([
+    const [{ data: fn }, { data: st }, { data: kc }, { data: ls }] = await Promise.all([
       supabase.from('crm_funnels').select('*').eq('instancia', instance).order('posicao'),
       supabase.from('crm_stages').select('*').eq('instancia', instance).order('posicao'),
-      supabase.from('crm_contacts').select('*').eq('instancia', instance).order('created_at', { ascending: false }),
       supabase.from('kanban_columns').select('id,name,color').eq('instancia', instance).order('position'),
       supabase.from('crm_lists').select('*').eq('instancia', instance).order('created_at'),
     ])
+    // crm_contacts pode passar de 1000 → pagina (senão leads antigos somem do board e das stats)
+    const ct = await fetchAll('crm_contacts', '*', q => q.eq('instancia', instance).order('created_at', { ascending: false }))
     if (kc) setKanbanCols(kc)
     if (ls) setLists(ls)
 
@@ -135,6 +158,42 @@ export default function CompanyCRM() {
     setContacts(ct || [])
     setActiveFunnel(prev => prev || myFunnels[0]?.id || null)
     setLoading(false)
+
+    // Resolve o nome dos leads puxando de onde a clínica realmente batiza o
+    // contato: contatos salvos (Conversas) e a tabela de clientes (pushname).
+    // Sem isso, um lead sem nome no CRM mostrava só o número, mesmo já tendo
+    // sido salvo com nome nas Conversas.
+    loadNameMap()
+  }
+
+  // Monta telefone-canônico → nome. clientes primeiro, saved_contacts por cima
+  // (o nome salvo à mão pela clínica tem prioridade sobre o pushname).
+  async function loadNameMap() {
+    if (!instance) return
+    const map = {}
+    // clientes primeiro (pushname), saved_contacts por cima (nome salvo à mão vence).
+    const clientes = await fetchAll('clientes', 'numero,nome', q => q.eq('instancia', instance))
+    for (const c of clientes) {
+      const k = normPhone(c.numero)
+      if (k && c.nome && c.nome.trim()) map[k] = c.nome.trim()
+    }
+    const salvos = await fetchAll('saved_contacts', 'numero,nome', q => q.eq('instancia', instance))
+    for (const s of salvos) {
+      const k = normPhone(s.numero)
+      if (k && s.nome && s.nome.trim()) map[k] = s.nome.trim()
+    }
+    setNameMap(map)
+  }
+
+  // Nome exibido: nome do próprio lead > contato salvo/cliente > número formatado.
+  function bestName(c) {
+    return (c?.nome && c.nome.trim()) || nameMap[normPhone(c?.phone)] || ''
+  }
+  function resolveName(c) {
+    return bestName(c) || fmtPhone(c?.phone) || 'Sem nome'
+  }
+  function resolveInitials(c) {
+    return initials(bestName(c), c?.phone)
   }
 
   const cleanNum = p => (p||'').replace(/@.*$/,'').replace(/\D/g,'')
@@ -143,6 +202,12 @@ export default function CompanyCRM() {
     if (!instance || !contact?.phone) return
     setPanelLoading(true)
     const phone = cleanNum(contact.phone)
+    // Variantes do número (com/sem o "9" extra) + formas com @ — pra casar o
+    // histórico mesmo quando cada tabela guarda o número num formato diferente.
+    const alt = phone.length === 12 ? phone.slice(0,4) + '9' + phone.slice(4)
+              : (phone.length === 13 && phone[4] === '9' ? phone.slice(0,4) + phone.slice(5) : phone)
+    const digitVars = [...new Set([phone, alt].filter(Boolean))]
+    const numeroVars = [...new Set(digitVars.flatMap(x => [x, `${x}@s.whatsapp.net`, `${x}@c.us`]))]
 
     const [
       { data: crmIx },
@@ -153,15 +218,15 @@ export default function CompanyCRM() {
       { data: kCards },
     ] = await Promise.all([
       supabase.from('crm_interactions').select('*')
-        .eq('instancia', instance).eq('phone', phone)
+        .eq('instancia', instance).in('phone', digitVars)
         .order('created_at', { ascending: false }).limit(50),
       supabase.from('mensagens_geral')
         .select('id,numero,type,mensagem,created_at')
-        .eq('instancia', instance).eq('numero', phone)
+        .eq('instancia', instance).in('numero', numeroVars)
         .order('created_at', { ascending: false }).limit(40),
       supabase.from('appointments')
         .select('id,contact_nome,contact_numero,starts_at,status,price,procedure_name:procedures(name)')
-        .eq('instancia', instance)
+        .eq('instancia', instance).in('contact_numero', numeroVars)
         .order('starts_at', { ascending: false }).limit(30),
       supabase.from('financial_transactions')
         .select('id,tipo,valor,status,descricao,vencimento,contact_nome,forma_pagamento')
@@ -176,10 +241,12 @@ export default function CompanyCRM() {
 
     if (usrs) setUsers(usrs)
 
-    const myAppts = (appts||[]).filter(a => cleanNum(a.contact_numero) === phone)
-    const nome0 = (contact.nome||'').toLowerCase().split(' ')[0]
+    const myAppts = appts || []
+    // Usa o nome RESOLVIDO (contato salvo/cliente) pra casar o financeiro — antes,
+    // lead sem nome no crm_contacts não trazia nenhuma transação.
+    const nome0 = (bestName(contact) || '').toLowerCase().split(' ')[0]
     const myFin = (finTx||[]).filter(t =>
-      nome0 && t.contact_nome && t.contact_nome.toLowerCase().includes(nome0)
+      nome0 && nome0.length >= 3 && t.contact_nome && t.contact_nome.toLowerCase().includes(nome0)
     )
 
     const TYPE_META = {
@@ -250,7 +317,7 @@ export default function CompanyCRM() {
       instancia: instance,
       column_id: col?.id,
       crm_contact_id: panel.id,
-      contact_nome: panel.nome || panel.phone,
+      contact_nome: bestName(panel) || panel.phone,
       title: kanbanModal.title.trim(),
       description: kanbanModal.description?.trim() || null,
       due_date: kanbanModal.due_date || null,
@@ -298,7 +365,7 @@ export default function CompanyCRM() {
       const inFunil = !c.funil_id || c.funil_id === activeFunnel
       if (!inFunil) return false
       if (filterTemp !== 'todos' && c.temperatura !== filterTemp) return false
-      if (q && !(c.nome||'').toLowerCase().includes(q) && !(c.phone||'').includes(q) && !(c.email||'').toLowerCase().includes(q)) return false
+      if (q && !bestName(c).toLowerCase().includes(q) && !(c.phone||'').includes(q) && !(c.email||'').toLowerCase().includes(q)) return false
       return true
     })
   }, [contacts, search, filterTemp, activeFunnel])
@@ -326,26 +393,35 @@ export default function CompanyCRM() {
   async function onDrop(e, toStageId) {
     e.preventDefault()
     setDragOver(null)
-    if (!dragging || dragging.fromStage === toStageId) { setDragging(null); return }
+    const drag = dragging
+    if (!drag || drag.fromStage === toStageId) { setDragging(null); return }
 
     const now = new Date().toISOString()
-    setContacts(prev => prev.map(c => c.id === dragging.id
+    const snapshot = contacts // pra reverter se o banco recusar
+    const moved = snapshot.find(c => c.id === drag.id)
+    setContacts(prev => prev.map(c => c.id === drag.id
       ? { ...c, stage_id: toStageId, funil_id: activeFunnel, data_entrada_etapa: now }
       : c
     ))
-    const fromStage = stages.find(s => s.id === dragging.fromStage)
+    setDragging(null)
+    const fromStage = stages.find(s => s.id === drag.fromStage)
     const toStage   = stages.find(s => s.id === toStageId)
 
-    await supabase.from('crm_contacts').update({ stage_id: toStageId, funil_id: activeFunnel, data_entrada_etapa: now }).eq('id', dragging.id)
+    const { error } = await supabase.from('crm_contacts')
+      .update({ stage_id: toStageId, funil_id: activeFunnel, data_entrada_etapa: now }).eq('id', drag.id)
+    if (error) {
+      setContacts(snapshot) // desfaz o movimento na tela
+      alert('Não consegui mover o lead: ' + error.message)
+      return
+    }
     await supabase.from('crm_interactions').insert({
-      instancia: instance, phone: contacts.find(c=>c.id===dragging.id)?.phone || '',
+      instancia: instance, phone: moved?.phone || '',
       tipo: 'etapa',
       conteudo: `Movido de "${fromStage?.nome||'Sem etapa'}" → "${toStage?.nome||'Sem etapa'}"`,
-      metadata: { from: dragging.fromStage, to: toStageId },
+      metadata: { from: drag.fromStage, to: toStageId },
       autor_nome: session?.user?.name || session?.user?.email,
     })
-    setDragging(null)
-    if (panel?.id === dragging.id) setPanel(p => ({ ...p, stage_id: toStageId }))
+    if (panel?.id === drag.id) setPanel(p => ({ ...p, stage_id: toStageId }))
   }
 
   // ── Contact CRUD ────────────────────────────────────────────────────────────
@@ -372,7 +448,8 @@ export default function CompanyCRM() {
   }
 
   async function patchContact(id, changes) {
-    await supabase.from('crm_contacts').update(changes).eq('id', id)
+    const { error } = await supabase.from('crm_contacts').update(changes).eq('id', id)
+    if (error) { alert('Não consegui salvar: ' + error.message); return }
     setContacts(p => p.map(c => c.id===id ? {...c,...changes} : c))
     if (panel?.id === id) setPanel(p => ({...p,...changes}))
   }
@@ -426,15 +503,18 @@ export default function CompanyCRM() {
   async function handleDeleteStage(stage) {
     const remaining = funStages.filter(s => s.id !== stage.id)
     const fallback = remaining[0]
-    const inStage = (byStage[stage.id] || [])
-    if (inStage.length && fallback) {
+    // SEMPRE reatribui pelo banco (não pelo byStage, que é filtrado por busca/temperatura
+    // e poderia esconder leads reais → ficariam órfãos apontando pra etapa deletada).
+    if (fallback) {
       const now = new Date().toISOString()
-      await supabase.from('crm_contacts')
+      const { error } = await supabase.from('crm_contacts')
         .update({ stage_id: fallback.id, data_entrada_etapa: now })
         .eq('instancia', instance).eq('stage_id', stage.id)
+      if (error) { alert('Erro ao mover os leads da etapa: ' + error.message); return }
       setContacts(prev => prev.map(c => c.stage_id === stage.id ? { ...c, stage_id: fallback.id, data_entrada_etapa: now } : c))
     }
-    await supabase.from('crm_stages').delete().eq('id', stage.id)
+    const { error: delErr } = await supabase.from('crm_stages').delete().eq('id', stage.id)
+    if (delErr) { alert('Erro ao excluir a etapa: ' + delErr.message); return }
     setStages(prev => prev.filter(s => s.id !== stage.id))
     setConfirmDelStage(null)
     setStageModal(null)
@@ -655,10 +735,10 @@ export default function CompanyCRM() {
                         onMouseEnter={e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.08)'}
                         onMouseLeave={e=>e.currentTarget.style.boxShadow='none'}>
                         <div style={{ width:38,height:38,borderRadius:'50%',background:stage?.cor||C.slate,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:14,flexShrink:0 }}>
-                          {(c.nome||c.phone||'?')[0].toUpperCase()}
+                          {resolveInitials(c)}
                         </div>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:700, fontSize:13, color:C.navy }}>{c.nome||fmtPhone(c.phone)}</div>
+                          <div style={{ fontWeight:700, fontSize:13, color:C.navy }}>{resolveName(c)}</div>
                           <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
                             {stage?.nome} · {temp.icon} {temp.label}
                             {c.responsavel_nome && <span> · {c.responsavel_nome}</span>}
@@ -788,10 +868,10 @@ export default function CompanyCRM() {
                           onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.07)';e.currentTarget.style.borderColor='#BFDBFE'}}
                           onMouseLeave={e=>{e.currentTarget.style.boxShadow='none';e.currentTarget.style.borderColor=C.border}}>
                           <div style={{ width:36,height:36,borderRadius:'50%',background:stage?.cor||C.slate,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:13,flexShrink:0 }}>
-                            {(c.nome||c.phone||'?')[0].toUpperCase()}
+                            {resolveInitials(c)}
                           </div>
                           <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontWeight:700, fontSize:13, color:C.navy, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.nome||fmtPhone(c.phone)}</div>
+                            <div style={{ fontWeight:700, fontSize:13, color:C.navy, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{resolveName(c)}</div>
                             <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
                               {stage?.nome||'—'} · {temp.icon} {temp.label} · {days}d
                               {c.responsavel_nome && <> · {c.responsavel_nome}</>}
@@ -859,7 +939,7 @@ export default function CompanyCRM() {
                   const days = daysIn(contact.data_entrada_etapa)
                   const stale = stage.alerta_dias && days > stage.alerta_dias
                   const temp = TEMP[contact.temperatura] || TEMP.frio
-                  const initStr = initials(contact.nome, contact.phone)
+                  const initStr = resolveInitials(contact)
                   const origemColor = ORIGEM_COLORS[contact.origem] || '#6B7280'
 
                   return (
@@ -888,9 +968,9 @@ export default function CompanyCRM() {
 
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontWeight:700, fontSize:12.5, color:C.navy, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                            {contact.nome || fmtPhone(contact.phone) || 'Sem nome'}
+                            {resolveName(contact)}
                           </div>
-                          {contact.nome && (
+                          {resolveName(contact) !== fmtPhone(contact.phone) && (
                             <div style={{ fontSize:10.5, color:C.muted, marginTop:1 }}>{fmtPhone(contact.phone)}</div>
                           )}
                         </div>
@@ -971,13 +1051,13 @@ export default function CompanyCRM() {
                 border:`2px solid ${stage?.cor||'#6B7280'}66`,
                 display:'flex',alignItems:'center',justifyContent:'center',
                 fontSize:15,fontWeight:800,color:stage?.cor||C.slate,flexShrink:0,
-              }}>{initials(c.nome, c.phone)}</div>
+              }}>{resolveInitials(c)}</div>
 
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontWeight:800, fontSize:15, color:C.navy, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                  {c.nome || fmtPhone(c.phone) || 'Sem nome'}
+                  {resolveName(c)}
                 </div>
-                {c.nome && <div style={{ fontSize:11.5, color:C.muted }}>{fmtPhone(c.phone)}</div>}
+                {resolveName(c) !== fmtPhone(c.phone) && <div style={{ fontSize:11.5, color:C.muted }}>{fmtPhone(c.phone)}</div>}
               </div>
 
               <button onClick={() => setPanel(null)} style={{ width:28,height:28,borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.muted }}>
@@ -1199,7 +1279,7 @@ export default function CompanyCRM() {
               <button onClick={() => setConfirmDel(c)} style={{ display:'flex',alignItems:'center',gap:5,padding:'7px 12px',borderRadius:8,border:`1px solid #FECACA`,background:'#FFF1F2',color:'#DC2626',cursor:'pointer',fontSize:12,fontWeight:600 }}>
                 <Trash2 size={12}/> Remover
               </button>
-              <button onClick={() => setKanbanModal({ title:`Follow-up: ${c.nome||c.phone}`, description:'', column_id: kanbanCols[0]?.id||'', due_date:'', priority:'normal', assigned_user_id:'', assigned_user_name:'' })}
+              <button onClick={() => setKanbanModal({ title:`Follow-up: ${resolveName(c)}`, description:'', column_id: kanbanCols[0]?.id||'', due_date:'', priority:'normal', assigned_user_id:'', assigned_user_name:'' })}
                 style={{ display:'flex',alignItems:'center',gap:5,padding:'7px 12px',borderRadius:8,border:`1px solid #E9D5FF`,background:'#FAF5FF',color:'#7C3AED',cursor:'pointer',fontSize:12,fontWeight:600 }}>
                 <Kanban size={12}/> Criar tarefa
               </button>
@@ -1517,7 +1597,7 @@ export default function CompanyCRM() {
           <div style={{ background:C.card,borderRadius:14,padding:'24px',width:360,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ fontWeight:800,fontSize:15,color:C.navy,marginBottom:8 }}>Remover lead?</div>
             <div style={{ fontSize:13,color:C.muted,marginBottom:20 }}>
-              Isso remove <strong>{confirmDel.nome||fmtPhone(confirmDel.phone)}</strong> do CRM. Não pode ser desfeito.
+              Isso remove <strong>{resolveName(confirmDel)}</strong> do CRM. Não pode ser desfeito.
             </div>
             <div style={{ display:'flex',gap:8,justifyContent:'flex-end' }}>
               <button onClick={()=>setConfirmDel(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13 }}>Cancelar</button>
