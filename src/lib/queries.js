@@ -79,22 +79,38 @@ export async function fetchConversaContatos(instancia) {
 export async function fetchGruposLista(instancia) {
   const { data, error } = await supabase.rpc('api_grupos_lista', { p_instancia: instancia })
   if (!error && data) return data
-  // Fallback: baixa e deduplica client-side (comportamento antigo)
-  const { data: rows } = await supabase
-    .from('mensagens_geral')
-    .select('id, idgrupo, nomegrupo, mensagem, numero, nome, "horaLastMessage", created_at')
-    .eq('instancia', instancia)
-    .not('idgrupo', 'is', null)
-    .order('id', { ascending: false })
-    .limit(20000)
-  const seen = new Set()
-  const out = []
-  for (const row of rows || []) {
-    if (!row.idgrupo || seen.has(row.idgrupo)) continue
-    seen.add(row.idgrupo)
-    out.push(row)
+  // Fallback (RPC api_grupos_lista ausente): NÃO dá pra confiar num .limit grande —
+  // o PostgREST corta em 1000 linhas, então grupos sem mensagem recente sumiam da
+  // lista. A lista COMPLETA de grupos vem da api_distinct_grupos (que existe);
+  // aqui só enriquecemos cada um com a última mensagem, paginando o necessário
+  // (com teto pra não varrer o histórico inteiro numa instância grande).
+  const grupos = await fetchDistinctGrupos(instancia) // [{ idgrupo, nomegrupo }]
+  const need = new Set(grupos.map(g => g.idgrupo).filter(Boolean))
+  const last = {}
+  let from = 0, pages = 0
+  const MAX_PAGES = 20
+  while (need.size > 0 && pages < MAX_PAGES) {
+    const { data: rows, error: e2 } = await supabase
+      .from('mensagens_geral')
+      .select('id, idgrupo, nomegrupo, mensagem, numero, nome, "horaLastMessage", created_at')
+      .eq('instancia', instancia)
+      .not('idgrupo', 'is', null)
+      .order('id', { ascending: false })
+      .range(from, from + 999)
+    if (e2 || !rows || rows.length === 0) break
+    for (const row of rows) {
+      if (row.idgrupo && need.has(row.idgrupo)) { last[row.idgrupo] = row; need.delete(row.idgrupo) }
+    }
+    pages++
+    if (rows.length < 1000) break
+    from += 1000
   }
-  return out
+  // TODOS os grupos aparecem. Os que não acharmos a última mensagem (muito antigos)
+  // entram com preview vazio, em vez de sumir.
+  return grupos.map(g => last[g.idgrupo] || {
+    idgrupo: g.idgrupo, nomegrupo: g.nomegrupo || null,
+    mensagem: '', numero: null, nome: null, horaLastMessage: null, created_at: null,
+  })
 }
 
 // AdmOperacao: estatísticas de mensagens de uma instância desde sinceISO.
