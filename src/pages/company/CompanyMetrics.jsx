@@ -76,7 +76,11 @@ function getPeriodRange(period) {
   return { from: null, to: null }
 }
 
+// Label do período personalizado (setado ao aplicar um mês/intervalo). Guardado
+// no módulo pra não precisar passar por todos os ~20 pontos que chamam periodLabel.
+let _customLabel = 'período personalizado'
 function periodLabel(period) {
+  if (period === 'custom') return _customLabel
   return ({ hoje: 'hoje', ontem: 'ontem', semana: 'esta semana', mes: 'este mês', todos: 'no total' })[period] || ''
 }
 
@@ -202,6 +206,11 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   const ADVANCED_TABS  = ['equipe', 'financeiro']
 
   const [period, setPeriod]   = useState('semana')
+  const [customRange, setCustomRange] = useState(null) // { from, to } quando period === 'custom'
+  const [pickerOpen, setPickerOpen]   = useState(false)
+  const [pickMonth, setPickMonth]     = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` })
+  const [pickFrom, setPickFrom]       = useState('')
+  const [pickTo, setPickTo]           = useState('')
   const [tab, setTab]         = useState('overview')
   const [loading, setLoading] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(null)
@@ -342,8 +351,35 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
 
   useEffect(() => { load() }, [instance, companyId, contactsTable])
 
-  // Range do período ativo
-  const range = useMemo(() => getPeriodRange(period), [period])
+  // Range do período ativo (preset ou personalizado)
+  const range = useMemo(
+    () => (period === 'custom' && customRange) ? customRange : getPeriodRange(period),
+    [period, customRange]
+  )
+
+  // Aplica um mês específico (ex: "2026-07")
+  function applyMonth(ym) {
+    if (!ym) return
+    const [y, m] = ym.split('-').map(Number)
+    const from = new Date(y, m - 1, 1)
+    const to = new Date(y, m, 0, 23, 59, 59, 999)
+    const lbl = from.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    _customLabel = lbl.charAt(0).toUpperCase() + lbl.slice(1) // "Junho de 2026"
+    setCustomRange({ from, to })
+    setPeriod('custom')
+    setPickerOpen(false)
+  }
+  // Aplica um intervalo De–Até (ex: "2026-07-01" a "2026-07-15")
+  function applyRange(fromStr, toStr) {
+    if (!fromStr || !toStr) return
+    let from = new Date(`${fromStr}T00:00:00`)
+    let to = new Date(`${toStr}T23:59:59.999`)
+    if (from > to) { const t = from; from = new Date(`${toStr}T00:00:00`); to = new Date(`${fromStr}T23:59:59.999`) }
+    _customLabel = `${from.toLocaleDateString('pt-BR')} – ${to.toLocaleDateString('pt-BR')}`
+    setCustomRange({ from, to })
+    setPeriod('custom')
+    setPickerOpen(false)
+  }
 
   return (
     <div className="page-enter" style={{ padding: hideHeader ? 0 : '1.5rem' }}>
@@ -376,6 +412,59 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
               boxShadow: period === p.key ? '0 1px 4px rgba(37,99,235,0.3)' : 'none',
             }}>{p.label}</button>
         ))}
+        {/* Período personalizado: escolher um mês específico ou um intervalo */}
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setPickerOpen(v => !v)}
+            style={{
+              padding: '7px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+              border: `1.5px solid ${period === 'custom' ? '#2563EB' : 'var(--border)'}`,
+              background: period === 'custom' ? '#2563EB' : '#fff',
+              color: period === 'custom' ? '#fff' : 'var(--text-secondary)',
+              cursor: 'pointer', transition: 'all 0.15s', display: 'inline-flex', alignItems: 'center', gap: 6,
+              boxShadow: period === 'custom' ? '0 1px 4px rgba(37,99,235,0.3)' : 'none',
+            }}>
+            <Calendar size={13} /> {period === 'custom' ? _customLabel : 'Escolher período'}
+          </button>
+          {pickerOpen && (
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setPickerOpen(false)} />
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, marginTop: 8, zIndex: 51,
+                background: '#fff', border: '1px solid var(--border)', borderRadius: 12,
+                boxShadow: '0 10px 32px rgba(0,0,0,0.14)', padding: 16, width: 268,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 7 }}>Mês específico</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="month" value={pickMonth}
+                    onChange={e => setPickMonth(e.target.value)}
+                    style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, fontFamily: 'inherit' }} />
+                  <button onClick={() => applyMonth(pickMonth)}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#2563EB', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Ver</button>
+                </div>
+
+                <div style={{ height: 1, background: 'var(--border)', margin: '14px 0' }} />
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 7 }}>Ou um intervalo</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                    <span style={{ width: 28 }}>De</span>
+                    <input type="date" value={pickFrom} onChange={e => setPickFrom(e.target.value)}
+                      style={{ flex: 1, padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, fontFamily: 'inherit' }} />
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                    <span style={{ width: 28 }}>Até</span>
+                    <input type="date" value={pickTo} onChange={e => setPickTo(e.target.value)}
+                      style={{ flex: 1, padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, fontFamily: 'inherit' }} />
+                  </label>
+                  <button onClick={() => applyRange(pickFrom, pickTo)} disabled={!pickFrom || !pickTo}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: (pickFrom && pickTo) ? '#0F172A' : 'var(--border)', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: (pickFrom && pickTo) ? 'pointer' : 'default', marginTop: 2 }}>
+                    Aplicar intervalo
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
