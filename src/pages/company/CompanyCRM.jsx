@@ -6,7 +6,7 @@ import {
   UserPlus, Flag, Edit2, Trash2, Check, Loader2, ChevronDown,
   MessageSquare, ArrowRight, Tag, Users, MoreHorizontal,
   Thermometer, GitMerge, StickyNote, Kanban, Filter, List,
-  ChevronRight, BookMarked, Zap,
+  ChevronRight, BookMarked, Zap, GripVertical,
 } from 'lucide-react'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -101,6 +101,7 @@ export default function CompanyCRM() {
   const [filterTemp, setFilterTemp]   = useState('todos')
   const [dragging, setDragging]       = useState(null)
   const [dragOver, setDragOver]       = useState(null)
+  const [draggingStage, setDraggingStage] = useState(null) // etapa (coluna) sendo arrastada
   const [panel, setPanel]             = useState(null)
   const [panelNote, setPanelNote]     = useState('')
   const [newModal, setNewModal]       = useState(false)
@@ -399,6 +400,13 @@ export default function CompanyCRM() {
   async function onDrop(e, toStageId) {
     e.preventDefault()
     setDragOver(null)
+    // Se está arrastando uma COLUNA (etapa), reordena as etapas em vez de mover card.
+    if (draggingStage) {
+      const fromId = draggingStage.id
+      setDraggingStage(null)
+      await reorderStages(fromId, toStageId)
+      return
+    }
     const drag = dragging
     if (!drag || drag.fromStage === toStageId) { setDragging(null); return }
 
@@ -503,6 +511,28 @@ export default function CompanyCRM() {
       supabase.from('crm_stages').update({ posicao: b }).eq('id', stage.id),
       supabase.from('crm_stages').update({ posicao: a }).eq('id', other.id),
     ])
+  }
+
+  // Reordena as etapas arrastando a coluna: tira a etapa "de" e insere na posição
+  // da etapa "para", depois renumera a posicao (0..n) e persiste só as que mudaram.
+  async function reorderStages(fromId, toId) {
+    if (!fromId || fromId === toId) return
+    const ordered = funStages.slice() // já ordenado por posicao
+    const fromIdx = ordered.findIndex(s => s.id === fromId)
+    const toIdx = ordered.findIndex(s => s.id === toId)
+    if (fromIdx < 0 || toIdx < 0) return
+    const [moved] = ordered.splice(fromIdx, 1)
+    ordered.splice(toIdx, 0, moved)
+    const newPos = {}
+    ordered.forEach((s, i) => { newPos[s.id] = i })
+    const changed = ordered.filter(s => (funStages.find(x => x.id === s.id)?.posicao) !== newPos[s.id])
+    if (!changed.length) return
+    setStages(prev => prev.map(s => newPos[s.id] !== undefined ? { ...s, posicao: newPos[s.id] } : s))
+    const results = await Promise.all(changed.map(s =>
+      supabase.from('crm_stages').update({ posicao: newPos[s.id] }).eq('id', s.id)
+    ))
+    const err = results.find(r => r.error)
+    if (err) { alert('Erro ao reordenar as etapas: ' + err.error.message); load() }
   }
 
   // Exclui a etapa. Se tiver leads, move-os pra primeira etapa restante.
@@ -920,11 +950,18 @@ export default function CompanyCRM() {
                 background: isOver ? 'rgba(37,99,235,0.05)' : C.card,
                 border: `1.5px solid ${isOver ? '#93C5FD' : C.border}`,
                 borderRadius:14, overflow:'hidden', maxHeight:'100%', transition:'all 0.15s',
+                opacity: draggingStage?.id === stage.id ? 0.4 : 1,
               }}>
 
-              {/* Column header */}
-              <div style={{ padding:'12px 14px 10px', borderBottom:`1px solid ${C.border}`, background:C.card, flexShrink:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              {/* Column header — arraste pra reordenar a etapa (igual bloco de kanban) */}
+              <div
+                draggable
+                onDragStart={e => { setDraggingStage(stage); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', stage.id) } catch (_) {} }}
+                onDragEnd={() => setDraggingStage(null)}
+                title="Arraste para reordenar a etapa"
+                style={{ padding:'12px 14px 10px', borderBottom:`1px solid ${C.border}`, background:C.card, flexShrink:0, cursor:'grab' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                  <GripVertical size={13} color={C.muted} style={{ flexShrink:0, marginLeft:-3 }}/>
                   <div style={{ width:10,height:10,borderRadius:'50%',background:stage.cor,flexShrink:0 }}/>
                   <span style={{ fontWeight:700, fontSize:12.5, color:C.navy, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{stage.nome}</span>
                   <button onClick={() => openStageModal(stage)} title="Editar etapa"
