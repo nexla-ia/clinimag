@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed, Kanban, Check } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -369,6 +369,11 @@ export default function CompanyConversations() {
   const [attachedFile, setAttachedFile] = useState(null) // { base64, mime, name, size, kind: 'image'|'pdf'|'file' }
   const [savedContacts, setSavedContacts] = useState({}) // numero (só dígitos) → { id, nome, notes }
   const [clientesMap, setClientesMap]     = useState({}) // numero (só dígitos) → { nome, pushname, ... }
+  const [crmFunnelId, setCrmFunnelId]     = useState(null)
+  const [crmStages, setCrmStages]         = useState([])  // etapas do funil ativo
+  const [crmLeadMap, setCrmLeadMap]       = useState({})  // telefone canônico → { id, stage_id }
+  const [crmMenuOpen, setCrmMenuOpen]     = useState(false)
+  const [crmSaving, setCrmSaving]         = useState(false)
   const [futureAppts, setFutureAppts]     = useState({}) // numero (só dígitos) → { starts_at, status, agenda_name }
   const [contextMenu, setContextMenu] = useState(null) // { x, y, contact }
   const [saveContactModal, setSaveContactModal] = useState(null) // { numero, nome, notes }
@@ -596,6 +601,82 @@ export default function CompanyConversations() {
       window.removeEventListener('scroll', close, true)
     }
   }, [contextMenu])
+
+  // CRM: carrega o funil ativo, as etapas e o mapa de quem já é lead — pra dar
+  // pra adicionar/mover o contato pelo botão do CRM no topo da conversa.
+  useEffect(() => {
+    if (!instance) return
+    let cancelled = false
+    ;(async () => {
+      const { data: fn } = await supabase.from('crm_funnels').select('id').eq('instancia', instance).order('posicao').limit(1)
+      const funnelId = fn?.[0]?.id || null
+      if (cancelled) return
+      setCrmFunnelId(funnelId)
+      if (funnelId) {
+        const { data: st } = await supabase.from('crm_stages')
+          .select('id,nome,cor,posicao').eq('instancia', instance).eq('funil_id', funnelId).order('posicao')
+        if (!cancelled) setCrmStages(st || [])
+      }
+      // mapa telefone-canônico → { id, stage_id } (pra saber se já é lead e em qual etapa)
+      let from = 0, leads = []
+      for (;;) {
+        const { data, error } = await supabase.from('crm_contacts')
+          .select('id,phone,stage_id').eq('instancia', instance).range(from, from + 999)
+        if (error) break
+        leads.push(...(data || []))
+        if (!data || data.length < 1000) break
+        from += 1000
+      }
+      if (cancelled) return
+      const m = {}
+      for (const l of leads) { const k = normalizeBRDigits(l.phone); if (k) m[k] = { id: l.id, stage_id: l.stage_id } }
+      setCrmLeadMap(m)
+    })()
+    return () => { cancelled = true }
+  }, [instance])
+
+  // Fecha o menu do CRM ao trocar de conversa
+  useEffect(() => { setCrmMenuOpen(false) }, [selected?.session_id])
+
+  // Adiciona o contato ao CRM (ou move de etapa) na etapa escolhida.
+  async function handleAddToCrm(contact, stageId) {
+    if (crmSaving || !contact) return
+    const phone = (contact.phone || '').replace(/\D/g, '')
+    if (!phone) return
+    const key = normalizeBRDigits(phone)
+    setCrmSaving(true)
+    try {
+      const now = new Date().toISOString()
+      let existing = crmLeadMap[key]
+      if (!existing) {
+        // dupla checagem no banco (com/sem o 9) pra não criar lead duplicado
+        const alt = key.length === 12 ? key.slice(0, 4) + '9' + key.slice(4) : key
+        const { data } = await supabase.from('crm_contacts')
+          .select('id,stage_id').eq('instancia', instance).in('phone', [...new Set([phone, key, alt])]).limit(1)
+        if (data?.[0]) existing = { id: data[0].id, stage_id: data[0].stage_id }
+      }
+      if (existing) {
+        const { error } = await supabase.from('crm_contacts')
+          .update({ stage_id: stageId, funil_id: crmFunnelId, data_entrada_etapa: now }).eq('id', existing.id)
+        if (error) { setToast({ message: 'Erro ao mover no CRM: ' + error.message, color: '#DC2626' }); setTimeout(() => setToast(null), 5000); return }
+        setCrmLeadMap(prev => ({ ...prev, [key]: { id: existing.id, stage_id: stageId } }))
+      } else {
+        const nome = savedContacts[phone]?.nome || clientesMap[phone]?.nome || null
+        const { data, error } = await supabase.from('crm_contacts').insert({
+          instancia: instance, phone, nome, origem: 'WhatsApp', temperatura: 'morno',
+          stage_id: stageId, funil_id: crmFunnelId, data_entrada_etapa: now,
+        }).select('id').single()
+        if (error) { setToast({ message: 'Erro ao adicionar no CRM: ' + error.message, color: '#DC2626' }); setTimeout(() => setToast(null), 5000); return }
+        setCrmLeadMap(prev => ({ ...prev, [key]: { id: data.id, stage_id: stageId } }))
+      }
+      const stName = crmStages.find(s => s.id === stageId)?.nome || 'etapa'
+      setToast({ message: `Adicionado ao CRM · ${stName}`, color: '#16A34A' })
+      setTimeout(() => setToast(null), 3500)
+      setCrmMenuOpen(false)
+    } finally {
+      setCrmSaving(false)
+    }
+  }
 
   function openSaveContact(contact) {
     const numero = contact.phone.replace(/\D/g, '')
@@ -2395,6 +2476,64 @@ export default function CompanyConversations() {
                     >
                       <Calendar size={14} /> <span className="btn-label">Agendar</span>
                     </button>
+                    {/* CRM: adiciona/move o contato numa etapa do funil, direto da conversa */}
+                    {(() => {
+                      const crmKey = normalizeBRDigits(selected.phone)
+                      const lead = crmLeadMap[crmKey]
+                      const curStage = lead ? crmStages.find(s => s.id === lead.stage_id) : null
+                      return (
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            className="nx-btn-ghost"
+                            style={{
+                              fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6,
+                              color: lead ? '#16A34A' : '#4F46E5',
+                              borderColor: lead ? '#BBF7D0' : undefined, background: lead ? '#F0FDF4' : undefined,
+                            }}
+                            title={lead ? `No CRM: ${curStage?.nome || 'etapa'}` : 'Adicionar este contato ao CRM'}
+                            onClick={() => setCrmMenuOpen(v => !v)}
+                          >
+                            <Kanban size={14} /> <span className="btn-label">{lead ? (curStage?.nome || 'No CRM') : 'CRM'}</span>
+                          </button>
+                          {crmMenuOpen && (
+                            <>
+                              <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setCrmMenuOpen(false)} />
+                              <div style={{
+                                position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 51,
+                                background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+                                boxShadow: '0 8px 28px rgba(0,0,0,0.14)', padding: 6, minWidth: 230,
+                              }}>
+                                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '5px 10px 7px' }}>
+                                  {lead ? 'Mover para a etapa' : 'Adicionar ao CRM na etapa'}
+                                </div>
+                                {crmStages.map(s => {
+                                  const active = curStage?.id === s.id
+                                  return (
+                                    <button key={s.id} disabled={crmSaving}
+                                      onClick={() => handleAddToCrm(selected, s.id)}
+                                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#F1F5F9' }}
+                                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                                      style={{
+                                        display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
+                                        border: 'none', borderRadius: 7, background: active ? '#EFF6FF' : 'transparent',
+                                        cursor: crmSaving ? 'default' : 'pointer', fontSize: 12.5, fontWeight: active ? 700 : 500,
+                                        color: '#0F172A', textAlign: 'left',
+                                      }}>
+                                      <span style={{ width: 9, height: 9, borderRadius: '50%', background: s.cor || '#64748B', flexShrink: 0 }} />
+                                      <span style={{ flex: 1 }}>{s.nome}</span>
+                                      {active && <Check size={13} color="#2563EB" />}
+                                    </button>
+                                  )
+                                })}
+                                {crmStages.length === 0 && (
+                                  <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-muted)' }}>Nenhuma etapa no CRM ainda.</div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })()}
                     {(() => {
                       const att = attendancesMap[selected.session_id]
                       const myEmail = session?.user?.email

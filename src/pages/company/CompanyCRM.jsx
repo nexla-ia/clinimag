@@ -186,8 +186,14 @@ export default function CompanyCRM() {
   }
 
   // Nome exibido: nome do próprio lead > contato salvo/cliente > número formatado.
+  // Exceção: quando o n8n gravou o nome da PRÓPRIA clínica no lead (acontece quando
+  // a clínica responde e o fluxo pega o remetente errado), ignoramos esse nome e
+  // usamos o nome real do cliente (contatos salvos / clientes).
+  const ownName = (session?.company?.name || '').trim().toLowerCase()
   function bestName(c) {
-    return (c?.nome && c.nome.trim()) || nameMap[normPhone(c?.phone)] || ''
+    const crmNome = (c?.nome || '').trim()
+    if (crmNome && crmNome.toLowerCase() !== ownName) return crmNome
+    return nameMap[normPhone(c?.phone)] || ''
   }
   function resolveName(c) {
     return bestName(c) || fmtPhone(c?.phone) || 'Sem nome'
