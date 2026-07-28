@@ -719,8 +719,10 @@ export default function CompanyAgenda() {
       // Só notifica na CRIAÇÃO do agendamento. Confirmar, cancelar, remarcar ou
       // qualquer outra mudança NÃO dispara mensagem — depois de criado, o
       // paciente só recebe os lembretes que a clínica definiu (process_appointment_reminders).
+      // A clínica pode desligar o aviso de "criado" (toggle no modal) — aí o
+      // paciente recebe só os lembretes, sem a mensagem no ato do agendamento.
       let patientMsg = null
-      if (isNew && payload.status !== 'cancelado') {
+      if (isNew && payload.status !== 'cancelado' && apptModal.notify_created !== false) {
         patientMsg = (useCustomMsg && customMsg.trim())
           ? customMsg.trim()
           : `Olá ${firstName}! 📅 Seu agendamento foi marcado para *${dateStr}*. Qualquer dúvida é só responder aqui!`
@@ -2301,46 +2303,67 @@ export default function CompanyAgenda() {
                       : `Olá ${firstName}! 📅 Seu agendamento foi marcado para *${dateStr}*. Qualquer dúvida é só responder aqui!`)
                   : `Olá ${firstName}! Só passando pra confirmar seu agendamento de *${dateStr}*. Até lá! 👋`
 
+                const notifyOn = apptModal.notify_created !== false
                 return (
                   <div>
-                    <label style={labelStyle}>Mensagem de confirmação</label>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                      {[
-                        { val: false, label: 'Padrão' },
-                        { val: true,  label: 'Personalizar' },
-                      ].map(opt => (
-                        <button key={String(opt.val)} type="button"
-                          onClick={() => {
-                            setUseCustomMsg(opt.val)
-                            if (opt.val && !customMsg) setCustomMsg(defaultMsg)
-                          }}
-                          style={{
-                            padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                            border: `1.5px solid ${useCustomMsg === opt.val ? '#2563EB' : 'var(--border)'}`,
-                            background: useCustomMsg === opt.val ? '#EFF6FF' : '#fff',
-                            color: useCustomMsg === opt.val ? '#1D4ED8' : 'var(--text-secondary)',
-                            cursor: 'pointer',
-                          }}>
-                          {opt.label}
-                        </button>
-                      ))}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                      <label style={{ ...labelStyle, marginBottom: 0 }}>Avisar o paciente que foi criado</label>
+                      <button type="button" role="switch" aria-checked={notifyOn}
+                        onClick={() => setApptModal(p => ({ ...p, notify_created: !(p.notify_created !== false) }))}
+                        title={notifyOn ? 'Vai enviar a mensagem de "agendamento criado"' : 'Não envia a mensagem de criação — só os lembretes'}
+                        style={{ width: 42, height: 24, borderRadius: 999, border: 'none', cursor: 'pointer', position: 'relative', background: notifyOn ? '#16A34A' : '#CBD5E1', transition: 'background 0.15s', flexShrink: 0 }}>
+                        <span style={{ position: 'absolute', top: 3, left: notifyOn ? 21 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.25)' }} />
+                      </button>
                     </div>
-                    {useCustomMsg ? (
-                      <textarea
-                        className="nx-input"
-                        rows={4}
-                        value={customMsg}
-                        onChange={e => setCustomMsg(e.target.value)}
-                        placeholder="Digite a mensagem que será enviada ao paciente..."
-                        style={{ resize: 'vertical', fontSize: 13 }}
-                      />
+                    {notifyOn ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                          {[
+                            { val: false, label: 'Padrão' },
+                            { val: true,  label: 'Personalizar' },
+                          ].map(opt => (
+                            <button key={String(opt.val)} type="button"
+                              onClick={() => {
+                                setUseCustomMsg(opt.val)
+                                if (opt.val && !customMsg) setCustomMsg(defaultMsg)
+                              }}
+                              style={{
+                                padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: `1.5px solid ${useCustomMsg === opt.val ? '#2563EB' : 'var(--border)'}`,
+                                background: useCustomMsg === opt.val ? '#EFF6FF' : '#fff',
+                                color: useCustomMsg === opt.val ? '#1D4ED8' : 'var(--text-secondary)',
+                                cursor: 'pointer',
+                              }}>
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                        {useCustomMsg ? (
+                          <textarea
+                            className="nx-input"
+                            rows={4}
+                            value={customMsg}
+                            onChange={e => setCustomMsg(e.target.value)}
+                            placeholder="Digite a mensagem que será enviada ao paciente..."
+                            style={{ resize: 'vertical', fontSize: 13 }}
+                          />
+                        ) : (
+                          <div style={{
+                            background: '#F0FDF4', border: '1px solid #BBF7D0',
+                            borderRadius: 8, padding: '10px 12px',
+                            fontSize: 12.5, color: '#0F172A', lineHeight: 1.55,
+                          }}>
+                            {defaultMsg}
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <div style={{
-                        background: '#F0FDF4', border: '1px solid #BBF7D0',
+                        background: '#F8FAFC', border: '1px solid var(--border)',
                         borderRadius: 8, padding: '10px 12px',
-                        fontSize: 12.5, color: '#0F172A', lineHeight: 1.55,
+                        fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.55,
                       }}>
-                        {defaultMsg}
+                        O paciente <strong>não</strong> vai receber a mensagem de "agendamento criado" agora — só o(s) <strong>lembrete(s)</strong> que você marcar acima, antes da consulta.
                       </div>
                     )}
                   </div>
