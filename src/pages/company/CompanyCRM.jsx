@@ -8,6 +8,7 @@ import {
   Thermometer, GitMerge, StickyNote, Kanban, Filter, List,
   ChevronRight, BookMarked, Zap, GripVertical,
 } from 'lucide-react'
+import { useContactTags, TagPicker, TagList } from '../../components/Tags'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -111,6 +112,9 @@ export default function CompanyCRM() {
   const [newForm, setNewForm]         = useState({ nome:'', phone:'', email:'', origem:'', temperatura:'morno', stage_id:'', observacoes:'' })
   const [saving, setSaving]           = useState(false)
   const [confirmDel, setConfirmDel]   = useState(null)
+  // Etiquetas coloridas — as MESMAS das Conversas (contact_tags), casadas por
+  // telefone canônico (sem o 9 extra), pra ser o mesmo sistema em todo lugar.
+  const { tagsOf } = useContactTags(instance)
 
   // Busca TODAS as linhas de uma tabela paginando (o PostgREST corta em 1000,
   // mesmo com .limit maior). applyFilters recebe o query builder e devolve ele.
@@ -1022,17 +1026,24 @@ export default function CompanyCRM() {
                         <div title={temp.label} style={{ width:8,height:8,borderRadius:'50%',background:temp.dot,flexShrink:0,marginTop:3 }}/>
                       </div>
 
-                      {/* Tags row */}
-                      <div style={{ display:'flex', gap:5, marginTop:8, flexWrap:'wrap', alignItems:'center' }}>
-                        {contact.origem && (
-                          <span style={{ fontSize:9.5, fontWeight:700, padding:'2px 7px', borderRadius:20, background:origemColor+'18', color:origemColor }}>
-                            {contact.origem}
-                          </span>
-                        )}
-                        {(contact.tags||[]).slice(0,2).map(t => (
-                          <span key={t} style={{ fontSize:9.5, padding:'2px 6px', borderRadius:20, background:'#F1F5F9', color:C.slate }}>{t}</span>
-                        ))}
-                      </div>
+                      {/* Origem + etiquetas coloridas */}
+                      {(() => {
+                        const etiquetas = tagsOf(normPhone(contact.phone))
+                        if (!contact.origem && etiquetas.length === 0 && (contact.tags||[]).length === 0) return null
+                        return (
+                          <div style={{ display:'flex', gap:5, marginTop:8, flexWrap:'wrap', alignItems:'center' }}>
+                            {contact.origem && (
+                              <span style={{ fontSize:9.5, fontWeight:700, padding:'2px 7px', borderRadius:20, background:origemColor+'18', color:origemColor }}>
+                                {contact.origem}
+                              </span>
+                            )}
+                            <TagList tags={etiquetas} max={3} />
+                            {(contact.tags||[]).slice(0,2).map(t => (
+                              <span key={t} style={{ fontSize:9.5, padding:'2px 6px', borderRadius:20, background:'#F1F5F9', color:C.slate }}>{t}</span>
+                            ))}
+                          </div>
+                        )
+                      })()}
 
                       {/* Footer */}
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:8 }}>
@@ -1147,6 +1158,17 @@ export default function CompanyCRM() {
                     <option value="">— selecionar —</option>
                     {ORIGENS.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
+                </div>
+
+                {/* Etiquetas coloridas — as mesmas das Conversas */}
+                <div>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, marginBottom:6 }}>
+                    <div style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em' }}>Etiquetas</div>
+                    <TagPicker instancia={instance} numero={normPhone(c.phone)} userEmail={session?.user?.email} anchor="bottom-right" />
+                  </div>
+                  {tagsOf(normPhone(c.phone)).length > 0
+                    ? <TagList tags={tagsOf(normPhone(c.phone))} />
+                    : <div style={{ fontSize:11.5, color:C.muted }}>Nenhuma etiqueta ainda — clique em "Etiquetas" pra adicionar.</div>}
                 </div>
 
                 <div>
