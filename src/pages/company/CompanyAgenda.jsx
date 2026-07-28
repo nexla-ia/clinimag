@@ -709,51 +709,10 @@ export default function CompanyAgenda() {
       }
     }
 
-    // ─── Mensagens automáticas pro paciente (chat interno + WhatsApp) ─────
-    if (numero) {
-      const sessionId = `${numero}@s.whatsapp.net`
-      const dateStr   = startsAt.toLocaleString('pt-BR',
-        { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-      const firstName = (payload.contact_nome || '').split(' ')[0] || 'tudo bem'
+    // NÃO envia mensagem ao criar o agendamento. O paciente recebe SOMENTE os
+    // lembretes que a clínica definiu (gravados em payload.reminders e disparados
+    // pelo cron process_appointment_reminders antes da consulta).
 
-      // Só notifica na CRIAÇÃO do agendamento. Confirmar, cancelar, remarcar ou
-      // qualquer outra mudança NÃO dispara mensagem — depois de criado, o
-      // paciente só recebe os lembretes que a clínica definiu (process_appointment_reminders).
-      let patientMsg = null
-      if (isNew && payload.status !== 'cancelado') {
-        patientMsg = (useCustomMsg && customMsg.trim())
-          ? customMsg.trim()
-          : `Olá ${firstName}! 📅 Seu agendamento foi marcado para *${dateStr}*. Qualquer dúvida é só responder aqui!`
-      }
-
-      if (patientMsg) {
-        // 1) Loga no chat interno (aparece na thread de Conversas)
-        await supabase.rpc('send_mensagem_geral', {
-          p_instancia: instance,
-          p_numero:    sessionId,
-          p_mensagem:  patientMsg,
-          p_type:      'atendente',
-          p_hora:      new Date().toISOString(),
-          p_base64:    null,
-        })
-
-        // 2) Dispara pelo webhook do n8n → Evolution → WhatsApp do paciente
-        fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexla', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message:        patientMsg,
-            session_id:     sessionId,
-            phone:          numero,
-            instancia:      instance,
-            api_instancia:  apiInstancia,
-            company:        session?.company?.name,
-            sender_name:    session?.user?.name,
-            sender_email:   session?.user?.email,
-          }),
-        }).catch(e => console.warn('webhook agendamento:', e))
-      }
-    }
     // Depois de CRIAR, leva a agenda pra semana e agenda do novo agendamento.
     // Sem isso, agendamento numa semana diferente da aberta (ex: agendou pelo chat
     // pra semana que vem) "sumia" da vista — a pessoa achava que não foi criado.
@@ -2282,71 +2241,6 @@ export default function CompanyAgenda() {
                   )}
                 </div>
               )}
-              {/* ── Mensagem de confirmação (só na criação; editar não notifica) ── */}
-              {!apptModal.id && apptModal.contact_numero && (() => {
-                const tz = session?.company?.timezone || '-03:00'
-                const dateStr = (() => {
-                  try {
-                    const [y, m, d] = apptModal.date.split('-')
-                    const [hh, mm] = apptModal.time.split(':')
-                    return new Date(`${y}-${m}-${d}T${hh}:${mm}:00${tz}`).toLocaleString('pt-BR',
-                      { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-                  } catch { return apptModal.date }
-                })()
-                const firstName = (apptModal.contact_nome || '').split(' ')[0] || 'tudo bem'
-                const proc = procedures.find(x => x.id === apptModal.procedure_id)
-                const defaultMsg = !apptModal.id
-                  ? (proc?.reminder_message?.trim()
-                      ? proc.reminder_message.replace(/\{nome\}/gi, firstName).replace(/\{data\}/gi, dateStr)
-                      : `Olá ${firstName}! 📅 Seu agendamento foi marcado para *${dateStr}*. Qualquer dúvida é só responder aqui!`)
-                  : `Olá ${firstName}! Só passando pra confirmar seu agendamento de *${dateStr}*. Até lá! 👋`
-
-                return (
-                  <div>
-                    <label style={labelStyle}>Mensagem de confirmação</label>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                      {[
-                        { val: false, label: 'Padrão' },
-                        { val: true,  label: 'Personalizar' },
-                      ].map(opt => (
-                        <button key={String(opt.val)} type="button"
-                          onClick={() => {
-                            setUseCustomMsg(opt.val)
-                            if (opt.val && !customMsg) setCustomMsg(defaultMsg)
-                          }}
-                          style={{
-                            padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                            border: `1.5px solid ${useCustomMsg === opt.val ? '#2563EB' : 'var(--border)'}`,
-                            background: useCustomMsg === opt.val ? '#EFF6FF' : '#fff',
-                            color: useCustomMsg === opt.val ? '#1D4ED8' : 'var(--text-secondary)',
-                            cursor: 'pointer',
-                          }}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    {useCustomMsg ? (
-                      <textarea
-                        className="nx-input"
-                        rows={4}
-                        value={customMsg}
-                        onChange={e => setCustomMsg(e.target.value)}
-                        placeholder="Digite a mensagem que será enviada ao paciente..."
-                        style={{ resize: 'vertical', fontSize: 13 }}
-                      />
-                    ) : (
-                      <div style={{
-                        background: '#F0FDF4', border: '1px solid #BBF7D0',
-                        borderRadius: 8, padding: '10px 12px',
-                        fontSize: 12.5, color: '#0F172A', lineHeight: 1.55,
-                      }}>
-                        {defaultMsg}
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
-
             </div>
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
               {apptErr && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{apptErr}</div>}
