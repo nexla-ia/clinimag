@@ -754,6 +754,14 @@ export default function CompanyAgenda() {
         }).catch(e => console.warn('webhook agendamento:', e))
       }
     }
+    // Depois de CRIAR, leva a agenda pra semana e agenda do novo agendamento.
+    // Sem isso, agendamento numa semana diferente da aberta (ex: agendou pelo chat
+    // pra semana que vem) "sumia" da vista — a pessoa achava que não foi criado.
+    if (isNew) {
+      if (apptModal.agenda_id) setSelectedAgendaId(apptModal.agenda_id)
+      setWeekStart(getMonday(startsAt))
+      setTab('calendario')
+    }
     setApptModal(null)
   }
 
@@ -836,7 +844,9 @@ export default function CompanyAgenda() {
     const slotEnd   = slotStart + (selectedAgenda.slot_minutes || 30) * 60_000
     return appointments
       .filter(a => {
-        if (a.agenda_id !== selectedAgenda.id) return false
+        // agenda_id nulo (agendamento "órfão") aparece na agenda selecionada em
+        // vez de ficar invisível pra sempre.
+        if (a.agenda_id && a.agenda_id !== selectedAgenda.id) return false
         const t = new Date(a.starts_at).getTime()
         return t >= slotStart && t < slotEnd
       })
