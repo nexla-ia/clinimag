@@ -8,6 +8,7 @@ import {
   Users, MessageSquare, TrendingUp, Clock, Inbox, BarChart2, RefreshCw,
   Calendar, BellRing, Kanban, Headset, CheckCircle2, XCircle, AlertCircle,
   Phone, Bot, ListChecks, Flag, ChevronRight, Layers, DollarSign, Stethoscope, Lock,
+  GitMerge, Thermometer, Target, StickyNote, UserCheck,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -195,8 +196,24 @@ const TABS = [
   { key: 'agenda',      label: 'Agenda',       icon: Calendar },
   { key: 'financeiro',  label: 'Financeiro',   icon: DollarSign },
   { key: 'leads',       label: 'Leads',        icon: TrendingUp },
+  { key: 'crm',         label: 'CRM',          icon: GitMerge },
   { key: 'atividades',  label: 'Kanban',       icon: Kanban },
 ]
+
+// ─── Metadados do CRM (métricas) ─────────────────────────────────────────────
+const CRM_TEMP = {
+  quente: { label: 'Quente', color: '#DC2626', icon: '🔥' },
+  morno:  { label: 'Morno',  color: '#D97706', icon: '🌤️' },
+  frio:   { label: 'Frio',   color: '#0891B2', icon: '❄️' },
+}
+const CRM_INTER = {
+  nota:        { label: 'Notas',            color: '#7C3AED', icon: StickyNote },
+  etapa:       { label: 'Mudanças de etapa', color: '#2563EB', icon: GitMerge },
+  mensagem:    { label: 'Mensagens',        color: '#16A34A', icon: MessageSquare },
+  agendamento: { label: 'Agendamentos',     color: '#0891B2', icon: Calendar },
+  tarefa:      { label: 'Tarefas',          color: '#D97706', icon: ListChecks },
+}
+const CRM_ORIGEM_COLORS = ['#2563EB','#16A34A','#F59E0B','#7C3AED','#DC2626','#0891B2','#D97706','#059669','#DB2777','#4F46E5']
 
 function fmtMoney(v) {
   return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -245,6 +262,10 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   const [insurancePlans, setInsurancePlans] = useState([])
   const [finTx, setFinTx]               = useState([])
   const [finCats, setFinCats]           = useState([])
+  const [crmContacts, setCrmContacts]   = useState([])
+  const [crmStages, setCrmStages]       = useState([])
+  const [crmFunnels, setCrmFunnels]     = useState([])
+  const [crmInteractions, setCrmInteractions] = useState([])
 
   async function load() {
     if (!instance) return
@@ -278,6 +299,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       kanbanCardsData, kanbanColsData, usersRaw, sectorsData, sectorMembersRaw,
       professionalsData, proceduresData, insuranceData, finTxData, finCatsData,
       leadsData,
+      crmContactsData, crmStagesData, crmFunnelsData, crmInteractionsData,
     ] = await Promise.all([
       fetchAll((a, b) => supabase.from('mensagens_geral').select('id, numero, type, mensagem, "horaLastMessage", created_at').eq('instancia', instance).order('id', { ascending: false }).range(a, b)),
       fetchAll((a, b) => supabase.from('conversations').select('session_id, reason, closed_at').eq('instancia', instance).range(a, b)),
@@ -297,6 +319,11 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       contactsTable
         ? fetchAll((a, b) => supabase.from(contactsTable).select('*').eq('instancia', instance).range(a, b))
         : Promise.resolve([]),
+      // ── CRM ──
+      fetchAll((a, b) => supabase.from('crm_contacts').select('id,phone,nome,stage_id,funil_id,temperatura,origem,responsavel_nome,motivo_perda,data_entrada_etapa,created_at').eq('instancia', instance).order('created_at', { ascending: false }).range(a, b)),
+      one(supabase.from('crm_stages').select('id,funil_id,nome,cor,posicao,alerta_dias').eq('instancia', instance).order('posicao')),
+      one(supabase.from('crm_funnels').select('id,nome,posicao').eq('instancia', instance).order('posicao')),
+      fetchAll((a, b) => supabase.from('crm_interactions').select('id,tipo,created_at,autor_nome').eq('instancia', instance).gte('created_at', `${yearLo}T00:00:00`).order('created_at', { ascending: false }).range(a, b)),
     ])
 
     setMsgs(msgsData)
@@ -316,6 +343,10 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     setFinTx(finTxData)
     setFinCats(finCatsData)
     setLeads(leadsData)
+    setCrmContacts(crmContactsData)
+    setCrmStages(crmStagesData)
+    setCrmFunnels(crmFunnelsData)
+    setCrmInteractions(crmInteractionsData)
     setLastRefresh(new Date())
     setLoading(false)
 
@@ -541,6 +572,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       {tab === 'agenda'      && <AgendaTab      {...{ appts, range, period, loading }} />}
       {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />}
       {tab === 'leads'       && <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />}
+      {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, range, period, loading }} />}
       {tab === 'atividades'  && <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />}
 
       <LimitReachedModal
@@ -2086,6 +2118,336 @@ function AtividadesTab({ kanbanCards, kanbanColumns, users, range, period, loadi
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Tab: CRM ────────────────────────────────────────────────────────────────
+function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, period, loading }) {
+  const { from, to } = range
+  const [funnelSel, setFunnelSel] = useState('todos')
+
+  const daysInStage = ds => ds ? Math.floor((Date.now() - new Date(ds).getTime()) / 86400000) : 0
+  const isLost = s => /perdid|perda|desist/i.test(s?.nome || '')
+  const stageById = useMemo(() => { const m = {}; crmStages.forEach(s => m[s.id] = s); return m }, [crmStages])
+  const stagesForFunnel = fid => crmStages.filter(s => s.funil_id === fid).sort((a, b) => (a.posicao ?? 0) - (b.posicao ?? 0))
+
+  // Escopo: pipeline ATUAL do funil selecionado (snapshot — não filtra por período,
+  // senão o padrão "Semana" esvaziaria o pipeline). O período afeta só os cards de
+  // "novos leads", volume diário e atividade.
+  const scopeLeads = useMemo(
+    () => funnelSel === 'todos' ? crmContacts : crmContacts.filter(c => c.funil_id === funnelSel),
+    [crmContacts, funnelSel]
+  )
+
+  const total    = scopeLeads.length
+  const quentes  = scopeLeads.filter(c => c.temperatura === 'quente').length
+  const mornos   = scopeLeads.filter(c => c.temperatura === 'morno').length
+  const frios    = scopeLeads.filter(c => c.temperatura === 'frio' || !c.temperatura).length
+  const novos    = scopeLeads.filter(c => inPeriod(c.created_at, from, to)).length
+  const parados  = scopeLeads.filter(c => { const s = stageById[c.stage_id]; return s?.alerta_dias && daysInStage(c.data_entrada_etapa) > s.alerta_dias }).length
+  const perdidos = scopeLeads.filter(c => c.motivo_perda || isLost(stageById[c.stage_id])).length
+
+  const lastStageByFunnel = useMemo(() => {
+    const m = {}
+    crmFunnels.forEach(f => { const fw = stagesForFunnel(f.id).filter(s => !isLost(s)); m[f.id] = fw[fw.length - 1]?.id })
+    return m
+  }, [crmFunnels, crmStages])
+  const convertidos = scopeLeads.filter(c => c.stage_id && c.stage_id === lastStageByFunnel[c.funil_id]).length
+  const taxaConv = total ? (convertidos / total * 100) : 0
+
+  const funnelsToShow = funnelSel === 'todos' ? crmFunnels : crmFunnels.filter(f => f.id === funnelSel)
+  const funnelViz = useMemo(() => funnelsToShow.map(f => {
+    const fw = stagesForFunnel(f.id).filter(s => !isLost(s))
+    const leads = crmContacts.filter(c => c.funil_id === f.id)
+    const idxOf = {}; fw.forEach((s, i) => idxOf[s.id] = i)
+    const atStage = fw.map(s => leads.filter(c => c.stage_id === s.id).length)
+    // reached[i] = leads cujo estágio é i ou além (assume avanço linear no funil)
+    const reached = fw.map((_, i) => leads.filter(c => { const si = idxOf[c.stage_id]; return si != null && si >= i }).length)
+    const lost = leads.filter(c => c.motivo_perda || isLost(stageById[c.stage_id])).length
+    return { funnel: f, stages: fw, atStage, reached, entered: reached[0] || 0, lost, totalF: leads.length }
+  }), [funnelSel, crmContacts, crmStages, crmFunnels])
+
+  const tempData = [
+    { key: 'quente', ...CRM_TEMP.quente, value: quentes },
+    { key: 'morno',  ...CRM_TEMP.morno,  value: mornos },
+    { key: 'frio',   ...CRM_TEMP.frio,   value: frios },
+  ].filter(t => t.value > 0)
+
+  const origens = useMemo(() => {
+    const m = {}
+    scopeLeads.forEach(c => { const k = (c.origem && c.origem.trim()) || 'Sem origem'; m[k] = (m[k] || 0) + 1 })
+    return Object.entries(m).map(([nome, count]) => ({ nome, count })).sort((a, b) => b.count - a.count)
+  }, [scopeLeads])
+
+  const responsaveis = useMemo(() => {
+    const m = {}
+    scopeLeads.forEach(c => { const k = (c.responsavel_nome && c.responsavel_nome.trim()) || 'Sem responsável'; m[k] = (m[k] || 0) + 1 })
+    return Object.entries(m).sort((a, b) => b[1] - a[1])
+  }, [scopeLeads])
+
+  const staleList = useMemo(() =>
+    scopeLeads.filter(c => { const s = stageById[c.stage_id]; return s?.alerta_dias && daysInStage(c.data_entrada_etapa) > s.alerta_dias })
+      .map(c => ({ ...c, dias: daysInStage(c.data_entrada_etapa), stage: stageById[c.stage_id] }))
+      .sort((a, b) => b.dias - a.dias).slice(0, 8)
+  , [scopeLeads, stageById])
+
+  const motivos = useMemo(() => {
+    const m = {}
+    scopeLeads.filter(c => c.motivo_perda && c.motivo_perda.trim()).forEach(c => { const k = c.motivo_perda.trim(); m[k] = (m[k] || 0) + 1 })
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 6)
+  }, [scopeLeads])
+
+  const dailyNew = useMemo(() => {
+    const map = {}
+    scopeLeads.forEach(c => {
+      if (!c.created_at || !(inPeriod(c.created_at, from, to) || (!from && !to))) return
+      const d = new Date(c.created_at); if (isNaN(d.getTime())) return
+      const iso = ymdLocal(d)
+      const lbl = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (!map[iso]) map[iso] = { lbl, count: 0 }
+      map[iso].count++
+    })
+    return Object.keys(map).sort().map(iso => [map[iso].lbl, map[iso].count])
+  }, [scopeLeads, from, to])
+
+  const atividade = useMemo(() => {
+    const m = { nota: 0, etapa: 0, mensagem: 0, agendamento: 0, tarefa: 0 }
+    crmInteractions.forEach(i => { if (inPeriod(i.created_at, from, to) && m[i.tipo] != null) m[i.tipo]++ })
+    return m
+  }, [crmInteractions, from, to])
+  const atividadeTotal = Object.values(atividade).reduce((a, b) => a + b, 0)
+
+  const byFunnel = useMemo(() =>
+    crmFunnels.map(f => ({ f, count: crmContacts.filter(c => c.funil_id === f.id).length })).sort((a, b) => b.count - a.count)
+  , [crmFunnels, crmContacts])
+  const maxFunnel = Math.max(1, ...byFunnel.map(x => x.count))
+
+  if (!loading && !crmFunnels.length && !crmContacts.length) {
+    return <div className="nx-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+      Nenhum dado de CRM ainda. Cadastre leads no CRM que as métricas aparecem aqui.
+    </div>
+  }
+
+  const pill = active => ({
+    padding: '5px 14px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+    border: `1.5px solid ${active ? '#2563EB' : 'var(--border)'}`,
+    background: active ? '#2563EB' : '#fff', color: active ? '#fff' : 'var(--text-secondary)', transition: 'all 0.15s',
+  })
+
+  return (
+    <div>
+      {/* Seletor de funil */}
+      {crmFunnels.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+          <GitMerge size={13} color="#64748B" />
+          <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontWeight: 700, marginRight: 2 }}>Funil:</span>
+          <button onClick={() => setFunnelSel('todos')} style={pill(funnelSel === 'todos')}>Todos</button>
+          {crmFunnels.map(f => (
+            <button key={f.id} onClick={() => setFunnelSel(f.id)} style={pill(funnelSel === f.id)}>{f.nome}</button>
+          ))}
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>
+        <KpiCard icon={<Users size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Leads no pipeline" sub={funnelSel === 'todos' ? 'todos os funis' : 'funil selecionado'} loading={loading} />
+        <KpiCard icon={<TrendingUp size={18} color="#7C3AED" />} bg="#F5F3FF" value={novos} label="Novos leads" sub={periodLabel(period)} loading={loading} />
+        <KpiCard icon={<span style={{ fontSize: 16 }}>🔥</span>} bg="#FEF2F2" value={quentes} label="Leads quentes" sub={`${total ? Math.round(quentes / total * 100) : 0}% do pipeline`} loading={loading} alert={quentes > 0} />
+        <KpiCard icon={<Target size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConv.toFixed(0)}%`} label="Taxa de conversão" sub={`${convertidos} na última etapa`} loading={loading} />
+        <KpiCard icon={<AlertCircle size={18} color="#D97706" />} bg="#FFFBEB" value={parados} label="Leads parados" sub="além do prazo da etapa" loading={loading} alert={parados > 0} />
+        <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={perdidos} label="Leads perdidos" sub={`${total ? Math.round(perdidos / total * 100) : 0}% do pipeline`} loading={loading} />
+      </div>
+
+      {/* Funil(s) de conversão */}
+      {funnelViz.map(fv => (
+        <div key={fv.funnel.id} className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
+          <SectionTitle icon={GitMerge} text={funnelSel === 'todos' ? `Funil — ${fv.funnel.nome}` : 'Funil de conversão'} right={`${fv.totalF} leads · ${fv.lost} perdidos`} />
+          {fv.stages.length === 0 ? <Empty /> : (
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${fv.stages.length}, minmax(0, 1fr))`, gap: 8, alignItems: 'stretch', marginTop: 8 }}>
+              {fv.stages.map((s, i) => {
+                const reached = fv.reached[i]
+                const pct = fv.entered ? (reached / fv.entered * 100) : 0
+                const prev = i > 0 ? fv.reached[i - 1] : null
+                const step = prev && prev > 0 ? (reached / prev * 100) : null
+                return (
+                  <div key={s.id} style={{ background: (s.cor || '#2563EB') + '12', borderRadius: 10, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 110, borderTop: `3px solid ${s.cor || '#2563EB'}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: s.cor || '#2563EB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {String(i + 1).padStart(2, '0')} · {s.nome}
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: s.cor || '#2563EB', lineHeight: 1 }}>{reached}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>{pct.toFixed(0)}% do topo · {fv.atStage[i]} aqui</div>
+                    {step !== null && (
+                      <div style={{ fontSize: 10, fontWeight: 700, marginTop: 'auto', color: step >= 60 ? '#16A34A' : step >= 30 ? '#D97706' : '#DC2626' }}>
+                        ↳ {step.toFixed(0)}% da anterior
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Temperatura + Origem */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, marginBottom: 14 }}>
+        <div className="nx-card" style={{ padding: '1.25rem' }}>
+          <SectionTitle icon={Thermometer} text="Temperatura dos leads" right={`${total} leads`} />
+          {tempData.length === 0 ? <Empty /> : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <DonutChart data={tempData.map(t => ({ value: t.value, color: t.color, label: t.label }))} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {tempData.map(t => (
+                  <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                    <span style={{ fontSize: 14 }}>{t.icon}</span>
+                    <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{t.label}</span>
+                    <span style={{ fontWeight: 700, color: t.color }}>{t.value}</span>
+                    <span style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 38, textAlign: 'right' }}>{total ? Math.round(t.value / total * 100) : 0}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="nx-card" style={{ padding: '1.25rem' }}>
+          <SectionTitle icon={BarChart2} text="Origem dos leads" right={`${origens.length} origens`} />
+          {origens.length === 0 ? <Empty /> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {origens.slice(0, 8).map((o, i) => {
+                const color = CRM_ORIGEM_COLORS[i % CRM_ORIGEM_COLORS.length]
+                const max = origens[0].count
+                return (
+                  <div key={o.nome}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 500 }}>{o.nome}</span>
+                      <span style={{ fontWeight: 700, color }}>{o.count} <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: 11 }}>({total ? Math.round(o.count / total * 100) : 0}%)</span></span>
+                    </div>
+                    <div style={{ height: 7, background: '#F1F5F9', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${(o.count / max) * 100}%`, background: color, transition: 'width 0.4s' }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Responsáveis + Parados */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, marginBottom: 14 }}>
+        <div className="nx-card" style={{ padding: '1.25rem' }}>
+          <SectionTitle icon={UserCheck} text="Leads por responsável" right={`${responsaveis.length}`} />
+          {responsaveis.length === 0 ? <Empty /> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {responsaveis.slice(0, 8).map(([nome, count], i) => {
+                const max = responsaveis[0][1]
+                const color = CRM_ORIGEM_COLORS[i % CRM_ORIGEM_COLORS.length]
+                return (
+                  <div key={nome}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
+                      <span style={{ fontWeight: 700, color }}>{count}</span>
+                    </div>
+                    <div style={{ height: 7, background: '#F1F5F9', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${(count / max) * 100}%`, background: color }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="nx-card" style={{ padding: '1.25rem' }}>
+          <SectionTitle icon={AlertCircle} text="Leads parados — precisam de ação" right={staleList.length > 0 ? <span style={{ color: '#D97706', fontWeight: 700 }}>{parados} no total</span> : 'tudo em dia'} />
+          {staleList.length === 0 ? (
+            <div style={{ padding: '1.5rem', textAlign: 'center', color: '#16A34A', fontSize: 13, fontWeight: 600 }}>
+              <CheckCircle2 size={20} style={{ marginBottom: 6 }} /><br />Nenhum lead parado nesse funil
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {staleList.map(c => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '7px 12px', fontSize: 12.5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: c.stage?.cor || '#D97706', flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || c.phone}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.stage?.nome}</span>
+                  <span style={{ fontWeight: 800, color: '#D97706' }}>{c.dias}d</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Volume diário de novos leads */}
+      <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
+        <SectionTitle icon={Clock} text="Novos leads por dia" right={periodLabel(period)} />
+        <BarTimeline data={dailyNew} />
+      </div>
+
+      {/* Atividade + Motivos de perda */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14 }}>
+        <div className="nx-card" style={{ padding: '1.25rem' }}>
+          <SectionTitle icon={ListChecks} text="Atividade no CRM" right={`${atividadeTotal} · ${periodLabel(period)}`} />
+          {atividadeTotal === 0 ? <Empty /> : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(135px, 1fr))', gap: 10 }}>
+              {Object.entries(CRM_INTER).map(([k, meta]) => (
+                <div key={k} style={{ background: meta.color + '11', border: `1px solid ${meta.color}33`, borderRadius: 10, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: meta.color, marginBottom: 4 }}>
+                    <meta.icon size={13} />
+                    <span style={{ fontSize: 10.5, fontWeight: 700 }}>{meta.label}</span>
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: meta.color }}>{atividade[k]}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="nx-card" style={{ padding: '1.25rem' }}>
+          <SectionTitle icon={XCircle} text="Motivos de perda" right={`${motivos.reduce((a, b) => a + b[1], 0)} perdas`} />
+          {motivos.length === 0 ? <Empty /> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {motivos.map(([nome, count]) => {
+                const max = motivos[0][1]
+                return (
+                  <div key={nome}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
+                      <span style={{ fontWeight: 700, color: '#DC2626' }}>{count}</span>
+                    </div>
+                    <div style={{ height: 7, background: '#F1F5F9', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${(count / max) * 100}%`, background: '#DC2626' }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Leads por funil */}
+      {crmFunnels.length > 1 && (
+        <div className="nx-card" style={{ padding: '1.25rem', marginTop: 14 }}>
+          <SectionTitle icon={Layers} text="Leads por funil" right={`${crmFunnels.length} funis`} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {byFunnel.map(({ f, count }, i) => (
+              <div key={f.id}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 500 }}>{f.nome}</span>
+                  <span style={{ fontWeight: 700, color: CRM_ORIGEM_COLORS[i % CRM_ORIGEM_COLORS.length] }}>{count}</span>
+                </div>
+                <div style={{ height: 7, background: '#F1F5F9', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(count / maxFunnel) * 100}%`, background: CRM_ORIGEM_COLORS[i % CRM_ORIGEM_COLORS.length] }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
