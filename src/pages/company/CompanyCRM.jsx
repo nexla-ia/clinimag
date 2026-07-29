@@ -1128,6 +1128,12 @@ export default function CompanyCRM() {
                       onDragStart={e => onDragStart(e, contact)}
                       onDragEnd={() => { setDragging(null); clearSpring() }}
                       onClick={() => setPanel(contact)}
+                      onContextMenu={e => {
+                        // Botão direito no card → mesmo menu "mover para funil", no cursor.
+                        if (funnels.length <= 1) return
+                        e.preventDefault()
+                        setMoveMenu({ contactId: contact.id, funnelPick: null, x: e.clientX, y: e.clientY, anchor: 'left' })
+                      }}
                       className="crm-card"
                       style={{
                         position:'relative',
@@ -1144,7 +1150,7 @@ export default function CompanyCRM() {
                           onClick={e => {
                             e.stopPropagation()
                             const r = e.currentTarget.getBoundingClientRect()
-                            setMoveMenu(cur => cur?.contactId === contact.id ? null : { contactId: contact.id, funnelPick: null, x: r.right, y: r.bottom })
+                            setMoveMenu(cur => cur?.contactId === contact.id ? null : { contactId: contact.id, funnelPick: null, x: r.right, y: r.bottom, anchor: 'right' })
                           }}
                           style={{ position:'absolute', top:5, right:6, width:22, height:22, borderRadius:6, border:`1px solid ${C.border}`, background:C.card, color:C.slate, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 3px rgba(0,0,0,0.08)', zIndex:2 }}
                           onMouseEnter={e=>e.currentTarget.style.background=C.bg}
@@ -1238,8 +1244,11 @@ export default function CompanyCRM() {
         if (!mc) return null
         const others = funnels.filter(f => f.id !== (mc.funil_id || activeFunnel))
         const W = 220
-        const left = Math.max(8, Math.min((moveMenu.x || 0) - W, window.innerWidth - W - 8))
-        const top  = Math.max(8, Math.min((moveMenu.y || 0) + 6, window.innerHeight - 330))
+        // anchor 'left' = abre à direita/abaixo do cursor (botão direito);
+        // 'right' = alinha a borda direita no ponto (botão ⋯ do canto do card).
+        const rawLeft = moveMenu.anchor === 'left' ? (moveMenu.x || 0) : ((moveMenu.x || 0) - W)
+        const left = Math.max(8, Math.min(rawLeft, window.innerWidth - W - 8))
+        const top  = Math.max(8, Math.min((moveMenu.y || 0) + (moveMenu.anchor === 'left' ? 2 : 6), window.innerHeight - 330))
         return (
           <>
             <div onClick={() => setMoveMenu(null)} style={{ position:'fixed', inset:0, zIndex:300 }} />
