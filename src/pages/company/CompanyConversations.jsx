@@ -1896,29 +1896,38 @@ export default function CompanyConversations() {
         .maybeSingle()
       const id_mensagem = fresh?.id_mensagem || msg.id_mensagem
 
-      const res = await fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexlaeditar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: msg.id,
-          id_mensagem,
-          message: newText,
-          session_id: selected?.session_id,
-          phone: selected?.phone,
-          instancia: instance,
-          api_instancia: apiInstancia,
-          ai_enabled: session?.company?.ai_enabled !== false,
-          company: session?.company?.name,
-          sender_name: session?.user?.name,
-          sender_email: session?.user?.email,
-        }),
-      })
-      if (!res.ok) throw new Error('status ' + res.status)
+      // Grava a edição NO BANCO (independente do WhatsApp) — senão, ao sair e voltar
+      // na conversa, a mensagem voltava pro texto original (a tela editava, o banco não).
+      await supabase.from('mensagens_geral').update({ mensagem: newText }).eq('id', msg.id)
       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, content: newText } : m))
       setEditingMsgId(null)
       setEditingText('')
-      setToast({ message: 'Mensagem editada', color: '#16A34A' })
-      setTimeout(() => setToast(null), 2500)
+
+      // Edita no WhatsApp só se temos o id da mensagem lá
+      if (id_mensagem) {
+        fetch('https://n8n.nexladesenvolvimento.com.br/webhook/envioNexlaeditar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: msg.id,
+            id_mensagem,
+            message: newText,
+            session_id: selected?.session_id,
+            phone: selected?.phone,
+            instancia: instance,
+            api_instancia: apiInstancia,
+            ai_enabled: session?.company?.ai_enabled !== false,
+            company: session?.company?.name,
+            sender_name: session?.user?.name,
+            sender_email: session?.user?.email,
+          }),
+        }).catch(e => console.warn('webhook editar:', e))
+        setToast({ message: 'Mensagem editada', color: '#16A34A' })
+        setTimeout(() => setToast(null), 2500)
+      } else {
+        setToast({ message: 'Editado aqui na plataforma. No WhatsApp não deu (mensagem antiga, sem identificador).', color: '#D97706' })
+        setTimeout(() => setToast(null), 6000)
+      }
     } catch (e) {
       setToast({ message: 'Erro ao editar: ' + e.message, color: '#DC2626' })
       setTimeout(() => setToast(null), 3500)
