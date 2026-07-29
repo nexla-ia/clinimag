@@ -2098,7 +2098,9 @@ export default function CompanyConversations() {
     setSelectedIds([])
     setCloseModal(null)
     setReason('')
-    setTab('finalizados')
+    // NÃO troca pra aba "Finalizados": a conversa encerrada já sai da lista atual
+    // sozinha (vira finalizada). Assim dá pra encerrar uma atrás da outra sem a
+    // tela pular toda hora pra Finalizados.
     const label = findReason(reason)?.label || reason
     const color = findReason(reason)?.color || '#16A34A'
     setToast({ message: ids.length > 1 ? `${ids.length} conversas finalizadas — ${label}` : `Conversa finalizada — ${label}`, color })
