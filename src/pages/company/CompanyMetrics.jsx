@@ -66,13 +66,26 @@ const PERIODS = [
   { key: 'todos',  label: 'Todos' },
 ]
 
+// Converte um Date para 'YYYY-MM-DD' no fuso LOCAL. Evita o drift do toISOString,
+// que joga a data pro dia seguinte quando (hora local + offset) passa da meia-noite UTC
+// — o que bagunçava a comparação com colunas de data (ex: vencimento).
+function ymdLocal(d) {
+  if (!d) return null
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Presets são janelas "até agora" com AMBOS os limites definidos. Antes o `to` ficava
+// null (aberto), o que fazia os agendamentos FUTUROS vazarem pros filtros retrospectivos
+// — ex: "Hoje" na Agenda mostrava hoje + TODOS os agendamentos marcados pra frente.
+// Agora todo preset tem começo e fim (fim = 23:59:59.999 de hoje / do dia).
 function getPeriodRange(period) {
   const now = new Date()
-  const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  if (period === 'hoje')   return { from: startOf(now), to: null }
-  if (period === 'ontem')  { const y = new Date(now); y.setDate(y.getDate() - 1); return { from: startOf(y), to: new Date(startOf(now) - 1) } }
-  if (period === 'semana') { const d = new Date(now); d.setDate(d.getDate() - 6); return { from: startOf(d), to: null } }
-  if (period === 'mes')    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null }
+  const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0)
+  const endOf   = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
+  if (period === 'hoje')   return { from: startOf(now), to: endOf(now) }
+  if (period === 'ontem')  { const y = new Date(now); y.setDate(y.getDate() - 1); return { from: startOf(y), to: endOf(y) } }
+  if (period === 'semana') { const d = new Date(now); d.setDate(d.getDate() - 6); return { from: startOf(d), to: endOf(now) } }
+  if (period === 'mes')    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: endOf(now) }
   return { from: null, to: null }
 }
 
@@ -236,44 +249,72 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   async function load() {
     if (!instance) return
     setLoading(true)
-    const queries = [
-      supabase.from('mensagens_geral').select('id, numero, type, mensagem, "horaLastMessage", created_at').eq('instancia', instance).order('id', { ascending: false }).limit(20000),
-      supabase.from('conversations').select('session_id, reason, closed_at').eq('instancia', instance),
-      supabase.from('attendances').select('numero, sector_id, sector_name, sector_color, attendant_name, attendant_email, assumed_at').eq('instancia', instance),
-      supabase.from('appointments').select('*, agendas(name, color)').eq('instancia', instance),
-      supabase.from('alerts').select('*').eq('instancia', instance),
-      supabase.from('kanban_cards').select('*').eq('instancia', instance),
-      supabase.from('kanban_columns').select('*').eq('instancia', instance).order('position'),
-      supabase.from('users').select('id, name, email, role, active').eq('company_id', companyId),
-      supabase.from('sectors').select('*').eq('instancia', instance),
-      supabase.from('sector_members').select('user_id, sector_id'),
-      supabase.from('professionals').select('*').eq('instancia', instance),
-      supabase.from('procedures').select('*').eq('instancia', instance),
-      supabase.from('insurance_plans').select('*').eq('instancia', instance),
-      supabase.from('financial_transactions').select('id,tipo,valor,status,categoria_id,vencimento,descricao,contact_nome,forma_pagamento').eq('instancia', instance)
-        .gte('vencimento', `${new Date().getFullYear()-1}-01-01`).lte('vencimento', `${new Date().getFullYear()+1}-12-31`),
-      supabase.from('financial_categories').select('id,nome,tipo,cor').in('instancia', [instance, '_default_']),
-    ]
-    if (contactsTable) queries.push(supabase.from(contactsTable).select('*').eq('instancia', instance))
 
-    const results = await Promise.all(queries)
-    setMsgs(results[0].data || [])
-    setConvs(results[1].data || [])
-    setAtts(results[2].data || [])
-    setAppts(results[3].data || [])
-    setAlerts(results[4].data || [])
-    setKanbanCards(results[5].data || [])
-    setKanbanColumns(results[6].data || [])
-    setUsers((results[7].data || []).filter(u => u.active !== false))
-    setSectors(results[8].data || [])
-    const sectorIds = new Set((results[8].data || []).map(s => s.id))
-    setSectorMembers((results[9].data || []).filter(sm => sectorIds.has(sm.sector_id)))
-    setProfessionals(results[10].data || [])
-    setProcedures(results[11].data || [])
-    setInsurancePlans(results[12].data || [])
-    setFinTx(results[13].data || [])
-    setFinCats(results[14].data || [])
-    const leadsData = contactsTable ? (results[15].data || []) : []
+    // PostgREST devolve no máx. 1000 linhas por request (mesmo com .limit maior).
+    // Sem paginar, clínicas grandes perdiam dados — e os agendamentos, que nem tinham
+    // .order(), vinham as 1000 linhas MAIS ANTIGAS, sumindo os de hoje/recentes.
+    // fetchAll() pagina com .range() até esgotar.
+    const PAGE = 1000
+    async function fetchAll(build) {
+      let all = [], offset = 0
+      for (;;) {
+        const { data, error } = await build(offset, offset + PAGE - 1)
+        if (error) { console.warn('métricas: erro ao paginar', error.message); break }
+        if (!data || !data.length) break
+        all = all.concat(data)
+        if (data.length < PAGE) break
+        offset += PAGE
+        if (offset > 300000) break // trava de segurança
+      }
+      return all
+    }
+    const one = (q) => q.then(r => r.data || [])
+
+    const yearLo = `${new Date().getFullYear() - 1}-01-01`
+    const yearHi = `${new Date().getFullYear() + 1}-12-31`
+
+    const [
+      msgsData, convsData, attsData, apptsData, alertsData,
+      kanbanCardsData, kanbanColsData, usersRaw, sectorsData, sectorMembersRaw,
+      professionalsData, proceduresData, insuranceData, finTxData, finCatsData,
+      leadsData,
+    ] = await Promise.all([
+      fetchAll((a, b) => supabase.from('mensagens_geral').select('id, numero, type, mensagem, "horaLastMessage", created_at').eq('instancia', instance).order('id', { ascending: false }).range(a, b)),
+      fetchAll((a, b) => supabase.from('conversations').select('session_id, reason, closed_at').eq('instancia', instance).range(a, b)),
+      fetchAll((a, b) => supabase.from('attendances').select('numero, sector_id, sector_name, sector_color, attendant_name, attendant_email, assumed_at').eq('instancia', instance).range(a, b)),
+      fetchAll((a, b) => supabase.from('appointments').select('*, agendas(name, color)').eq('instancia', instance).order('starts_at', { ascending: false }).range(a, b)),
+      fetchAll((a, b) => supabase.from('alerts').select('*').eq('instancia', instance).range(a, b)),
+      fetchAll((a, b) => supabase.from('kanban_cards').select('*').eq('instancia', instance).range(a, b)),
+      one(supabase.from('kanban_columns').select('*').eq('instancia', instance).order('position')),
+      one(supabase.from('users').select('id, name, email, role, active').eq('company_id', companyId)),
+      one(supabase.from('sectors').select('*').eq('instancia', instance)),
+      fetchAll((a, b) => supabase.from('sector_members').select('user_id, sector_id').range(a, b)),
+      one(supabase.from('professionals').select('*').eq('instancia', instance)),
+      one(supabase.from('procedures').select('*').eq('instancia', instance)),
+      one(supabase.from('insurance_plans').select('*').eq('instancia', instance)),
+      fetchAll((a, b) => supabase.from('financial_transactions').select('id,tipo,valor,status,categoria_id,vencimento,descricao,contact_nome,forma_pagamento').eq('instancia', instance).gte('vencimento', yearLo).lte('vencimento', yearHi).range(a, b)),
+      one(supabase.from('financial_categories').select('id,nome,tipo,cor').in('instancia', [instance, '_default_'])),
+      contactsTable
+        ? fetchAll((a, b) => supabase.from(contactsTable).select('*').eq('instancia', instance).range(a, b))
+        : Promise.resolve([]),
+    ])
+
+    setMsgs(msgsData)
+    setConvs(convsData)
+    setAtts(attsData)
+    setAppts(apptsData)
+    setAlerts(alertsData)
+    setKanbanCards(kanbanCardsData)
+    setKanbanColumns(kanbanColsData)
+    setUsers(usersRaw.filter(u => u.active !== false))
+    setSectors(sectorsData)
+    const sectorIds = new Set(sectorsData.map(s => s.id))
+    setSectorMembers(sectorMembersRaw.filter(sm => sectorIds.has(sm.sector_id)))
+    setProfessionals(professionalsData)
+    setProcedures(proceduresData)
+    setInsurancePlans(insuranceData)
+    setFinTx(finTxData)
+    setFinCats(finCatsData)
     setLeads(leadsData)
     setLastRefresh(new Date())
     setLoading(false)
@@ -281,7 +322,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     // Inferência automática de origem para leads sem origem definida.
     // Lê primeiras mensagens cliente, detecta canal por palavra-chave, atualiza banco silenciosamente.
     if (contactsTable && leadsData.length) {
-      const msgsAll = results[0].data || []
+      const msgsAll = msgsData
       const semOrigem = leadsData.filter(l => !l.origem || l.origem === '' || /desconhecid/i.test(l.origem))
       if (semOrigem.length) {
         const updates = []
@@ -306,9 +347,9 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
 
       // Classificação automática de status (novo / em_atendimento / agendado / encerrado / perdido)
       // Roda em todos os leads, atualiza só onde o valor mudou.
-      const allMsgs  = results[0].data || []
-      const allConvs = results[1].data || []
-      const allAppts = results[3].data || []
+      const allMsgs  = msgsData
+      const allConvs = convsData
+      const allAppts = apptsData
 
       const msgsByPhone = {}
       allMsgs.forEach(m => {
@@ -567,17 +608,19 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, range, per
 
   // Volume mensagens por dia
   const dayVolume = useMemo(() => {
+    // Agrupa pela data ISO local (com ano) pra não fundir dias iguais de anos
+    // diferentes; exibe só dd/mm. Ordena pela chave ISO (= ordem cronológica).
     const map = {}
     m.forEach(x => {
       if (!x.created_at) return
       const d = new Date(x.created_at)
-      const k = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-      map[k] = (map[k] || 0) + 1
+      if (isNaN(d.getTime())) return
+      const iso = ymdLocal(d)
+      const lbl = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (!map[iso]) map[iso] = { lbl, count: 0 }
+      map[iso].count++
     })
-    return Object.entries(map).sort((a, b) => {
-      const parse = s => { const [d, mo] = s.split('/'); return new Date(2026, +mo - 1, +d) }
-      return parse(a[0]) - parse(b[0])
-    })
+    return Object.keys(map).sort().map(iso => [map[iso].lbl, map[iso].count])
   }, [m])
 
   return (
@@ -1102,11 +1145,14 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx
     const endD   = to   ? new Date(to.getFullYear(),   to.getMonth(),   to.getDate())   : new Date()
     const startD = from ? new Date(from.getFullYear(), from.getMonth(), from.getDate()) : new Date(endD.getTime() - 29 * 86400000)
     const days = []
+    // Bucketiza pela data LOCAL do agendamento (ymdLocal), senão consultas da
+    // noite caíam no dia seguinte (starts_at cru é UTC).
+    const dayKey = a => a.starts_at ? ymdLocal(new Date(a.starts_at)) : ''
     for (let d = new Date(startD); d <= endD; d = new Date(d.getTime() + 86400000)) {
-      const ds = d.toISOString().slice(0, 10)
-      const val = inRange.filter(a => (a.starts_at || '').slice(0, 10) === ds && a.payment_status === 'pago')
+      const ds = ymdLocal(d)
+      const val = inRange.filter(a => dayKey(a) === ds && a.payment_status === 'pago')
         .reduce((s, a) => s + Number(a.price || 0), 0)
-      const rec = inRange.filter(a => (a.starts_at || '').slice(0, 10) === ds && a.payment_status === 'pendente' && a.status !== 'cancelado').length
+      const rec = inRange.filter(a => dayKey(a) === ds && a.payment_status === 'pendente' && a.status !== 'cancelado').length
       days.push({ label: `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`, faturado: val, pendentes: rec })
       if (days.length >= 60) break
     }
@@ -1277,15 +1323,16 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx
 
       {/* ── Módulo Financeiro (financial_transactions) ── */}
       {finTx.length > 0 && (() => {
-        const todayStr = new Date().toISOString().slice(0, 10)
+        const todayStr = ymdLocal(new Date())
         const cm = cmStrFin()
         const catMap = {}; finCats.forEach(c => { catMap[c.id] = c })
 
-        // Filtra lançamentos pelo período selecionado (ou tudo se 'todos')
+        // Filtra lançamentos pelo período selecionado (ou tudo se 'todos').
+        // Usa ymdLocal (não toISOString) pra não empurrar o limite pro dia seguinte.
         const txPeriod = finTx.filter(t => {
           if (!from && !to) return true
           const v = t.vencimento || ''
-          return v >= (from ? from.toISOString().slice(0,10) : '0') && v <= (to ? to.toISOString().slice(0,10) : '9')
+          return v >= (from ? ymdLocal(from) : '0') && v <= (to ? ymdLocal(to) : '9')
         })
 
         const recPagas  = txPeriod.filter(t => t.tipo==='receita' && t.status==='pago').reduce((s,t)=>s+parseFloat(t.valor||0),0)
