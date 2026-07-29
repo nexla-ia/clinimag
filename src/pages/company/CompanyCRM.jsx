@@ -103,6 +103,8 @@ export default function CompanyCRM() {
   const [confirmDelFunnel, setConfirmDelFunnel] = useState(null)
   const [moveMenu, setMoveMenu]       = useState(null)  // { contactId, funnelPick, x, y } — menu "mover para funil"
   const [dragFunnel, setDragFunnel]   = useState(null)  // id do funil sob o card sendo arrastado (highlight)
+  const springRef = useRef({ funnelId: null, timer: null }) // spring-load: abre o funil ao pairar o card sobre a aba
+  function clearSpring() { if (springRef.current.timer) clearTimeout(springRef.current.timer); springRef.current = { funnelId: null, timer: null } }
   const [search, setSearch]           = useState('')
   const [filterTemp, setFilterTemp]   = useState('todos')
   const [dragging, setDragging]       = useState(null)
@@ -770,11 +772,23 @@ export default function CompanyCRM() {
             return (
               <button key={f.id}
                 onClick={() => setActiveFunnel(f.id)}
-                onDragOver={e => { if (dragging && !draggingStage) { e.preventDefault(); e.dataTransfer.dropEffect='move'; setDragFunnel(f.id) } }}
-                onDragLeave={() => setDragFunnel(cur => cur === f.id ? null : cur)}
+                onDragOver={e => {
+                  if (dragging && !draggingStage) {
+                    e.preventDefault(); e.dataTransfer.dropEffect='move'; setDragFunnel(f.id)
+                    // spring-load: pairou sobre a aba de outro funil → abre esse funil
+                    // pra você soltar o card na etapa que quiser.
+                    if (activeFunnel !== f.id && springRef.current.funnelId !== f.id) {
+                      clearSpring()
+                      springRef.current = { funnelId: f.id, timer: setTimeout(() => { setActiveFunnel(f.id); setDragFunnel(null); springRef.current = { funnelId: null, timer: null } }, 600) }
+                    }
+                  }
+                }}
+                onDragLeave={() => { setDragFunnel(cur => cur === f.id ? null : cur); if (springRef.current.funnelId === f.id) clearSpring() }}
                 onDrop={e => {
-                  e.preventDefault(); setDragFunnel(null)
-                  if (dragging && !draggingStage) { const cid = dragging.id; setDragging(null); moveContactToFunnel(cid, f.id, null, { switchTo:true }) }
+                  e.preventDefault(); setDragFunnel(null); clearSpring()
+                  // Se o funil já abriu (spring), o card cai no funil ativo → aqui só
+                  // move quando soltou na aba ANTES de abrir (atalho: 1ª etapa).
+                  if (dragging && !draggingStage && activeFunnel !== f.id) { const cid = dragging.id; setDragging(null); moveContactToFunnel(cid, f.id, null, { switchTo:true }) }
                 }}
                 className="crm-btn" title={isActive ? 'Renomear no lápis' : `Ver funil "${f.nome}"`}
                 style={{
@@ -1112,7 +1126,7 @@ export default function CompanyCRM() {
                     <div key={contact.id}
                       draggable
                       onDragStart={e => onDragStart(e, contact)}
-                      onDragEnd={() => setDragging(null)}
+                      onDragEnd={() => { setDragging(null); clearSpring() }}
                       onClick={() => setPanel(contact)}
                       className="crm-card"
                       style={{
