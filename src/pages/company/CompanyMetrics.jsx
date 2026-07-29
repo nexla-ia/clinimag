@@ -2132,19 +2132,19 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, pe
   const stageById = useMemo(() => { const m = {}; crmStages.forEach(s => m[s.id] = s); return m }, [crmStages])
   const stagesForFunnel = fid => crmStages.filter(s => s.funil_id === fid).sort((a, b) => (a.posicao ?? 0) - (b.posicao ?? 0))
 
-  // Escopo: pipeline ATUAL do funil selecionado (snapshot — não filtra por período,
-  // senão o padrão "Semana" esvaziaria o pipeline). O período afeta só os cards de
-  // "novos leads", volume diário e atividade.
+  // Escopo: leads do funil selecionado que ENTRARAM dentro do período (coorte). O
+  // filtro de tempo vale pra tudo aqui — "Hoje/Semana/Mês" mostra os leads que
+  // entraram nesse intervalo e onde estão no funil; "Todos" mostra o pipeline inteiro.
+  const inRangeLead = c => inPeriod(c.created_at, from, to) || (!from && !to)
   const scopeLeads = useMemo(
-    () => funnelSel === 'todos' ? crmContacts : crmContacts.filter(c => c.funil_id === funnelSel),
-    [crmContacts, funnelSel]
+    () => (funnelSel === 'todos' ? crmContacts : crmContacts.filter(c => c.funil_id === funnelSel)).filter(inRangeLead),
+    [crmContacts, funnelSel, from, to]
   )
 
   const total    = scopeLeads.length
   const quentes  = scopeLeads.filter(c => c.temperatura === 'quente').length
   const mornos   = scopeLeads.filter(c => c.temperatura === 'morno').length
   const frios    = scopeLeads.filter(c => c.temperatura === 'frio' || !c.temperatura).length
-  const novos    = scopeLeads.filter(c => inPeriod(c.created_at, from, to)).length
   const parados  = scopeLeads.filter(c => { const s = stageById[c.stage_id]; return s?.alerta_dias && daysInStage(c.data_entrada_etapa) > s.alerta_dias }).length
   const perdidos = scopeLeads.filter(c => c.motivo_perda || isLost(stageById[c.stage_id])).length
 
@@ -2155,18 +2155,19 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, pe
   }, [crmFunnels, crmStages])
   const convertidos = scopeLeads.filter(c => c.stage_id && c.stage_id === lastStageByFunnel[c.funil_id]).length
   const taxaConv = total ? (convertidos / total * 100) : 0
+  const emAndamento = Math.max(0, total - convertidos - perdidos)
 
   const funnelsToShow = funnelSel === 'todos' ? crmFunnels : crmFunnels.filter(f => f.id === funnelSel)
   const funnelViz = useMemo(() => funnelsToShow.map(f => {
     const fw = stagesForFunnel(f.id).filter(s => !isLost(s))
-    const leads = crmContacts.filter(c => c.funil_id === f.id)
+    const leads = crmContacts.filter(c => c.funil_id === f.id && inRangeLead(c))
     const idxOf = {}; fw.forEach((s, i) => idxOf[s.id] = i)
     const atStage = fw.map(s => leads.filter(c => c.stage_id === s.id).length)
     // reached[i] = leads cujo estágio é i ou além (assume avanço linear no funil)
     const reached = fw.map((_, i) => leads.filter(c => { const si = idxOf[c.stage_id]; return si != null && si >= i }).length)
     const lost = leads.filter(c => c.motivo_perda || isLost(stageById[c.stage_id])).length
     return { funnel: f, stages: fw, atStage, reached, entered: reached[0] || 0, lost, totalF: leads.length }
-  }), [funnelSel, crmContacts, crmStages, crmFunnels])
+  }), [funnelSel, crmContacts, crmStages, crmFunnels, from, to])
 
   const tempData = [
     { key: 'quente', ...CRM_TEMP.quente, value: quentes },
@@ -2219,8 +2220,8 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, pe
   const atividadeTotal = Object.values(atividade).reduce((a, b) => a + b, 0)
 
   const byFunnel = useMemo(() =>
-    crmFunnels.map(f => ({ f, count: crmContacts.filter(c => c.funil_id === f.id).length })).sort((a, b) => b.count - a.count)
-  , [crmFunnels, crmContacts])
+    crmFunnels.map(f => ({ f, count: crmContacts.filter(c => c.funil_id === f.id && inRangeLead(c)).length })).sort((a, b) => b.count - a.count)
+  , [crmFunnels, crmContacts, from, to])
   const maxFunnel = Math.max(1, ...byFunnel.map(x => x.count))
 
   if (!loading && !crmFunnels.length && !crmContacts.length) {
@@ -2251,12 +2252,12 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, pe
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>
-        <KpiCard icon={<Users size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Leads no pipeline" sub={funnelSel === 'todos' ? 'todos os funis' : 'funil selecionado'} loading={loading} />
-        <KpiCard icon={<TrendingUp size={18} color="#7C3AED" />} bg="#F5F3FF" value={novos} label="Novos leads" sub={periodLabel(period)} loading={loading} />
-        <KpiCard icon={<span style={{ fontSize: 16 }}>🔥</span>} bg="#FEF2F2" value={quentes} label="Leads quentes" sub={`${total ? Math.round(quentes / total * 100) : 0}% do pipeline`} loading={loading} alert={quentes > 0} />
-        <KpiCard icon={<Target size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConv.toFixed(0)}%`} label="Taxa de conversão" sub={`${convertidos} na última etapa`} loading={loading} />
+        <KpiCard icon={<Users size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Leads no período" sub={periodLabel(period)} loading={loading} />
+        <KpiCard icon={<TrendingUp size={18} color="#7C3AED" />} bg="#F5F3FF" value={emAndamento} label="Em andamento" sub="ativos no funil" loading={loading} />
+        <KpiCard icon={<span style={{ fontSize: 16 }}>🔥</span>} bg="#FEF2F2" value={quentes} label="Leads quentes" sub={`${total ? Math.round(quentes / total * 100) : 0}% do total`} loading={loading} alert={quentes > 0} />
+        <KpiCard icon={<Target size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConv.toFixed(0)}%`} label="Taxa de conversão" sub={`${convertidos} chegaram ao fim`} loading={loading} />
         <KpiCard icon={<AlertCircle size={18} color="#D97706" />} bg="#FFFBEB" value={parados} label="Leads parados" sub="além do prazo da etapa" loading={loading} alert={parados > 0} />
-        <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={perdidos} label="Leads perdidos" sub={`${total ? Math.round(perdidos / total * 100) : 0}% do pipeline`} loading={loading} />
+        <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={perdidos} label="Leads perdidos" sub={`${total ? Math.round(perdidos / total * 100) : 0}% do total`} loading={loading} />
       </div>
 
       {/* Funil(s) de conversão */}
