@@ -1166,11 +1166,19 @@ export default function CompanyGroups() {
 
   const tagMatch = buildTagFilter(tagFilter, tagAssignments)
   const q = search.trim().toLowerCase()
-  const filteredGroups = groups.filter(g => {
-    if (tagFilter.length > 0 && !tagMatch(g.idgrupo)) return false
-    if (q && !labelOf(g).toLowerCase().includes(q)) return false
-    return true
-  })
+  const filteredGroups = groups
+    .filter(g => {
+      if (tagFilter.length > 0 && !tagMatch(g.idgrupo)) return false
+      if (q && !labelOf(g).toLowerCase().includes(q)) return false
+      return true
+    })
+    // Mais recente no topo (igual WhatsApp): grupo que recebeu/enviou mensagem por
+    // último sobe. Grupos sem mensagem (muito antigos) vão pro fim.
+    .sort((a, b) => {
+      const ta = a.lastTs ? new Date(a.lastTs).getTime() : 0
+      const tb = b.lastTs ? new Date(b.lastTs).getTime() : 0
+      return tb - ta
+    })
 
   return (
     <>
