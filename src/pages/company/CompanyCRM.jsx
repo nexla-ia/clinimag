@@ -98,6 +98,11 @@ export default function CompanyCRM() {
   const [activeList, setActiveList]     = useState(null)
   const [savingList, setSavingList]     = useState(false)
   const [activeFunnel, setActiveFunnel] = useState(null)
+  const [funnelModal, setFunnelModal] = useState(null)  // { id, nome } — criar/renomear funil; null = fechado
+  const [savingFunnel, setSavingFunnel] = useState(false)
+  const [confirmDelFunnel, setConfirmDelFunnel] = useState(null)
+  const [moveMenu, setMoveMenu]       = useState(null)  // { contactId, funnelPick, x, y } — menu "mover para funil"
+  const [dragFunnel, setDragFunnel]   = useState(null)  // id do funil sob o card sendo arrastado (highlight)
   const [search, setSearch]           = useState('')
   const [filterTemp, setFilterTemp]   = useState('todos')
   const [dragging, setDragging]       = useState(null)
@@ -372,14 +377,17 @@ export default function CompanyCRM() {
 
   const filteredContacts = useMemo(() => {
     const q = search.toLowerCase().trim()
+    const primaryFunnelId = funnels[0]?.id || null // funil de menor posição
     return contacts.filter(c => {
-      const inFunil = !c.funil_id || c.funil_id === activeFunnel
+      // Lead com funil definido → aparece só no dele. Lead SEM funil (legado) →
+      // aparece só no funil principal, pra um funil novo não puxar todo mundo.
+      const inFunil = c.funil_id ? c.funil_id === activeFunnel : (activeFunnel === primaryFunnelId)
       if (!inFunil) return false
       if (filterTemp !== 'todos' && c.temperatura !== filterTemp) return false
       if (q && !bestName(c).toLowerCase().includes(q) && !(c.phone||'').includes(q) && !(c.email||'').toLowerCase().includes(q)) return false
       return true
     })
-  }, [contacts, search, filterTemp, activeFunnel])
+  }, [contacts, search, filterTemp, activeFunnel, funnels])
 
   const byStage = useMemo(() => {
     const map = {}
@@ -560,6 +568,83 @@ export default function CompanyCRM() {
     setStageModal(null)
   }
 
+  // ── Funis (quadros de CRM) — criar / renomear / excluir ──────────────────────
+  async function handleSaveFunnel() {
+    if (!funnelModal || savingFunnel) return
+    const nome = (funnelModal.nome || '').trim()
+    if (!nome) return
+    setSavingFunnel(true)
+    if (funnelModal.id) {
+      // Renomear
+      const { error } = await supabase.from('crm_funnels').update({ nome }).eq('id', funnelModal.id)
+      if (error) { alert('Erro: ' + error.message); setSavingFunnel(false); return }
+      setFunnels(prev => prev.map(f => f.id === funnelModal.id ? { ...f, nome } : f))
+    } else {
+      // Criar funil novo + etapas padrão (pra já vir usável)
+      const maxPos = Math.max(-1, ...funnels.map(f => f.posicao ?? 0))
+      const { data: nf, error } = await supabase.from('crm_funnels')
+        .insert({ instancia: instance, nome, posicao: maxPos + 1 }).select().single()
+      if (error || !nf) { alert('Erro ao criar funil: ' + (error?.message || '')); setSavingFunnel(false); return }
+      const { data: ns } = await supabase.from('crm_stages')
+        .insert(DEFAULT_STAGES.map(s => ({ ...s, funil_id: nf.id, instancia: instance }))).select()
+      setFunnels(prev => [...prev, nf])
+      if (ns) setStages(prev => [...prev, ...ns])
+      setActiveFunnel(nf.id)
+    }
+    setSavingFunnel(false)
+    setFunnelModal(null)
+  }
+
+  // Exclui um funil. Os leads dele são movidos pro primeiro funil restante (na
+  // primeira etapa), pra não virarem órfãos. Bloqueia excluir o último funil.
+  async function deleteFunnel(id) {
+    if (funnels.length <= 1) { alert('Você precisa ter pelo menos um funil.'); return }
+    const target = funnels.find(f => f.id !== id)
+    const targetStage = stages.filter(s => s.funil_id === target.id).sort((a,b) => a.posicao - b.posicao)[0]
+    const now = new Date().toISOString()
+    const { error: mvErr } = await supabase.from('crm_contacts')
+      .update({ funil_id: target.id, stage_id: targetStage?.id || null, data_entrada_etapa: now })
+      .eq('instancia', instance).eq('funil_id', id)
+    if (mvErr) { alert('Erro ao mover os leads: ' + mvErr.message); return }
+    const { error: delErr } = await supabase.from('crm_funnels').delete().eq('id', id)
+    if (delErr) { alert('Erro ao excluir o funil: ' + delErr.message); return }
+    setContacts(prev => prev.map(c => c.funil_id === id
+      ? { ...c, funil_id: target.id, stage_id: targetStage?.id || null, data_entrada_etapa: now } : c))
+    setStages(prev => prev.filter(s => s.funil_id !== id))
+    setFunnels(prev => prev.filter(f => f.id !== id))
+    if (activeFunnel === id) setActiveFunnel(target.id)
+    setConfirmDelFunnel(null)
+    setFunnelModal(null)
+  }
+
+  // Move um lead pra outro funil (e etapa). Sem stageId → cai na 1ª etapa do
+  // destino. Usado pelo menu do card, pelo drag na aba e pelo seletor do painel.
+  async function moveContactToFunnel(contactId, funnelId, stageId, { switchTo = false } = {}) {
+    const destStages = stages.filter(s => s.funil_id === funnelId).sort((a,b) => a.posicao - b.posicao)
+    const toStage = stageId || destStages[0]?.id || null
+    const contact = contacts.find(c => c.id === contactId)
+    if (!contact) { setMoveMenu(null); return }
+    if (contact.funil_id === funnelId && contact.stage_id === toStage) { setMoveMenu(null); return }
+    const now = new Date().toISOString()
+    const snapshot = contacts
+    setContacts(prev => prev.map(c => c.id === contactId
+      ? { ...c, funil_id: funnelId, stage_id: toStage, data_entrada_etapa: now } : c))
+    setMoveMenu(null)
+    if (switchTo) setActiveFunnel(funnelId)
+    const { error } = await supabase.from('crm_contacts')
+      .update({ funil_id: funnelId, stage_id: toStage, data_entrada_etapa: now }).eq('id', contactId)
+    if (error) { setContacts(snapshot); alert('Não consegui mover o lead: ' + error.message); return }
+    const fromF = funnels.find(f => f.id === contact.funil_id)
+    const toF   = funnels.find(f => f.id === funnelId)
+    await supabase.from('crm_interactions').insert({
+      instancia: instance, phone: contact.phone || '', tipo: 'etapa',
+      conteudo: `Movido para o funil "${toF?.nome || '?'}"${fromF ? ` (de "${fromF.nome}")` : ''}`,
+      metadata: { fromFunnel: contact.funil_id, toFunnel: funnelId, toStage },
+      autor_nome: session?.user?.name || session?.user?.email,
+    })
+    if (panel?.id === contactId) setPanel(p => ({ ...p, funil_id: funnelId, stage_id: toStage }))
+  }
+
   async function deleteContact(id) {
     await supabase.from('crm_contacts').delete().eq('id', id)
     setContacts(p => p.filter(c => c.id!==id))
@@ -657,6 +742,8 @@ export default function CompanyCRM() {
         .crm-card{cursor:grab;transition:box-shadow 0.15s,transform 0.15s}
         .crm-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.1);transform:translateY(-1px)}
         .crm-card:active{cursor:grabbing}
+        .crm-move-btn{opacity:0;transition:opacity 0.12s,background 0.12s}
+        .crm-card:hover .crm-move-btn{opacity:1}
         .crm-col-drop{background:rgba(37,99,235,0.06)!important;border-color:#93C5FD!important}
         .crm-btn{transition:all 0.15s}
         .crm-btn:hover{opacity:0.85}
@@ -674,19 +761,51 @@ export default function CompanyCRM() {
           </div>
         </div>
 
-        {/* Funil selector */}
-        {funnels.length > 1 && (
-          <div style={{ display:'flex', gap:4, marginLeft:8 }}>
-            {funnels.map(f => (
-              <button key={f.id} onClick={() => setActiveFunnel(f.id)} className="crm-btn" style={{
-                padding:'5px 12px', borderRadius:20, fontSize:11, fontWeight:600, cursor:'pointer',
-                background: activeFunnel===f.id ? C.navy : 'transparent',
-                color: activeFunnel===f.id ? '#fff' : C.slate,
-                border: `1px solid ${activeFunnel===f.id ? C.navy : C.border}`,
-              }}>{f.nome}</button>
-            ))}
-          </div>
-        )}
+        {/* Funis (quadros) — trocar, criar, e ALVO de arrasto: solte um card aqui
+            pra movê-lo pra esse funil (cai na 1ª etapa e abre o funil). */}
+        <div style={{ display:'flex', alignItems:'center', gap:4, marginLeft:8, flexWrap:'wrap' }}>
+          {funnels.map(f => {
+            const isActive = activeFunnel === f.id
+            const isTarget = dragFunnel === f.id
+            return (
+              <button key={f.id}
+                onClick={() => setActiveFunnel(f.id)}
+                onDragOver={e => { if (dragging && !draggingStage) { e.preventDefault(); e.dataTransfer.dropEffect='move'; setDragFunnel(f.id) } }}
+                onDragLeave={() => setDragFunnel(cur => cur === f.id ? null : cur)}
+                onDrop={e => {
+                  e.preventDefault(); setDragFunnel(null)
+                  if (dragging && !draggingStage) { const cid = dragging.id; setDragging(null); moveContactToFunnel(cid, f.id, null, { switchTo:true }) }
+                }}
+                className="crm-btn" title={isActive ? 'Renomear no lápis' : `Ver funil "${f.nome}"`}
+                style={{
+                  padding:'5px 10px 5px 12px', borderRadius:20, fontSize:11, fontWeight:600, cursor:'pointer',
+                  display:'inline-flex', alignItems:'center', gap:6,
+                  background: isTarget ? '#DBEAFE' : isActive ? C.navy : 'transparent',
+                  color: isTarget ? C.blue : isActive ? '#fff' : C.slate,
+                  border: `1px solid ${isTarget ? C.blue : isActive ? C.navy : C.border}`,
+                  boxShadow: isTarget ? '0 0 0 2px rgba(37,99,235,0.25)' : 'none',
+                  transition:'all 0.12s',
+                }}>
+                <span style={{ maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.nome}</span>
+                {isActive && (
+                  <span onClick={e => { e.stopPropagation(); setFunnelModal({ id:f.id, nome:f.nome }) }}
+                    title="Renomear / excluir funil"
+                    style={{ display:'inline-flex', alignItems:'center', marginLeft:-1, opacity:0.85, cursor:'pointer' }}>
+                    <Edit2 size={11}/>
+                  </span>
+                )}
+              </button>
+            )
+          })}
+          <button onClick={() => setFunnelModal({ id:null, nome:'' })} title="Novo funil de CRM"
+            className="crm-btn" style={{
+              width:26, height:26, borderRadius:8, cursor:'pointer', flexShrink:0,
+              display:'inline-flex', alignItems:'center', justifyContent:'center',
+              background:'transparent', color:C.muted, border:`1px dashed ${C.border}`,
+            }}>
+            <Plus size={13}/>
+          </button>
+        </div>
 
         {/* Stats strip */}
         <div style={{ display:'flex', gap:16, marginLeft:8 }}>
@@ -997,11 +1116,28 @@ export default function CompanyCRM() {
                       onClick={() => setPanel(contact)}
                       className="crm-card"
                       style={{
+                        position:'relative',
                         background: stale ? '#FFFBEB' : C.card,
                         border: `1px solid ${stale ? '#FDE68A' : C.border}`,
                         borderRadius:10, padding:'10px 12px',
                         opacity: dragging?.id === contact.id ? 0.4 : 1,
                       }}>
+
+                      {/* Menu "mover para funil" (aparece no hover do card) */}
+                      {funnels.length > 1 && (
+                        <button className="crm-move-btn"
+                          title="Mover para outro funil"
+                          onClick={e => {
+                            e.stopPropagation()
+                            const r = e.currentTarget.getBoundingClientRect()
+                            setMoveMenu(cur => cur?.contactId === contact.id ? null : { contactId: contact.id, funnelPick: null, x: r.right, y: r.bottom })
+                          }}
+                          style={{ position:'absolute', top:5, right:6, width:22, height:22, borderRadius:6, border:`1px solid ${C.border}`, background:C.card, color:C.slate, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 3px rgba(0,0,0,0.08)', zIndex:2 }}
+                          onMouseEnter={e=>e.currentTarget.style.background=C.bg}
+                          onMouseLeave={e=>e.currentTarget.style.background=C.card}>
+                          <MoreHorizontal size={13}/>
+                        </button>
+                      )}
 
                       <div style={{ display:'flex', alignItems:'flex-start', gap:9 }}>
                         {/* Avatar */}
@@ -1082,11 +1218,62 @@ export default function CompanyCRM() {
         </button>
       </div>}
 
+      {/* ── Menu "mover para funil" (aberto pelo botão ⋯ do card) ── */}
+      {moveMenu && (() => {
+        const mc = contacts.find(c => c.id === moveMenu.contactId)
+        if (!mc) return null
+        const others = funnels.filter(f => f.id !== (mc.funil_id || activeFunnel))
+        const W = 220
+        const left = Math.max(8, Math.min((moveMenu.x || 0) - W, window.innerWidth - W - 8))
+        const top  = Math.max(8, Math.min((moveMenu.y || 0) + 6, window.innerHeight - 330))
+        return (
+          <>
+            <div onClick={() => setMoveMenu(null)} style={{ position:'fixed', inset:0, zIndex:300 }} />
+            <div style={{ position:'fixed', left, top, width:W, zIndex:301, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, boxShadow:'0 12px 36px rgba(0,0,0,0.18)', padding:6, maxHeight:322, overflowY:'auto' }}>
+              <div style={{ fontSize:9.5, fontWeight:800, color:C.muted, textTransform:'uppercase', letterSpacing:'0.05em', padding:'5px 8px 7px' }}>Mover para funil</div>
+              {others.length === 0 ? (
+                <div style={{ fontSize:11, color:C.muted, padding:'4px 8px 8px', lineHeight:1.5 }}>Crie outro funil no <strong>+</strong> lá em cima pra poder mover.</div>
+              ) : others.map(f => {
+                const fStages = stages.filter(s => s.funil_id === f.id).sort((a,b) => a.posicao - b.posicao)
+                const expanded = moveMenu.funnelPick === f.id
+                return (
+                  <div key={f.id}>
+                    <button onClick={() => setMoveMenu(m => ({ ...m, funnelPick: expanded ? null : f.id }))}
+                      style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'8px', border:'none', background: expanded ? C.bg : 'transparent', borderRadius:8, cursor:'pointer', fontSize:12.5, fontWeight:700, color:C.navy, textAlign:'left' }}>
+                      <GitMerge size={13} color={C.slate}/>
+                      <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.nome}</span>
+                      <ChevronRight size={13} color={C.muted} style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition:'transform 0.15s' }}/>
+                    </button>
+                    {expanded && (
+                      <div style={{ padding:'2px 0 6px 8px', display:'flex', flexDirection:'column', gap:1 }}>
+                        {fStages.length === 0 && <div style={{ fontSize:10.5, color:C.muted, padding:'4px 8px' }}>Esse funil não tem etapas.</div>}
+                        {fStages.map(s => (
+                          <button key={s.id} onClick={() => moveContactToFunnel(mc.id, f.id, s.id)}
+                            style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 8px', border:'none', background:'transparent', borderRadius:7, cursor:'pointer', fontSize:12, color:C.slate, textAlign:'left', width:'100%' }}
+                            onMouseEnter={e=>e.currentTarget.style.background=C.bg}
+                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                            <span style={{ width:8, height:8, borderRadius:'50%', background:s.cor, flexShrink:0 }}/>
+                            <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.nome}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )
+      })()}
+
       {/* ── Side Panel ── */}
       {panel && (() => {
         const c = contacts.find(x => x.id === panel.id) || panel
         const stage = stages.find(s => s.id === c.stage_id)
         const temp = TEMP[c.temperatura] || TEMP.frio
+        // Etapas do funil DO CONTATO (não do funil ativo) — pro seletor de etapa
+        // funcionar mesmo quando o lead aberto está em outro funil (Alertas/Listas).
+        const panelStages = stages.filter(s => s.funil_id === (c.funil_id || activeFunnel)).sort((a,b) => a.posicao - b.posicao)
 
         return (
           <div style={{
@@ -1140,10 +1327,21 @@ export default function CompanyCRM() {
                   <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4 }}>Etapa</div>
                   <select value={c.stage_id||''} onChange={e => patchContact(c.id, { stage_id:e.target.value, data_entrada_etapa: new Date().toISOString() })}
                     style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontWeight:700, color:stage?.cor||C.navy, cursor:'pointer', outline:'none' }}>
-                    {funStages.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                    {panelStages.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                   </select>
                 </div>
               </div>
+
+              {/* Funil — mover o lead pra outro quadro de CRM */}
+              {funnels.length > 1 && (
+                <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
+                  <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4 }}>Funil</div>
+                  <select value={c.funil_id || activeFunnel || ''} onChange={e => moveContactToFunnel(c.id, e.target.value)}
+                    style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontWeight:700, color:C.navy, cursor:'pointer', outline:'none' }}>
+                    {funnels.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                  </select>
+                </div>
+              )}
 
               {/* Editable fields */}
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
@@ -1518,6 +1716,76 @@ export default function CompanyCRM() {
           </div>
         </div>
       )}
+
+      {/* ── Modal: criar / renomear funil ── */}
+      {funnelModal && (() => {
+        const editing = !!funnelModal.id
+        return (
+          <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',zIndex:260,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}
+            onClick={e=>{if(e.target===e.currentTarget)setFunnelModal(null)}}>
+            <div style={{ background:C.card,borderRadius:16,padding:'24px',width:400,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+              <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18 }}>
+                <div style={{ fontWeight:800,fontSize:16,color:C.navy,display:'flex',alignItems:'center',gap:8 }}>
+                  <GitMerge size={16} color={C.blue}/> {editing ? 'Renomear funil' : 'Novo funil de CRM'}
+                </div>
+                <button onClick={()=>setFunnelModal(null)} style={{ width:28,height:28,borderRadius:7,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.muted }}><X size={14}/></button>
+              </div>
+              <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:5 }}>Nome do funil</label>
+              <input autoFocus value={funnelModal.nome} maxLength={40}
+                onChange={e=>setFunnelModal(p=>({...p,nome:e.target.value}))}
+                onKeyDown={e=>{ if(e.key==='Enter') handleSaveFunnel() }}
+                placeholder="Ex: Pós-venda, Retornos, Estética..."
+                style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:8,padding:'9px 11px',fontSize:13,color:C.navy,background:C.card,outline:'none',boxSizing:'border-box' }}/>
+              {!editing && (
+                <div style={{ fontSize:10.5,color:C.muted,marginTop:7,lineHeight:1.5 }}>Já vem com as etapas padrão (Novo Lead, Primeiro Contato...). Você edita as etapas depois.</div>
+              )}
+              <div style={{ display:'flex',gap:8,marginTop:22,alignItems:'center' }}>
+                {editing && funnels.length > 1 && (
+                  <button onClick={()=>setConfirmDelFunnel(funnels.find(f=>f.id===funnelModal.id))}
+                    style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:8,border:'1px solid #FECACA',background:'#FEF2F2',color:'#DC2626',cursor:'pointer',fontSize:13,fontWeight:600 }}>
+                    <Trash2 size={13}/> Excluir
+                  </button>
+                )}
+                <div style={{ flex:1 }}/>
+                <button onClick={()=>setFunnelModal(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13,color:C.slate }}>Cancelar</button>
+                <button onClick={handleSaveFunnel} disabled={!funnelModal.nome.trim()||savingFunnel}
+                  style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 20px',borderRadius:8,background:C.navy,color:'#fff',border:'none',cursor:funnelModal.nome.trim()?'pointer':'not-allowed',fontSize:13,fontWeight:700,opacity:funnelModal.nome.trim()?1:0.5 }}>
+                  {savingFunnel ? <Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/> : <Check size={13}/>}
+                  {editing ? 'Salvar' : 'Criar funil'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Confirm: excluir funil ── */}
+      {confirmDelFunnel && (() => {
+        const cnt = contacts.filter(c => c.funil_id === confirmDelFunnel.id).length
+        const target = funnels.find(f => f.id !== confirmDelFunnel.id)
+        return (
+          <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',zIndex:280,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}
+            onClick={e=>{if(e.target===e.currentTarget)setConfirmDelFunnel(null)}}>
+            <div style={{ background:C.card,borderRadius:16,padding:'24px',width:410,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+              <div style={{ fontWeight:800,fontSize:15,color:C.navy,marginBottom:8 }}>Excluir funil "{confirmDelFunnel.nome}"?</div>
+              <div style={{ fontSize:12.5,color:C.slate,lineHeight:1.6,marginBottom:18 }}>
+                As etapas desse funil serão removidas.{' '}
+                {cnt > 0
+                  ? <>Os <strong>{cnt} leads</strong> vão pro funil <strong>{target?.nome}</strong> (na primeira etapa).</>
+                  : <>Ele não tem leads.</>}{' '}
+                Essa ação não pode ser desfeita.
+              </div>
+              <div style={{ display:'flex',gap:8,justifyContent:'flex-end' }}>
+                <button onClick={()=>setConfirmDelFunnel(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13,color:C.slate }}>Cancelar</button>
+                <button onClick={()=>deleteFunnel(confirmDelFunnel.id)}
+                  style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 18px',borderRadius:8,background:'#DC2626',color:'#fff',border:'none',cursor:'pointer',fontSize:13,fontWeight:700 }}>
+                  <Trash2 size={13}/> Excluir funil
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Confirm Delete ── */}
       {/* Modal: lista dinâmica */}
