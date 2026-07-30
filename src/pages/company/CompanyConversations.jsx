@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed, Kanban, Check } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed, Kanban, Check, MoreHorizontal } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -373,6 +373,7 @@ export default function CompanyConversations() {
   const [crmStages, setCrmStages]         = useState([])  // etapas do funil ativo
   const [crmLeadMap, setCrmLeadMap]       = useState({})  // telefone canônico → { id, stage_id }
   const [crmMenuOpen, setCrmMenuOpen]     = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen]   = useState(false) // menu "⋯ Mais" do cabeçalho da conversa
   const [crmSaving, setCrmSaving]         = useState(false)
   const [futureAppts, setFutureAppts]     = useState({}) // numero (só dígitos) → { starts_at, status, agenda_name }
   const [contextMenu, setContextMenu] = useState(null) // { x, y, contact }
@@ -2422,7 +2423,7 @@ export default function CompanyConversations() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <div
-                          style={{ fontWeight: 500, fontSize: 14, color: 'var(--text-primary)', cursor: saved ? 'pointer' : 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', cursor: saved ? 'pointer' : 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                           onClick={() => saved && navigate(`/painel/contatos/${saved.id}`)}
                         >
                           {headerName || selected.phone}
@@ -2446,48 +2447,37 @@ export default function CompanyConversations() {
               })()}
               <button
                 className="nx-btn-ghost"
-                style={{ fontSize: 12, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 6, color: searchOpen ? '#2563EB' : 'var(--text-muted)', borderColor: searchOpen ? '#BFDBFE' : undefined, background: searchOpen ? '#EFF6FF' : undefined }}
+                style={{ fontSize: 12, padding: '7px 10px', display: 'flex', alignItems: 'center', color: searchOpen ? '#2563EB' : 'var(--text-muted)', borderColor: searchOpen ? '#BFDBFE' : undefined, background: searchOpen ? '#EFF6FF' : undefined }}
                 onClick={() => setSearchOpen(v => !v)}
                 title="Pesquisar nesta conversa"
               >
-                <Search size={15} /> <span className="btn-label">Pesquisar</span>
+                <Search size={15} />
               </button>
               {!isClosed && (() => {
                 const cleanNum = selected.phone.replace(/\D/g, '')
                 const saved = savedContacts[cleanNum]
                 const nome = saved?.nome || ''
                 const hasContact = !!saved
+                const att = attendancesMap[selected.session_id]
+                const myEmail = session?.user?.email
+                const isOwner = att?.attendant_email === myEmail
+                const isElse  = att && !isOwner
+                const canClose = !att || isAdmin || att.attendant_email === myEmail
+                const canTransfer = att && (isOwner || isAdmin)
+                // estilo dos itens do menu "Mais"
+                const mi = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 7, background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#0F172A', textAlign: 'left' }
+                const hov = e => e.currentTarget.style.background = '#F1F5F9'
+                const out = e => e.currentTarget.style.background = 'transparent'
                 return (
                   <>
+                    {/* Etiquetas */}
                     <TagPicker
                       instancia={instance}
                       numero={selected.phone}
                       userEmail={session?.user?.email}
                       anchor="bottom-right"
                     />
-                    <button
-                      className="nx-btn-ghost"
-                      style={{
-                        fontSize: 12, padding: '7px 14px',
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        color: hasContact ? '#16A34A' : '#C9A074',
-                        borderColor: hasContact ? '#BBF7D0' : '#F0E0B6',
-                        background: hasContact ? '#F0FDF4' : '#FFFBEB',
-                      }}
-                      title={hasContact ? `Já salvo como ${saved.nome}` : 'Salvar contato pra aparecer com nome'}
-                      onClick={() => openSaveContact(selected)}
-                    >
-                      {hasContact ? <UserCheck size={14} /> : <UserPlus size={14} />}
-                      <span className="btn-label">{hasContact ? `Editar ${saved.nome}` : 'Salvar contato'}</span>
-                    </button>
-                    <button
-                      className="nx-btn-ghost"
-                      style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#7C3AED' }}
-                      onClick={() => navigate(`/painel/agenda?numero=${cleanNum}${nome ? `&nome=${encodeURIComponent(nome)}` : ''}`)}
-                    >
-                      <Calendar size={14} /> <span className="btn-label">Agendar</span>
-                    </button>
-                    {/* CRM: adiciona/move o contato numa etapa do funil, direto da conversa */}
+                    {/* CRM: adiciona/move o contato numa etapa do funil, direto da conversa (só ícone) */}
                     {(() => {
                       const crmKey = normalizeBRDigits(selected.phone)
                       const lead = crmLeadMap[crmKey]
@@ -2497,14 +2487,14 @@ export default function CompanyConversations() {
                           <button
                             className="nx-btn-ghost"
                             style={{
-                              fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6,
+                              fontSize: 12, padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 6,
                               color: lead ? '#16A34A' : '#4F46E5',
                               borderColor: lead ? '#BBF7D0' : undefined, background: lead ? '#F0FDF4' : undefined,
                             }}
                             title={lead ? `No CRM: ${curStage?.nome || 'etapa'}` : 'Adicionar este contato ao CRM'}
                             onClick={() => setCrmMenuOpen(v => !v)}
                           >
-                            <Kanban size={14} /> <span className="btn-label">{lead ? (curStage?.nome || 'No CRM') : 'CRM'}</span>
+                            <Kanban size={15} />
                           </button>
                           {crmMenuOpen && (
                             <>
@@ -2545,53 +2535,63 @@ export default function CompanyConversations() {
                         </div>
                       )
                     })()}
-                    {(() => {
-                      const att = attendancesMap[selected.session_id]
-                      const myEmail = session?.user?.email
-                      const isOwner = att?.attendant_email === myEmail
-                      const isElse  = att && !isOwner
-
-                      return (
+                    {/* Finalizar — ação principal (dono/admin) */}
+                    {canClose && (
+                      <button
+                        className="nx-btn-ghost"
+                        style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#16A34A', borderColor: '#BBF7D0', background: '#F0FDF4' }}
+                        onClick={() => { setCloseModal(selected); setReason('') }}
+                        title="Finalizar esta conversa"
+                      >
+                        <CheckCircle2 size={14} /> <span className="btn-label">Finalizar</span>
+                      </button>
+                    )}
+                    {/* ⋯ Mais — ações secundárias agrupadas pra não poluir o cabeçalho */}
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        className="nx-btn-ghost"
+                        style={{ fontSize: 12, padding: '7px 10px', display: 'flex', alignItems: 'center', color: moreMenuOpen ? '#2563EB' : 'var(--text-muted)', borderColor: moreMenuOpen ? '#BFDBFE' : undefined, background: moreMenuOpen ? '#EFF6FF' : undefined }}
+                        onClick={() => setMoreMenuOpen(v => !v)}
+                        title="Mais ações"
+                      >
+                        <MoreHorizontal size={16} />
+                      </button>
+                      {moreMenuOpen && (
                         <>
-                          {/* Transferir — só o dono ou admin vê */}
-                          {att && (isOwner || isAdmin) && (
-                            <button
-                              className="nx-btn-ghost"
-                              style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#0891B2' }}
-                              onClick={() => { setTransferModal(selected); setTransferringTo('') }}
-                              title="Passar essa conversa pra outro atendente"
-                            >
-                              <ArrowRightLeft size={14} /> <span className="btn-label">Transferir</span>
+                          <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setMoreMenuOpen(false)} />
+                          <div style={{
+                            position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 51,
+                            background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+                            boxShadow: '0 8px 28px rgba(0,0,0,0.14)', padding: 6, minWidth: 210,
+                          }}>
+                            <button style={mi} onMouseEnter={hov} onMouseLeave={out}
+                              onClick={() => { setMoreMenuOpen(false); openSaveContact(selected) }}>
+                              {hasContact ? <UserCheck size={15} color="#16A34A" /> : <UserPlus size={15} color="#C9A074" />}
+                              <span>{hasContact ? 'Editar contato' : 'Salvar contato'}</span>
                             </button>
-                          )}
-                          {/* Puxar para mim — quando está com outro atendente */}
-                          {isElse && (
-                            <button
-                              className="nx-btn-ghost"
-                              style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, color: '#D97706', borderColor: '#FDE68A', background: '#FFFBEB' }}
-                              onClick={() => handlePullConversation(selected)}
-                              title={`Puxar de volta de ${att.attendant_name || 'outro atendente'}`}
-                            >
-                              <Inbox size={14} /> <span className="btn-label">Puxar para mim</span>
+                            <button style={mi} onMouseEnter={hov} onMouseLeave={out}
+                              onClick={() => { setMoreMenuOpen(false); navigate(`/painel/agenda?numero=${cleanNum}${nome ? `&nome=${encodeURIComponent(nome)}` : ''}`) }}>
+                              <Calendar size={15} color="#7C3AED" />
+                              <span>Agendar consulta</span>
                             </button>
-                          )}
+                            {canTransfer && (
+                              <button style={mi} onMouseEnter={hov} onMouseLeave={out}
+                                onClick={() => { setMoreMenuOpen(false); setTransferModal(selected); setTransferringTo('') }}>
+                                <ArrowRightLeft size={15} color="#0891B2" />
+                                <span>Transferir conversa</span>
+                              </button>
+                            )}
+                            {isElse && (
+                              <button style={mi} onMouseEnter={hov} onMouseLeave={out}
+                                onClick={() => { setMoreMenuOpen(false); handlePullConversation(selected) }}>
+                                <Inbox size={15} color="#D97706" />
+                                <span>Puxar para mim</span>
+                              </button>
+                            )}
+                          </div>
                         </>
-                      )
-                    })()}
-                    {(() => {
-                      const att = attendancesMap[selected.session_id]
-                      const isOwner = !att || isAdmin || att.attendant_email === session?.user?.email
-                      if (!isOwner) return null
-                      return (
-                        <button
-                          className="nx-btn-ghost"
-                          style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
-                          onClick={() => { setCloseModal(selected); setReason('') }}
-                        >
-                          <CheckCircle2 size={14} /> <span className="btn-label">Finalizar conversa</span>
-                        </button>
-                      )
-                    })()}
+                      )}
+                    </div>
                   </>
                 )
               })()}
