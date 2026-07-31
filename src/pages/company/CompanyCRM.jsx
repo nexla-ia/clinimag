@@ -499,10 +499,12 @@ export default function CompanyCRM() {
   }
 
   // ── Etapas (colunas) — criar / editar / mover / excluir ─────────────────────
-  function openStageModal(stage) {
+  // opts.funilId: funil onde criar (default = ativo). opts.assignTo: id do lead que
+  // deve ir pra nova etapa assim que ela for criada (quando vem do painel).
+  function openStageModal(stage, opts = {}) {
     setStageModal(stage
       ? { id: stage.id, nome: stage.nome, cor: stage.cor || STAGE_COLORS[0], alerta_dias: stage.alerta_dias ?? '' }
-      : { id: null, nome: '', cor: STAGE_COLORS[0], alerta_dias: '' })
+      : { id: null, nome: '', cor: STAGE_COLORS[0], alerta_dias: '', funil_id: opts.funilId || activeFunnel, assignTo: opts.assignTo || null })
   }
 
   async function handleSaveStage() {
@@ -518,11 +520,21 @@ export default function CompanyCRM() {
       if (!error) setStages(prev => prev.map(s => s.id === stageModal.id ? { ...s, nome, cor: stageModal.cor, alerta_dias: alerta } : s))
       else { alert('Erro: ' + error.message); setSavingStage(false); return }
     } else {
-      const maxPos = Math.max(-1, ...funStages.map(s => s.posicao ?? 0))
+      const targetFunnel = stageModal.funil_id || activeFunnel
+      const maxPos = Math.max(-1, ...stages.filter(s => s.funil_id === targetFunnel).map(s => s.posicao ?? 0))
       const { data, error } = await supabase.from('crm_stages')
-        .insert({ instancia: instance, funil_id: activeFunnel, nome, cor: stageModal.cor, alerta_dias: alerta, posicao: maxPos + 1 })
+        .insert({ instancia: instance, funil_id: targetFunnel, nome, cor: stageModal.cor, alerta_dias: alerta, posicao: maxPos + 1 })
         .select().single()
-      if (!error && data) setStages(prev => [...prev, data])
+      if (!error && data) {
+        setStages(prev => [...prev, data])
+        // Veio do painel de um lead → já joga o lead na etapa recém-criada.
+        if (stageModal.assignTo) {
+          const now = new Date().toISOString()
+          await supabase.from('crm_contacts').update({ stage_id: data.id, data_entrada_etapa: now }).eq('id', stageModal.assignTo)
+          setContacts(prev => prev.map(c => c.id === stageModal.assignTo ? { ...c, stage_id: data.id, data_entrada_etapa: now } : c))
+          if (panel?.id === stageModal.assignTo) setPanel(p => ({ ...p, stage_id: data.id }))
+        }
+      }
       else { alert('Erro: ' + error.message); setSavingStage(false); return }
     }
     setSavingStage(false)
@@ -1393,9 +1405,13 @@ export default function CompanyCRM() {
 
                 <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
                   <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4 }}>Etapa</div>
-                  <select value={c.stage_id||''} onChange={e => patchContact(c.id, { stage_id:e.target.value, data_entrada_etapa: new Date().toISOString() })}
+                  <select value={c.stage_id||''} onChange={e => {
+                      if (e.target.value === '__new__') { openStageModal(null, { funilId: c.funil_id || activeFunnel, assignTo: c.id }); return }
+                      patchContact(c.id, { stage_id:e.target.value, data_entrada_etapa: new Date().toISOString() })
+                    }}
                     style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontWeight:700, color:stage?.cor||C.navy, cursor:'pointer', outline:'none' }}>
                     {panelStages.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                    <option value="__new__">➕ Nova etapa…</option>
                   </select>
                 </div>
               </div>
