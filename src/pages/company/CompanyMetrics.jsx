@@ -569,7 +569,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       {tab === 'overview'    && <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, range, period, loading }} />}
       {tab === 'atendimento' && <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />}
       {tab === 'equipe'      && <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />}
-      {tab === 'agenda'      && <AgendaTab      {...{ appts, range, period, loading }} />}
+      {tab === 'agenda'      && <AgendaTab      {...{ appts, professionals, range, period, loading }} />}
       {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />}
       {tab === 'leads'       && <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />}
       {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, range, period, loading }} />}
@@ -1030,9 +1030,51 @@ function EquipeTab({ msgs, convs, atts, users, sectors, sectorMembers, range, pe
 }
 
 // ─── Tab: Agenda ────────────────────────────────────────────────────────────
-function AgendaTab({ appts, range, period, loading }) {
+function AgendaTab({ appts, professionals, range, period, loading }) {
   const { from, to } = range
-  const inRange = appts.filter(a => inPeriod(a.starts_at, from, to))
+  const [proFilter, setProFilter] = useState('todos')
+
+  // Agendamentos do período (antes do filtro de profissional)
+  const periodAppts = useMemo(() => appts.filter(a => inPeriod(a.starts_at, from, to)), [appts, from, to])
+  // Filtrado por profissional (afeta KPIs, gráficos e a tabela)
+  const inRange = useMemo(
+    () => proFilter === 'todos' ? periodAppts : periodAppts.filter(a => (a.professional_id || 'sem') === proFilter),
+    [periodAppts, proFilter]
+  )
+
+  // Opções do filtro = só os profissionais que têm agendamento no período
+  const proOptions = useMemo(() => {
+    const ids = new Set(periodAppts.map(a => a.professional_id || 'sem'))
+    const opts = (professionals || []).filter(p => ids.has(p.id)).map(p => ({ id: p.id, name: p.name }))
+    if (ids.has('sem')) opts.push({ id: 'sem', name: 'Sem profissional' })
+    return opts
+  }, [periodAppts, professionals])
+
+  // Por profissional — atendimentos e valores (pra comissão)
+  const byProfessional = useMemo(() => {
+    const map = {}
+    inRange.forEach(a => {
+      const id = a.professional_id || 'sem'
+      if (!map[id]) map[id] = { id, total: 0, concluidos: 0, confirmados: 0, faltas: 0, cancelados: 0, faturado: 0, aReceber: 0 }
+      const m = map[id]
+      m.total++
+      if (a.status === 'concluido') m.concluidos++
+      if (a.status === 'confirmado') m.confirmados++
+      if (a.status === 'faltou') m.faltas++
+      if (a.status === 'cancelado') m.cancelados++
+      const price = Number(a.price || 0)
+      if (a.payment_status === 'pago') m.faturado += price
+      else if (a.payment_status === 'pendente' && a.status !== 'cancelado' && a.status !== 'faltou') m.aReceber += price
+    })
+    return Object.values(map).map(m => {
+      const pro = (professionals || []).find(p => p.id === m.id)
+      return { ...m, name: pro?.name || (m.id === 'sem' ? 'Sem profissional' : 'Profissional removido'), color: pro?.color || '#6B7280' }
+    }).sort((a, b) => b.faturado - a.faturado || b.total - a.total)
+  }, [inRange, professionals])
+  const proTotais = byProfessional.reduce((t, p) => ({
+    total: t.total + p.total, concluidos: t.concluidos + p.concluidos, faltas: t.faltas + p.faltas,
+    cancelados: t.cancelados + p.cancelados, faturado: t.faturado + p.faturado, aReceber: t.aReceber + p.aReceber,
+  }), { total: 0, concluidos: 0, faltas: 0, cancelados: 0, faturado: 0, aReceber: 0 })
 
   const counts = inRange.reduce((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc }, {})
   const total = inRange.length
@@ -1061,11 +1103,78 @@ function AgendaTab({ appts, range, period, loading }) {
 
   return (
     <div>
+      {/* Filtro por profissional */}
+      {proOptions.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+          <Stethoscope size={14} color="#64748B" />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 700 }}>Profissional:</span>
+          <select value={proFilter} onChange={e => setProFilter(e.target.value)}
+            style={{ height: 32, border: '1px solid var(--border)', borderRadius: 8, fontSize: 12.5, padding: '0 10px', background: '#fff', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}>
+            <option value="todos">Todos os profissionais</option>
+            {proOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
         <KpiCard icon={<Calendar size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Total" sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<CheckCircle2 size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConfirm}%`} label="Confirmação" sub="confirmado + concluído" loading={loading} />
         <KpiCard icon={<AlertCircle size={18} color="#D97706" />} bg="#FFFBEB" value={`${taxaNoShow}%`} label="No-show" sub="pacientes que faltaram" loading={loading} alert={taxaNoShow > 15} />
         <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={`${taxaCancel}%`} label="Cancelamento" sub="taxa de cancelamento" loading={loading} alert={taxaCancel > 20} />
+      </div>
+
+      {/* Por profissional — atendimentos e valores (pra comissão) */}
+      <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
+        <SectionTitle icon={Stethoscope} text="Por profissional — atendimentos e valores" right={periodLabel(period)} />
+        {byProfessional.length === 0 ? <Empty /> : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', minWidth: 560 }}>
+              <thead>
+                <tr style={{ color: '#64748B', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>Profissional</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Agend.</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Concluídos</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Faltas</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Cancel.</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Faturado</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>A receber</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byProfessional.map(p => (
+                  <tr key={p.id} style={{ borderTop: '1px solid #F1F5F9' }}>
+                    <td style={{ padding: '9px 8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700 }}>{p.total}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: '#16A34A', fontWeight: 700 }}>{p.concluidos}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: p.faltas ? '#D97706' : 'var(--text-muted)' }}>{p.faltas}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: p.cancelados ? '#DC2626' : 'var(--text-muted)' }}>{p.cancelados}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700, color: '#059669', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(p.faturado)}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: '#0891B2', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(p.aReceber)}</td>
+                  </tr>
+                ))}
+                {byProfessional.length > 1 && (
+                  <tr style={{ borderTop: '2px solid #E2E8F0', fontWeight: 800 }}>
+                    <td style={{ padding: '9px 8px' }}>Total</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right' }}>{proTotais.total}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: '#16A34A' }}>{proTotais.concluidos}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right' }}>{proTotais.faltas}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right' }}>{proTotais.cancelados}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: '#059669' }}>{fmtMoney(proTotais.faturado)}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: '#0891B2' }}>{fmtMoney(proTotais.aReceber)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 8 }}>
+              Concluídos = atendimentos realizados. Faturado = já pago. A receber = pendente (fora faltas/cancelados).
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
