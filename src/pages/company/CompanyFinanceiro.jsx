@@ -84,6 +84,15 @@ function daysDiff(ds) {
 const pct = (a,b) => b > 0 ? ((a/b)*100).toFixed(1)+'%' : '—'
 
 const FORMAS = ['PIX','Dinheiro','Cartão Débito','Cartão Crédito','Boleto','Convênio','Transferência','Cheque']
+const CAT_COLORS = ['#2563EB','#16A34A','#DC2626','#D97706','#7C3AED','#0891B2','#DB2777','#059669','#64748B','#F59E0B']
+// Enquanto a migração de desconto/tarifa não roda em produção, o insert/update com
+// essas colunas falha. Detecta o erro e, se for isso, salva sem elas (o líquido já
+// está no `valor`, então nada quebra — só não guarda o detalhe desconto/tarifa).
+function isMissingDescTarifaErr(e) {
+  const m = ((e?.message||'') + (e?.details||'') + (e?.hint||'')).toLowerCase()
+  return (m.includes('desconto') || m.includes('tarifa')) && (m.includes('column') || m.includes('schema cache') || m.includes('does not exist'))
+}
+function stripDescTarifa({ desconto, tarifa, ...rest }) { return rest }
 const TIPO_LABEL = { corrente: 'Conta corrente', poupanca: 'Poupança', caixa: 'Caixa', outro: 'Outro' }
 const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
@@ -290,6 +299,8 @@ export default function CompanyFinanceiro() {
   const [modal, setModal] = useState(null)
   const [modalErr, setModalErr] = useState('')
   const [saving, setSaving] = useState(false)
+  const [newCat, setNewCat] = useState(null)     // { nome, cor } — criar categoria inline no modal
+  const [savingCat, setSavingCat] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [payModal, setPayModal] = useState(null)      // { tx, pagamento_at, juros, bank_account_id, forma_pagamento, groupTxIds? }
@@ -614,12 +625,15 @@ export default function CompanyFinanceiro() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   function openNew() {
-    setModal({ mode: 'new', data: { tipo: tab === 'pagar' ? 'despesa' : 'receita', descricao: '', valor: '', vencimento: todayStr(), categoria_id: '', contact_nome: '', centro_custo: '', forma_pagamento: '', observacoes: '', parcelado: false, num_parcelas: 2, recorrente: false, recorrencia_meses: 3 } })
-    setModalErr('')
+    setModal({ mode: 'new', data: { tipo: tab === 'pagar' ? 'despesa' : 'receita', descricao: '', valor: '', desconto: '', tarifa: '', vencimento: todayStr(), categoria_id: '', contact_nome: '', centro_custo: '', forma_pagamento: '', observacoes: '', parcelado: false, num_parcelas: 2, recorrente: false, recorrencia_meses: 3 } })
+    setNewCat(null); setModalErr('')
   }
   function openEdit(tx) {
-    setModal({ mode: 'edit', data: { ...tx, valor: tx.valor?.toString()||'', parcelado: false, num_parcelas: 2, recorrente: false, recorrencia_meses: 3 } })
-    setModalErr('')
+    // O `valor` guardado é o LÍQUIDO. Reconstrói o bruto pra edição = valor + desconto + tarifa.
+    const desc = parseFloat(tx.desconto) || 0, tar = parseFloat(tx.tarifa) || 0
+    const bruto = (parseFloat(tx.valor) || 0) + desc + tar
+    setModal({ mode: 'edit', data: { ...tx, valor: bruto ? bruto.toString() : '', desconto: desc ? desc.toString() : '', tarifa: tar ? tar.toString() : '', parcelado: false, num_parcelas: 2, recorrente: false, recorrencia_meses: 3 } })
+    setNewCat(null); setModalErr('')
   }
 
   async function handleSave() {
@@ -627,11 +641,19 @@ export default function CompanyFinanceiro() {
     if (!d.descricao?.trim()) { setModalErr('Descrição é obrigatória.'); return }
     if (!d.valor || isNaN(parseFloat(d.valor)) || parseFloat(d.valor) <= 0) { setModalErr('Informe um valor válido.'); return }
     if (!d.vencimento) { setModalErr('Data de vencimento é obrigatória.'); return }
+    // Valor líquido = bruto − desconto − tarifa (é o que fica gravado em `valor`).
+    const bruto = parseFloat(d.valor) || 0
+    const desconto = parseFloat(d.desconto) || 0
+    const tarifa = parseFloat(d.tarifa) || 0
+    if (desconto < 0 || tarifa < 0) { setModalErr('Desconto/tarifa não podem ser negativos.'); return }
+    const liquido = +(bruto - desconto - tarifa).toFixed(2)
+    if (liquido <= 0) { setModalErr('Desconto + tarifa não podem ser maiores ou iguais ao valor.'); return }
     setSaving(true); setModalErr('')
 
     if (modal.mode === 'edit') {
-      const payload = { tipo: d.tipo, descricao: d.descricao.trim(), valor: parseFloat(d.valor), vencimento: d.vencimento, categoria_id: d.categoria_id||null, contact_nome: d.contact_nome?.trim()||null, centro_custo: d.centro_custo?.trim()||null, forma_pagamento: d.forma_pagamento||null, observacoes: d.observacoes?.trim()||null, status: d.status }
-      const { data: upd, error } = await supabase.from('financial_transactions').update(payload).eq('id', d.id).select().single()
+      const payload = { tipo: d.tipo, descricao: d.descricao.trim(), valor: liquido, desconto, tarifa, vencimento: d.vencimento, categoria_id: d.categoria_id||null, contact_nome: d.contact_nome?.trim()||null, centro_custo: d.centro_custo?.trim()||null, forma_pagamento: d.forma_pagamento||null, observacoes: d.observacoes?.trim()||null, status: d.status }
+      let { data: upd, error } = await supabase.from('financial_transactions').update(payload).eq('id', d.id).select().single()
+      if (error && isMissingDescTarifaErr(error)) ({ data: upd, error } = await supabase.from('financial_transactions').update(stripDescTarifa(payload)).eq('id', d.id).select().single())
       setSaving(false)
       if (error) { setModalErr('Erro: '+error.message); return }
       setTransactions(prev => prev.map(t => t.id === upd.id ? upd : t)); setModal(null)
@@ -647,17 +669,35 @@ export default function CompanyFinanceiro() {
     const rows = Array.from({ length: num }, (_,i) => ({
       instancia: instance, tipo: d.tipo,
       descricao: isParcela ? `${d.descricao.trim()} (${i+1}/${num})` : d.descricao.trim(),
-      valor: parseFloat(d.valor), vencimento: num > 1 ? addMonthsToDate(d.vencimento, i) : d.vencimento,
+      valor: liquido, desconto, tarifa, vencimento: num > 1 ? addMonthsToDate(d.vencimento, i) : d.vencimento,
       categoria_id: d.categoria_id||null, contact_nome: d.contact_nome?.trim()||null, centro_custo: d.centro_custo?.trim()||null,
       forma_pagamento: d.forma_pagamento||null, observacoes: d.observacoes?.trim()||null,
       status: 'pendente', created_by: session?.user?.id||null,
       grupo_parcelas: gParcela, parcela_atual: isParcela ? i+1 : null, total_parcelas: isParcela ? num : null,
       recorrente: isRec||false, recorrencia_tipo: isRec ? 'mensal' : null, grupo_recorrencia: gRec,
     }))
-    const { data: ins, error } = await supabase.from('financial_transactions').insert(rows).select()
+    let { data: ins, error } = await supabase.from('financial_transactions').insert(rows).select()
+    if (error && isMissingDescTarifaErr(error)) ({ data: ins, error } = await supabase.from('financial_transactions').insert(rows.map(stripDescTarifa)).select())
     setSaving(false)
     if (error) { setModalErr('Erro: '+error.message); return }
     if (ins) setTransactions(prev => [...ins, ...prev]); setModal(null)
+  }
+
+  // Cria uma categoria nova (do tipo atual do lançamento) e já seleciona.
+  async function createCategory() {
+    const nome = (newCat?.nome || '').trim()
+    if (!nome || savingCat) return
+    setSavingCat(true)
+    const { data, error } = await supabase.from('financial_categories')
+      .insert({ instancia: instance, nome, tipo: modal?.data?.tipo || 'receita', cor: newCat.cor || CAT_COLORS[0] })
+      .select().single()
+    setSavingCat(false)
+    if (error) { setModalErr('Erro ao criar categoria: ' + error.message); return }
+    if (data) {
+      setCategories(prev => [...prev, data].sort((a, b) => (a.nome || '').localeCompare(b.nome || '')))
+      setModal(p => ({ ...p, data: { ...p.data, categoria_id: data.id } }))
+      setNewCat(null)
+    }
   }
 
   // Abre o modal de pagamento (data, juros, conta) em vez de marcar direto
@@ -1607,7 +1647,7 @@ export default function CompanyFinanceiro() {
               {/* Valor + Vencimento */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={lbl}>Valor (R$) *</label>
+                  <label style={lbl}>Valor bruto (R$) *</label>
                   <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={md.valor||''} onChange={e => setModal(p => ({...p,data:{...p.data,valor:e.target.value}}))} />
                 </div>
                 <div>
@@ -1616,13 +1656,63 @@ export default function CompanyFinanceiro() {
                 </div>
               </div>
 
+              {/* Desconto + Tarifa (reduzem o valor) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={lbl}>Desconto (R$)</label>
+                  <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={md.desconto||''} onChange={e => setModal(p => ({...p,data:{...p.data,desconto:e.target.value}}))} />
+                </div>
+                <div>
+                  <label style={lbl}>Tarifa (R$)</label>
+                  <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={md.tarifa||''} onChange={e => setModal(p => ({...p,data:{...p.data,tarifa:e.target.value}}))} />
+                </div>
+              </div>
+              {(() => {
+                const bruto = parseFloat(md.valor)||0, desc = parseFloat(md.desconto)||0, tar = parseFloat(md.tarifa)||0
+                if (!bruto || (!desc && !tar)) return null
+                const liq = bruto - desc - tar
+                return (
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background: liq>0 ? '#F0FDF4' : '#FFF1F2', border:`1px solid ${liq>0 ? '#BBF7D0' : '#FECDD3'}`, borderRadius:10, padding:'8px 12px', fontSize:12.5, ...sora }}>
+                    <span style={{ color: C.slate }}>Líquido ({md.tipo==='receita'?'a receber':'a pagar'}) = bruto − desconto − tarifa</span>
+                    <strong style={{ color: liq>0 ? C.emerald : C.rose, ...mono }}>{fmtBRL(liq)}</strong>
+                  </div>
+                )
+              })()}
+
               {/* Categoria */}
               <div>
                 <label style={lbl}>Categoria</label>
-                <select className="nx-select" value={md.categoria_id||''} onChange={e => setModal(p => ({...p,data:{...p.data,categoria_id:e.target.value}}))}>
+                <select className="nx-select" value={md.categoria_id||''} onChange={e => {
+                    if (e.target.value === '__new__') { setNewCat({ nome:'', cor: CAT_COLORS[0] }); return }
+                    setModal(p => ({...p,data:{...p.data,categoria_id:e.target.value}}))
+                  }}>
                   <option value="">Sem categoria</option>
                   {catsForTipo(md.tipo).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  <option value="__new__">➕ Nova categoria…</option>
                 </select>
+                {newCat && (
+                  <div style={{ marginTop: 8, background:'#F8FAFC', border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 12px', display:'flex', flexDirection:'column', gap:8 }}>
+                    <input className="nx-input" autoFocus placeholder="Nome da categoria (ex: Pilates, Tarifa cartão)" value={newCat.nome}
+                      onChange={e => setNewCat(n => ({...n, nome:e.target.value}))}
+                      onKeyDown={e => { if (e.key==='Enter') { e.preventDefault(); createCategory() } }} />
+                    <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                      {CAT_COLORS.map(c => (
+                        <button key={c} type="button" onClick={() => setNewCat(n => ({...n, cor:c}))}
+                          style={{ width:22, height:22, borderRadius:'50%', background:c, cursor:'pointer', border:'none', outline: newCat.cor===c ? `2px solid ${c}` : '2px solid transparent', outlineOffset:2 }} />
+                      ))}
+                    </div>
+                    <div style={{ display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:10.5, color:C.muted }}>Vai pra {md.tipo==='receita'?'receitas':'despesas'}.</span>
+                      <div style={{ display:'flex', gap:8 }}>
+                        <button type="button" onClick={() => setNewCat(null)} style={{ padding:'6px 12px', borderRadius:8, border:`1px solid ${C.border}`, background:'#fff', color:C.slate, cursor:'pointer', fontSize:12 }}>Cancelar</button>
+                        <button type="button" onClick={createCategory} disabled={!newCat.nome.trim()||savingCat}
+                          style={{ padding:'6px 14px', borderRadius:8, border:'none', background:C.blue, color:'#fff', cursor: newCat.nome.trim()?'pointer':'not-allowed', fontSize:12, fontWeight:700, opacity: newCat.nome.trim()?1:0.5 }}>
+                          {savingCat ? 'Criando…' : 'Criar'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Forma de pagamento */}
