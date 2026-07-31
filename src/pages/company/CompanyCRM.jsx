@@ -376,6 +376,18 @@ export default function CompanyCRM() {
   useEffect(() => { if (panel) { setPanelTimeline([]); loadPanelData(panel); setEditingName(false) } }, [panel?.id])
 
   // ── Computed ────────────────────────────────────────────────────────────────
+  // Opções de origem = padrão + as que a clínica já criou nos leads (viram sugestão
+  // automaticamente). Assim dá pra digitar uma nova (ex: "Eventos") e ela reaparece.
+  const origemOptions = useMemo(() => {
+    const seen = new Set(), out = []
+    for (const o of ORIGENS) { const k = o.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(o) } }
+    for (const c of contacts) {
+      const o = (c.origem || '').trim(); if (!o) continue
+      const k = o.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(o) }
+    }
+    return out
+  }, [contacts])
+
   const funStages = useMemo(
     () => stages.filter(s => s.funil_id === activeFunnel).sort((a,b) => a.posicao - b.posicao),
     [stages, activeFunnel]
@@ -754,6 +766,11 @@ export default function CompanyCRM() {
         .crm-btn{transition:all 0.15s}
         .crm-btn:hover{opacity:0.85}
       `}</style>
+
+      {/* Sugestões de origem (padrão + as criadas pela clínica) — usadas nos combos */}
+      <datalist id="crm-origem-list">
+        {origemOptions.map(o => <option key={o} value={o} />)}
+      </datalist>
 
       {/* ── Top Bar ── */}
       <div style={{ background: C.card, borderBottom:`1px solid ${C.border}`, padding:'12px 20px', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
@@ -1402,11 +1419,14 @@ export default function CompanyCRM() {
 
                 <div>
                   <div style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:5 }}>Origem</div>
-                  <select value={c.origem||''} onChange={e => patchContact(c.id,{origem:e.target.value})}
-                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:7,padding:'6px 10px',fontSize:12,color:C.navy,background:C.card,outline:'none',cursor:'pointer' }}>
-                    <option value="">— selecionar —</option>
-                    {ORIGENS.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
+                  <ComboField
+                    value={c.origem || ''}
+                    listId="crm-origem-list"
+                    placeholder="Escolha ou digite (ex: Eventos)"
+                    onSave={v => patchContact(c.id, { origem: v || null })}
+                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:7,padding:'6px 10px',fontSize:12,color:C.navy,background:C.card,outline:'none',boxSizing:'border-box' }}
+                  />
+                  <div style={{ fontSize:10,color:C.muted,marginTop:4 }}>Pode criar uma origem nova — ela vira sugestão pros próximos.</div>
                 </div>
 
                 {/* Etiquetas coloridas — as mesmas das Conversas */}
@@ -1643,11 +1663,9 @@ export default function CompanyCRM() {
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
                 <div>
                   <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:4 }}>Origem</label>
-                  <select value={newForm.origem} onChange={e=>setNewForm(p=>({...p,origem:e.target.value}))}
-                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',fontSize:13,color:C.navy,background:C.card,outline:'none',cursor:'pointer',boxSizing:'border-box' }}>
-                    <option value="">— selecionar —</option>
-                    {ORIGENS.map(o=><option key={o} value={o}>{o}</option>)}
-                  </select>
+                  <input list="crm-origem-list" value={newForm.origem} onChange={e=>setNewForm(p=>({...p,origem:e.target.value}))}
+                    placeholder="Escolha ou digite (ex: Eventos)"
+                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',fontSize:13,color:C.navy,background:C.card,outline:'none',boxSizing:'border-box' }}/>
                 </div>
                 <div>
                   <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:4 }}>Temperatura</label>
@@ -2002,6 +2020,25 @@ export default function CompanyCRM() {
 }
 
 // ── PanelField — editable inline ──────────────────────────────────────────────
+// Campo com lista de sugestões (datalist) que também aceita texto livre. Salva no
+// blur/Enter, sem gravar a cada tecla. Usado na Origem (editável) do CRM.
+function ComboField({ value, listId, placeholder, onSave, style }) {
+  const [val, setVal] = useState(value || '')
+  useEffect(() => { setVal(value || '') }, [value])
+  const commit = () => { const v = val.trim(); if (v !== (value || '')) onSave(v) }
+  return (
+    <input
+      list={listId}
+      value={val}
+      placeholder={placeholder}
+      onChange={e => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(value || ''); e.currentTarget.blur() } }}
+      style={style}
+    />
+  )
+}
+
 function PanelField({ label, value, onSave, placeholder }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal]         = useState(value)
