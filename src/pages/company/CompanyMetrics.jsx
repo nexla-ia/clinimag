@@ -1062,9 +1062,14 @@ function AgendaTab({ appts, professionals, range, period, loading }) {
       if (a.status === 'confirmado') m.confirmados++
       if (a.status === 'faltou') m.faltas++
       if (a.status === 'cancelado') m.cancelados++
-      const price = Number(a.price || 0)
-      if (a.payment_status === 'pago') m.faturado += price
-      else if (a.payment_status === 'pendente' && a.status !== 'cancelado' && a.status !== 'faltou') m.aReceber += price
+      // Valor só conta pra atendimento FINALIZADO (Concluído) — é o que vale pra
+      // comissão. Concluído + pago = Faturado; concluído ainda não pago = A receber.
+      // Agendamentos futuros (agendado/confirmado) não entram no valor.
+      if (a.status === 'concluido') {
+        const price = Number(a.price || 0)
+        if (a.payment_status === 'pago') m.faturado += price
+        else m.aReceber += price
+      }
     })
     return Object.values(map).map(m => {
       const pro = (professionals || []).find(p => p.id === m.id)
@@ -1171,7 +1176,7 @@ function AgendaTab({ appts, professionals, range, period, loading }) {
               </tbody>
             </table>
             <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 8 }}>
-              Concluídos = atendimentos realizados. Faturado = já pago. A receber = pendente (fora faltas/cancelados).
+              Só atendimentos <strong>concluídos</strong> geram valor (é o que vale pra comissão). Faturado = concluído já pago · A receber = concluído ainda não pago. Agendamentos futuros não entram no valor.
             </div>
           </div>
         )}
