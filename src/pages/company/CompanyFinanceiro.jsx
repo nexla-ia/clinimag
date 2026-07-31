@@ -213,6 +213,57 @@ function TxRow({ tx, catMap, bankMap, onPaid, onEdit, onDelete, showDays, last }
   )
 }
 
+// Linha-pai de um grupo recorrente: mostra o total do período e expande as sessões.
+function GroupRow({ item, catMap, bankMap, expanded, onToggle, onPaidGroup, onPaid, onEdit, onDelete, showDays, last }) {
+  const cat = catMap[item.categoria_id]
+  const over = item.anyOver
+  const nPag = item.pagas.length, nPend = item.pend.length
+  return (
+    <div style={{ borderBottom: last && !expanded ? 'none' : `1px solid ${C.border}` }}>
+      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: over ? '#FFF7ED' : C.card, cursor: 'pointer' }}
+        onMouseEnter={e => { if (!over) e.currentTarget.style.background = C.bg }}
+        onMouseLeave={e => { e.currentTarget.style.background = over ? '#FFF7ED' : C.card }}>
+        <ChevronRight size={15} style={{ color: C.muted, flexShrink: 0, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+        <div style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: cat?.cor || C.emerald }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, fontSize: 13, color: over ? '#92400E' : C.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240, ...sora }}>{item.descricao}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE', borderRadius: 20, padding: '2px 7px', textTransform: 'uppercase', flexShrink: 0 }}>Recorrente · {item.txs.length} sessões</span>
+            {over && <span style={{ fontSize: 9, fontWeight: 700, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 20, padding: '2px 7px', textTransform: 'uppercase', flexShrink: 0 }}>Vencido</span>}
+          </div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 2, display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', ...sora }}>
+            {item.contact_nome && <span>{item.contact_nome}</span>}
+            {cat && <span style={{ color: cat.cor || C.muted }}>● {cat.nome}</span>}
+            <span>{nPend} a receber{nPag ? ` · ${nPag} recebida${nPag > 1 ? 's' : ''}` : ''}</span>
+          </div>
+        </div>
+        <div style={{ textAlign: 'center', minWidth: 86, flexShrink: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: over ? '#D97706' : C.slate, ...mono }}>{fmtDateBR(item.vencMin)}{item.vencMax && item.vencMax !== item.vencMin ? `–${fmtDateBR(item.vencMax).slice(0, 5)}` : ''}</div>
+        </div>
+        <div style={{ textAlign: 'right', minWidth: 110, flexShrink: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.emerald, ...mono }}>{fmtBRL(item.total)}</div>
+          {nPend > 0 && nPag > 0 && <div style={{ fontSize: 10, color: C.muted, ...mono }}>{fmtBRL(item.pendTotal)} a receber</div>}
+        </div>
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          {nPend > 0 && onPaidGroup && (
+            <button onClick={e => { e.stopPropagation(); onPaidGroup(item) }} title={`Receber as ${nPend} sessões pendentes de uma vez`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 30, padding: '0 10px', borderRadius: 8, background: '#ECFDF5', border: '1px solid #A7F3D0', color: C.emerald, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, ...sora }}>
+              <Check size={13} /> Receber tudo
+            </button>
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <div style={{ background: '#FAFAFA', borderTop: `1px solid ${C.border}`, paddingLeft: 24 }}>
+          {item.txs.map((tx, i) => (
+            <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={onPaid} onEdit={onEdit} onDelete={onDelete} showDays={showDays} last={i === item.txs.length - 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function CompanyFinanceiro() {
   const { session } = useAuth()
@@ -241,8 +292,10 @@ export default function CompanyFinanceiro() {
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [payModal, setPayModal] = useState(null)      // { tx, pagamento_at, juros, bank_account_id, forma_pagamento }
+  const [payModal, setPayModal] = useState(null)      // { tx, pagamento_at, juros, bank_account_id, forma_pagamento, groupTxIds? }
   const [payErr, setPayErr] = useState('')
+  const [recurMap, setRecurMap] = useState({})        // appointment_id → recurrence_group_id (pra agrupar recorrentes)
+  const [expandedGroups, setExpandedGroups] = useState({}) // grupos de recorrência abertos no 'a receber'
   const [bankModal, setBankModal] = useState(null)     // { mode, data }
   const [transfers, setTransfers] = useState([])
   const [transferModal, setTransferModal] = useState(null)
@@ -276,13 +329,30 @@ export default function CompanyFinanceiro() {
       }
       return { data: all }
     }
+    // Mapa appointment_id → recurrence_group_id, só dos agendamentos que fazem
+    // parte de uma recorrência. Usado pra agrupar as sessões no "a receber".
+    async function fetchRecurringAppts() {
+      const PAGE = 1000
+      let from = 0, all = []
+      for (let guard = 0; guard < 50; guard++) {
+        const { data, error } = await supabase.from('appointments').select('id,recurrence_group_id')
+          .eq('instancia', instance).not('recurrence_group_id', 'is', null)
+          .range(from, from + PAGE - 1)
+        if (error) return {}
+        all = all.concat(data || [])
+        if (!data || data.length < PAGE) break
+        from += PAGE
+      }
+      const map = {}; all.forEach(a => { if (a.recurrence_group_id) map[a.id] = a.recurrence_group_id }); return map
+    }
     Promise.all([
       fetchAllTransactions(),
       supabase.from('financial_categories').select('*')
         .in('instancia', [instance, '_default_']).order('nome'),
       supabase.from('bank_accounts').select('*').eq('instancia', instance).order('nome'),
       supabase.from('bank_transfers').select('*').eq('instancia', instance).order('data', { ascending: false }),
-    ]).then(([txRes, catRes, bankRes, trRes]) => {
+      fetchRecurringAppts(),
+    ]).then(([txRes, catRes, bankRes, trRes, recRes]) => {
       if (cancelled) return
       // A lista de lançamentos é o essencial: se ela falhar, NÃO deixa a tela
       // vazia sem explicação (parecia "não tem conta nenhuma"). Mostra o erro.
@@ -296,6 +366,7 @@ export default function CompanyFinanceiro() {
       if (!catRes.error && catRes.data) setCategories(catRes.data)
       if (!bankRes.error && bankRes.data) setBankAccounts(bankRes.data)
       if (!trRes.error && trRes.data) setTransfers(trRes.data)
+      if (recRes && typeof recRes === 'object') setRecurMap(recRes)
       setLoading(false)
     }).catch(err => {
       if (cancelled) return
@@ -375,6 +446,45 @@ export default function CompanyFinanceiro() {
       return (a.vencimento||'').localeCompare(b.vencimento||'')
     })
   }, [transactions, tab, tipoAtual, filterMonth, filterStatus, filterSearch, filterForma, scope])
+
+  // Agrupa as sessões de um mesmo agendamento recorrente (recurrence_group_id) numa
+  // linha só, com o total do período. Grupo com 1 sessão visível vira linha normal.
+  const displayItems = useMemo(() => {
+    const groups = new Map()
+    const items = []
+    for (const tx of filteredTx) {
+      const gk = tx.appointment_id ? recurMap[tx.appointment_id] : null
+      if (gk) {
+        if (!groups.has(gk)) groups.set(gk, [])
+        groups.get(gk).push(tx)
+      } else {
+        items.push({ type: 'single', tx })
+      }
+    }
+    for (const [gk, txs] of groups) {
+      if (txs.length <= 1) { items.push({ type: 'single', tx: txs[0] }); continue }
+      const total = txs.reduce((s, t) => s + (parseFloat(t.valor) || 0), 0)
+      const pend = txs.filter(t => t.status === 'pendente')
+      const pagas = txs.filter(t => t.status === 'pago')
+      const pendTotal = pend.reduce((s, t) => s + (parseFloat(t.valor) || 0), 0)
+      const vencs = txs.map(t => t.vencimento).filter(Boolean).sort()
+      const anyOver = txs.some(t => isOverdue(t.vencimento, t.status))
+      items.push({
+        type: 'group', key: gk, txs, total, pend, pagas, pendTotal,
+        vencMin: vencs[0], vencMax: vencs[vencs.length - 1], anyOver,
+        descricao: txs[0].descricao, contact_nome: txs[0].contact_nome, categoria_id: txs[0].categoria_id,
+      })
+    }
+    items.sort((a, b) => {
+      const aOver = a.type === 'group' ? a.anyOver : isOverdue(a.tx.vencimento, a.tx.status)
+      const bOver = b.type === 'group' ? b.anyOver : isOverdue(b.tx.vencimento, b.tx.status)
+      if (aOver !== bOver) return aOver ? -1 : 1
+      const av = a.type === 'group' ? a.vencMin : a.tx.vencimento
+      const bv = b.type === 'group' ? b.vencMin : b.tx.vencimento
+      return (av || '').localeCompare(bv || '')
+    })
+    return items
+  }, [filteredTx, recurMap])
 
   // Fluxo de caixa chart data (10 months)
   const fluxoData = useMemo(() => {
@@ -562,9 +672,36 @@ export default function CompanyFinanceiro() {
     setPayErr('')
   }
 
+  // "Receber tudo" de um grupo recorrente: recebe todas as sessões pendentes de uma vez.
+  function handleMarkPaidGroup(item) {
+    if (!item?.pend?.length) return
+    setPayModal({
+      tx: { descricao: `${item.descricao} · ${item.pend.length} sessões`, valor: item.pendTotal, vencimento: item.vencMin, tipo: 'receita' },
+      groupTxIds: item.pend.map(t => t.id),
+      pagamento_at: todayStr(),
+      juros: '',
+      bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
+      forma_pagamento: '',
+    })
+    setPayErr('')
+  }
+
   async function confirmPay() {
     if (!payModal) return
     const p = payModal
+    // Recebimento em lote (grupo recorrente): marca todas as sessões pendentes.
+    if (p.groupTxIds && p.groupTxIds.length) {
+      const { data: upd, error } = await supabase.from('financial_transactions').update({
+        status: 'pago',
+        pagamento_at: p.pagamento_at || todayStr(),
+        bank_account_id: p.bank_account_id || null,
+        forma_pagamento: p.forma_pagamento || null,
+      }).in('id', p.groupTxIds).select()
+      if (error) { setPayErr('Erro: ' + error.message); return }
+      if (upd) setTransactions(prev => prev.map(t => { const u = upd.find(x => x.id === t.id); return u || t }))
+      setPayModal(null)
+      return
+    }
     const juros = p.juros ? parseFloat(p.juros) : 0
     if (p.juros && (isNaN(juros) || juros < 0)) { setPayErr('Juros inválido.'); return }
     const { data: upd, error } = await supabase.from('financial_transactions').update({
@@ -952,9 +1089,13 @@ export default function CompanyFinanceiro() {
             )
           ) : (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
-              {filteredTx.map((tx, i) => (
-                <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} showDays={scope === 'vencidas'} last={i === filteredTx.length-1} />
-              ))}
+              {displayItems.map((it, i) => it.type === 'group'
+                ? <GroupRow key={it.key} item={it} catMap={catMap} bankMap={bankMap}
+                    expanded={!!expandedGroups[it.key]} onToggle={() => setExpandedGroups(p => ({ ...p, [it.key]: !p[it.key] }))}
+                    onPaidGroup={handleMarkPaidGroup} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete}
+                    showDays={scope === 'vencidas'} last={i === displayItems.length - 1} />
+                : <TxRow key={it.tx.id} tx={it.tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} showDays={scope === 'vencidas'} last={i === displayItems.length - 1} />
+              )}
             </div>
           )}
         </>
@@ -1608,15 +1749,17 @@ export default function CompanyFinanceiro() {
                 <div style={{ fontWeight: 700, color: C.navy }}>{payModal.tx.descricao}</div>
                 <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>Vence {fmtDateBR(payModal.tx.vencimento)} · <strong style={{ color: payModal.tx.tipo === 'receita' ? C.emerald : C.rose, ...mono }}>{fmtBRL(payModal.tx.valor)}</strong></div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: payModal.groupTxIds ? '1fr' : '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={lbl}>Data do {payModal.tx.tipo === 'receita' ? 'recebimento' : 'pagamento'} *</label>
                   <input className="nx-input" type="date" value={payModal.pagamento_at} onChange={e => setPayModal(p => ({ ...p, pagamento_at: e.target.value }))} />
                 </div>
-                <div>
-                  <label style={lbl}>Juros / multa (R$)</label>
-                  <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.juros} onChange={e => setPayModal(p => ({ ...p, juros: e.target.value }))} />
-                </div>
+                {!payModal.groupTxIds && (
+                  <div>
+                    <label style={lbl}>Juros / multa (R$)</label>
+                    <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.juros} onChange={e => setPayModal(p => ({ ...p, juros: e.target.value }))} />
+                  </div>
+                )}
               </div>
               <div>
                 <label style={lbl}>Conta bancária</label>
