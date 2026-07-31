@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import {
@@ -79,6 +80,7 @@ function normPhone(p) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function CompanyCRM() {
   const { session } = useAuth()
+  const navigate = useNavigate()
   const instance = session?.company?.instance
 
   const [loading, setLoading]         = useState(true)
@@ -1596,7 +1598,14 @@ export default function CompanyCRM() {
                 <Kanban size={12}/> Criar tarefa
               </button>
               <div style={{ flex:1 }}/>
+              {/* Abre a conversa DENTRO da plataforma (não o WhatsApp externo) */}
+              <button onClick={() => navigate(`/painel/conversas?contact=${cleanNum(c.phone)}`)}
+                title="Abrir a conversa deste contato na plataforma"
+                style={{ display:'flex',alignItems:'center',gap:5,padding:'7px 14px',borderRadius:8,border:`1px solid #BFDBFE`,background:'#EFF6FF',color:'#2563EB',cursor:'pointer',fontSize:12,fontWeight:700 }}>
+                <MessageSquare size={12}/> Conversa
+              </button>
               <a href={`https://wa.me/${c.phone}`} target="_blank" rel="noopener noreferrer"
+                title="Abrir no WhatsApp"
                 style={{ display:'flex',alignItems:'center',gap:5,padding:'7px 14px',borderRadius:8,border:`1px solid #BBF7D0`,background:'#ECFDF5',color:'#059669',fontSize:12,fontWeight:700,textDecoration:'none' }}>
                 <Phone size={12}/> WhatsApp
               </a>
