@@ -112,6 +112,8 @@ export default function CompanyCRM() {
   const [draggingStage, setDraggingStage] = useState(null) // etapa (coluna) sendo arrastada
   const [panel, setPanel]             = useState(null)
   const [panelNote, setPanelNote]     = useState('')
+  const [editingName, setEditingName] = useState(false)   // editar o nome no cabeçalho do painel
+  const [nameDraft, setNameDraft]     = useState('')
   const [newModal, setNewModal]       = useState(false)
   const [stageModal, setStageModal]   = useState(null)  // { id, nome, cor, alerta_dias } — null = fechado
   const [savingStage, setSavingStage] = useState(false)
@@ -369,7 +371,7 @@ export default function CompanyCRM() {
   }
 
   useEffect(() => { load() }, [instance])
-  useEffect(() => { if (panel) { setPanelTimeline([]); loadPanelData(panel) } }, [panel?.id])
+  useEffect(() => { if (panel) { setPanelTimeline([]); loadPanelData(panel); setEditingName(false) } }, [panel?.id])
 
   // ── Computed ────────────────────────────────────────────────────────────────
   const funStages = useMemo(
@@ -1318,9 +1320,33 @@ export default function CompanyCRM() {
               }}>{resolveInitials(c)}</div>
 
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontWeight:800, fontSize:15, color:C.navy, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                  {resolveName(c)}
-                </div>
+                {editingName ? (
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={e => setNameDraft(e.target.value)}
+                    onBlur={() => { const v = nameDraft.trim(); if (v !== (c.nome || '')) patchContact(c.id, { nome: v || null }); setEditingName(false) }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { const v = nameDraft.trim(); if (v !== (c.nome || '')) patchContact(c.id, { nome: v || null }); setEditingName(false) }
+                      if (e.key === 'Escape') setEditingName(false)
+                    }}
+                    placeholder="Nome do lead"
+                    style={{ width:'100%', border:`1px solid #93C5FD`, borderRadius:7, padding:'5px 9px', fontSize:14, fontWeight:700, color:C.navy, background:'#EFF6FF', outline:'none', boxSizing:'border-box' }}
+                  />
+                ) : (
+                  <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                    <div style={{ fontWeight:800, fontSize:15, color:C.navy, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {resolveName(c)}
+                    </div>
+                    <button
+                      onClick={() => { setNameDraft(c.nome || bestName(c) || ''); setEditingName(true) }}
+                      title="Editar o nome do lead"
+                      style={{ background:'none', border:'none', cursor:'pointer', padding:2, color:C.muted, flexShrink:0, display:'inline-flex' }}
+                    >
+                      <Edit2 size={13}/>
+                    </button>
+                  </div>
+                )}
                 {resolveName(c) !== fmtPhone(c.phone) && <div style={{ fontSize:11.5, color:C.muted }}>{fmtPhone(c.phone)}</div>}
               </div>
 
