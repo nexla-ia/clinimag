@@ -10,6 +10,7 @@ import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sp
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
+import ImageLightbox from '../../components/ImageLightbox'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
@@ -3658,14 +3659,7 @@ export default function CompanyConversations() {
         })()
       , document.body)}
 
-      {lightbox && createPortal(
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, cursor: 'zoom-out' }}
-          onClick={() => setLightbox(null)}
-        >
-          <img src={lightbox} alt="mídia" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }} />
-        </div>
-      , document.body)}
+      {lightbox && <ImageLightbox src={lightbox} alt="mídia" onClose={() => setLightbox(null)} />}
 
       {toast && createPortal(
         <div style={{

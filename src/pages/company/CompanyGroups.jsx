@@ -9,6 +9,7 @@ import { fetchGruposLista } from '../../lib/queries'
 import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2, LocateFixed } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
+import ImageLightbox from '../../components/ImageLightbox'
 import './Company.css'
 
 function getMutedGroups(instance) {
@@ -2236,20 +2237,7 @@ export default function CompanyGroups() {
       })()
     , document.body)}
 
-    {lightbox && createPortal(
-      <div
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, cursor: 'zoom-out' }}
-        onClick={() => setLightbox(null)}
-      >
-        <img src={lightbox} alt="imagem" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }} />
-        <a href={lightbox} download="imagem.jpg" onClick={e => e.stopPropagation()}
-          title="Baixar imagem"
-          style={{ position: 'fixed', top: 20, right: 20, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-          <Download size={16} /> Baixar
-        </a>
-      </div>,
-      document.body
-    )}
+    {lightbox && <ImageLightbox src={lightbox} alt="imagem" onClose={() => setLightbox(null)} />}
 
     {/* Renomear grupo (apelido só da plataforma) */}
     {renameModal && createPortal(
