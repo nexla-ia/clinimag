@@ -87,6 +87,7 @@ export default function CompanyCRM() {
   const [funnels, setFunnels]         = useState([])
   const [stages, setStages]           = useState([])
   const [contacts, setContacts]       = useState([])
+  const [memberships, setMemberships] = useState([]) // vínculos extras lead↔funil (crm_contact_funnels)
   const [nameMap, setNameMap]         = useState({}) // telefone canônico → nome (contatos salvos + clientes)
   const [panelTimeline, setPanelTimeline] = useState([])
   const [panelLoading, setPanelLoading]  = useState(false)
@@ -153,6 +154,10 @@ export default function CompanyCRM() {
     ])
     // crm_contacts pode passar de 1000 → pagina (senão leads antigos somem do board e das stats)
     const ct = await fetchAll('crm_contacts', '*', q => q.eq('instancia', instance).order('created_at', { ascending: false }))
+    // Vínculos extras (lead em vários funis). Resiliente: se a tabela ainda não foi
+    // criada (migração não rodou), fica vazio e o CRM funciona como 1 funil por lead.
+    const { data: mbs } = await supabase.from('crm_contact_funnels').select('*').eq('instancia', instance)
+    setMemberships(mbs || [])
     if (kc) setKanbanCols(kc)
     if (ls) setLists(ls)
 
@@ -393,29 +398,47 @@ export default function CompanyCRM() {
     [stages, activeFunnel]
   )
 
+  // ── Multi-funil: o mesmo lead pode aparecer em vários funis ──────────────────
+  // Funil PRINCIPAL = crm_contacts.funil_id (ou o 1º funil, p/ leads legados).
+  // Funis ADICIONAIS = linhas em crm_contact_funnels (memberships), etapa própria.
+  const primaryFunnelId = funnels[0]?.id || null
+  const primaryFunnelOf = c => c?.funil_id || primaryFunnelId
+  const membershipMap = useMemo(() => {
+    const m = {}; memberships.forEach(mb => { m[`${mb.contact_id}|${mb.funil_id}`] = mb }); return m
+  }, [memberships])
+  const extraByContact = useMemo(() => {
+    const m = {}; memberships.forEach(mb => { (m[mb.contact_id] || (m[mb.contact_id] = [])).push(mb) }); return m
+  }, [memberships])
+  const funnelsSetOf = c => {
+    const s = new Set(); const p = primaryFunnelOf(c); if (p) s.add(p)
+    ;(extraByContact[c.id] || []).forEach(mb => s.add(mb.funil_id)); return s
+  }
+  const isPrimaryFunnel = (c, fid) => fid === primaryFunnelOf(c)
+  const stageInFunnel = (c, fid) => isPrimaryFunnel(c, fid) ? c.stage_id : (membershipMap[`${c.id}|${fid}`]?.stage_id || null)
+  const entradaInFunnel = (c, fid) => isPrimaryFunnel(c, fid) ? c.data_entrada_etapa : (membershipMap[`${c.id}|${fid}`]?.data_entrada_etapa || c.data_entrada_etapa)
+
   const filteredContacts = useMemo(() => {
     const q = search.toLowerCase().trim()
-    const primaryFunnelId = funnels[0]?.id || null // funil de menor posição
     return contacts.filter(c => {
-      // Lead com funil definido → aparece só no dele. Lead SEM funil (legado) →
-      // aparece só no funil principal, pra um funil novo não puxar todo mundo.
-      const inFunil = c.funil_id ? c.funil_id === activeFunnel : (activeFunnel === primaryFunnelId)
-      if (!inFunil) return false
+      if (!funnelsSetOf(c).has(activeFunnel)) return false
       if (filterTemp !== 'todos' && c.temperatura !== filterTemp) return false
       if (q && !bestName(c).toLowerCase().includes(q) && !(c.phone||'').includes(q) && !(c.email||'').toLowerCase().includes(q)) return false
       return true
     })
-  }, [contacts, search, filterTemp, activeFunnel, funnels])
+  }, [contacts, memberships, search, filterTemp, activeFunnel, funnels])
 
   const byStage = useMemo(() => {
     const map = {}
     funStages.forEach(s => { map[s.id] = [] })
     filteredContacts.forEach(c => {
-      const key = (c.stage_id && map[c.stage_id] !== undefined) ? c.stage_id : (funStages[0]?.id || '__none__')
-      if (map[key]) map[key].push(c)
+      // Usa a etapa/entrada DESTE funil (principal ou vínculo). Sobrescreve no card
+      // pra o arraste (fromStage) e o "dias na etapa" saírem certos por funil.
+      const sid = stageInFunnel(c, activeFunnel)
+      const key = (sid && map[sid] !== undefined) ? sid : (funStages[0]?.id || '__none__')
+      if (map[key]) map[key].push({ ...c, stage_id: sid, data_entrada_etapa: entradaInFunnel(c, activeFunnel) })
     })
     return map
-  }, [filteredContacts, funStages])
+  }, [filteredContacts, funStages, memberships, activeFunnel])
 
   // ── Drag & Drop ─────────────────────────────────────────────────────────────
   function onDragStart(e, contact) {
@@ -439,33 +462,59 @@ export default function CompanyCRM() {
     }
     const drag = dragging
     if (!drag || drag.fromStage === toStageId) { setDragging(null); return }
+    setDragging(null)
 
     const now = new Date().toISOString()
-    const snapshot = contacts // pra reverter se o banco recusar
-    const moved = snapshot.find(c => c.id === drag.id)
-    setContacts(prev => prev.map(c => c.id === drag.id
-      ? { ...c, stage_id: toStageId, funil_id: activeFunnel, data_entrada_etapa: now }
-      : c
-    ))
-    setDragging(null)
+    const contact = contacts.find(c => c.id === drag.id)
+    if (!contact) return
     const fromStage = stages.find(s => s.id === drag.fromStage)
     const toStage   = stages.find(s => s.id === toStageId)
 
-    const { error } = await supabase.from('crm_contacts')
-      .update({ stage_id: toStageId, funil_id: activeFunnel, data_entrada_etapa: now }).eq('id', drag.id)
-    if (error) {
-      setContacts(snapshot) // desfaz o movimento na tela
-      alert('Não consegui mover o lead: ' + error.message)
-      return
-    }
+    const ok = await setStageInFunnel(contact, activeFunnel, toStageId, now)
+    if (!ok) return
     await supabase.from('crm_interactions').insert({
-      instancia: instance, phone: moved?.phone || '',
+      instancia: instance, phone: contact.phone || '',
       tipo: 'etapa',
-      conteudo: `Movido de "${fromStage?.nome||'Sem etapa'}" → "${toStage?.nome||'Sem etapa'}"`,
-      metadata: { from: drag.fromStage, to: toStageId },
+      conteudo: `Movido de "${fromStage?.nome||'Sem etapa'}" → "${toStage?.nome||'Sem etapa'}"${isPrimaryFunnel(contact, activeFunnel) ? '' : ' (funil adicional)'}`,
+      metadata: { from: drag.fromStage, to: toStageId, funil: activeFunnel },
       autor_nome: session?.user?.name || session?.user?.email,
     })
-    if (panel?.id === drag.id) setPanel(p => ({ ...p, stage_id: toStageId }))
+  }
+
+  // Grava a etapa do lead NAQUELE funil: principal → crm_contacts; adicional → a
+  // linha em crm_contact_funnels. Otimista, reverte se o banco recusar.
+  async function setStageInFunnel(contact, funnelId, toStageId, now = new Date().toISOString()) {
+    if (isPrimaryFunnel(contact, funnelId)) {
+      const snap = contacts
+      setContacts(prev => prev.map(c => c.id === contact.id ? { ...c, stage_id: toStageId, funil_id: funnelId, data_entrada_etapa: now } : c))
+      if (panel?.id === contact.id) setPanel(p => ({ ...p, stage_id: toStageId, funil_id: funnelId }))
+      const { error } = await supabase.from('crm_contacts').update({ stage_id: toStageId, funil_id: funnelId, data_entrada_etapa: now }).eq('id', contact.id)
+      if (error) { setContacts(snap); alert('Não consegui mover o lead: ' + error.message); return false }
+      return true
+    }
+    const mb = membershipMap[`${contact.id}|${funnelId}`]
+    if (!mb) return false
+    const snap = memberships
+    setMemberships(prev => prev.map(x => x.id === mb.id ? { ...x, stage_id: toStageId, data_entrada_etapa: now } : x))
+    const { error } = await supabase.from('crm_contact_funnels').update({ stage_id: toStageId, data_entrada_etapa: now }).eq('id', mb.id)
+    if (error) { setMemberships(snap); alert('Não consegui mover o lead: ' + error.message); return false }
+    return true
+  }
+
+  // Adiciona o lead a um funil extra (cria o vínculo na 1ª etapa) / remove o vínculo.
+  async function addMembership(contactId, funnelId) {
+    const first = stages.filter(s => s.funil_id === funnelId).sort((a,b) => (a.posicao??0)-(b.posicao??0))[0]
+    const { data, error } = await supabase.from('crm_contact_funnels')
+      .insert({ instancia: instance, contact_id: contactId, funil_id: funnelId, stage_id: first?.id || null, data_entrada_etapa: new Date().toISOString() })
+      .select().single()
+    if (error) { alert('Não consegui adicionar ao funil: ' + error.message + '\n(A migração crm_contact_funnels já rodou?)'); return }
+    if (data) setMemberships(prev => [...prev, data])
+  }
+  async function removeMembership(mb) {
+    const snap = memberships
+    setMemberships(prev => prev.filter(x => x.id !== mb.id))
+    const { error } = await supabase.from('crm_contact_funnels').delete().eq('id', mb.id)
+    if (error) { setMemberships(snap); alert('Não consegui remover do funil: ' + error.message) }
   }
 
   // ── Contact CRUD ────────────────────────────────────────────────────────────
@@ -642,6 +691,7 @@ export default function CompanyCRM() {
       ? { ...c, funil_id: target.id, stage_id: targetStage?.id || null, data_entrada_etapa: now } : c))
     setStages(prev => prev.filter(s => s.funil_id !== id))
     setFunnels(prev => prev.filter(f => f.id !== id))
+    setMemberships(prev => prev.filter(m => m.funil_id !== id)) // vínculos desse funil caem por CASCADE
     if (activeFunnel === id) setActiveFunnel(target.id)
     setConfirmDelFunnel(null)
     setFunnelModal(null)
@@ -664,6 +714,9 @@ export default function CompanyCRM() {
     const { error } = await supabase.from('crm_contacts')
       .update({ funil_id: funnelId, stage_id: toStage, data_entrada_etapa: now }).eq('id', contactId)
     if (error) { setContacts(snapshot); alert('Não consegui mover o lead: ' + error.message); return }
+    // Se já existia um vínculo EXTRA nesse funil, remove (agora virou o principal).
+    const dupMb = membershipMap[`${contactId}|${funnelId}`]
+    if (dupMb) { setMemberships(prev => prev.filter(x => x.id !== dupMb.id)); supabase.from('crm_contact_funnels').delete().eq('id', dupMb.id).then(() => {}) }
     const fromF = funnels.find(f => f.id === contact.funil_id)
     const toF   = funnels.find(f => f.id === funnelId)
     await supabase.from('crm_interactions').insert({
@@ -678,6 +731,7 @@ export default function CompanyCRM() {
   async function deleteContact(id) {
     await supabase.from('crm_contacts').delete().eq('id', id)
     setContacts(p => p.filter(c => c.id!==id))
+    setMemberships(p => p.filter(m => m.contact_id !== id)) // vínculos caem por CASCADE no banco
     setConfirmDel(null)
     if (panel?.id === id) setPanel(null)
   }
@@ -1389,43 +1443,65 @@ export default function CompanyCRM() {
             {/* Panel body */}
             <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
 
-              {/* Quick info */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
-                  <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4 }}>Temperatura</div>
-                  <div style={{ display:'flex', gap:4 }}>
-                    {Object.entries(TEMP).map(([k,v]) => (
-                      <button key={k} onClick={() => patchContact(c.id, { temperatura:k })}
-                        style={{ flex:1, padding:'4px 2px', borderRadius:6, border:`1.5px solid ${c.temperatura===k ? v.color : C.border}`, background:c.temperatura===k ? v.bg : 'transparent', cursor:'pointer', fontSize:11, fontWeight:700, color:c.temperatura===k ? v.color : C.muted, transition:'all 0.15s' }}>
-                        {v.icon}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
-                  <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4 }}>Etapa</div>
-                  <select value={c.stage_id||''} onChange={e => {
-                      if (e.target.value === '__new__') { openStageModal(null, { funilId: c.funil_id || activeFunnel, assignTo: c.id }); return }
-                      patchContact(c.id, { stage_id:e.target.value, data_entrada_etapa: new Date().toISOString() })
-                    }}
-                    style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontWeight:700, color:stage?.cor||C.navy, cursor:'pointer', outline:'none' }}>
-                    {panelStages.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                    <option value="__new__">➕ Nova etapa…</option>
-                  </select>
+              {/* Temperatura */}
+              <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
+                <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6 }}>Temperatura</div>
+                <div style={{ display:'flex', gap:4 }}>
+                  {Object.entries(TEMP).map(([k,v]) => (
+                    <button key={k} onClick={() => patchContact(c.id, { temperatura:k })}
+                      style={{ flex:1, padding:'5px 2px', borderRadius:6, border:`1.5px solid ${c.temperatura===k ? v.color : C.border}`, background:c.temperatura===k ? v.bg : 'transparent', cursor:'pointer', fontSize:11.5, fontWeight:700, color:c.temperatura===k ? v.color : C.muted, transition:'all 0.15s' }}>
+                      {v.icon} {v.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Funil — mover o lead pra outro quadro de CRM */}
-              {funnels.length > 1 && (
-                <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
-                  <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4 }}>Funil</div>
-                  <select value={c.funil_id || activeFunnel || ''} onChange={e => moveContactToFunnel(c.id, e.target.value)}
-                    style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontWeight:700, color:C.navy, cursor:'pointer', outline:'none' }}>
-                    {funnels.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-                  </select>
+              {/* Funis & etapas — o MESMO lead pode aparecer em vários funis, etapa própria em cada */}
+              <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
+                <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8 }}>Funis &amp; etapas</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+                  {funnels.filter(f => funnelsSetOf(c).has(f.id)).map(f => {
+                    const isPrim = f.id === primaryFunnelOf(c)
+                    const fStages = stages.filter(s => s.funil_id === f.id).sort((a,b)=>(a.posicao??0)-(b.posicao??0))
+                    const curStage = stageInFunnel(c, f.id)
+                    const mb = membershipMap[`${c.id}|${f.id}`]
+                    return (
+                      <div key={f.id} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:11.5, fontWeight:700, color:C.navy, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            {f.nome} {isPrim && <span style={{ fontSize:9, fontWeight:700, color:C.muted }}>(principal)</span>}
+                          </div>
+                          <select value={curStage||''} onChange={e => {
+                              if (e.target.value === '__new__') { if (isPrim) openStageModal(null, { funilId: f.id, assignTo: c.id }); return }
+                              setStageInFunnel(c, f.id, e.target.value)
+                            }}
+                            style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontWeight:600, color:C.slate, cursor:'pointer', outline:'none', padding:'2px 0' }}>
+                            {fStages.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                            {isPrim && <option value="__new__">➕ Nova etapa…</option>}
+                          </select>
+                        </div>
+                        {!isPrim && mb && (
+                          <button onClick={() => removeMembership(mb)} title="Tirar deste funil"
+                            style={{ width:26, height:26, borderRadius:7, border:'1px solid #FECACA', background:'#FFF1F2', color:'#DC2626', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                            <X size={13}/>
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-              )}
+                {(() => {
+                  const avail = funnels.filter(f => !funnelsSetOf(c).has(f.id))
+                  if (!avail.length) return null
+                  return (
+                    <select value="" onChange={e => { if (e.target.value) addMembership(c.id, e.target.value) }}
+                      style={{ marginTop:9, width:'100%', border:`1px dashed ${C.border}`, borderRadius:8, background:'#fff', fontSize:12, fontWeight:600, color:C.blue, cursor:'pointer', outline:'none', padding:'7px 8px' }}>
+                      <option value="">➕ Aparecer em outro funil…</option>
+                      {avail.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                    </select>
+                  )
+                })()}
+              </div>
 
               {/* Editable fields */}
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
