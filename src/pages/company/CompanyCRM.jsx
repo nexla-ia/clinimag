@@ -88,6 +88,7 @@ export default function CompanyCRM() {
   const [stages, setStages]           = useState([])
   const [contacts, setContacts]       = useState([])
   const [memberships, setMemberships] = useState([]) // vínculos extras lead↔funil (crm_contact_funnels)
+  const [supportsRemovido, setSupportsRemovido] = useState(false) // coluna removido existe? (migração rodou)
   const [nameMap, setNameMap]         = useState({}) // telefone canônico → nome (contatos salvos + clientes)
   const [panelTimeline, setPanelTimeline] = useState([])
   const [panelLoading, setPanelLoading]  = useState(false)
@@ -152,8 +153,17 @@ export default function CompanyCRM() {
       supabase.from('kanban_columns').select('id,name,color').eq('instancia', instance).order('position'),
       supabase.from('crm_lists').select('*').eq('instancia', instance).order('created_at'),
     ])
+    // Soft-delete: se a coluna `removido` existe (migração rodou), esconde os removidos.
+    // Sonda a coluna pra não quebrar antes da migração.
+    const { error: remProbe } = await supabase.from('crm_contacts').select('removido').limit(1)
+    const hasRemovido = !remProbe
+    setSupportsRemovido(hasRemovido)
     // crm_contacts pode passar de 1000 → pagina (senão leads antigos somem do board e das stats)
-    const ct = await fetchAll('crm_contacts', '*', q => q.eq('instancia', instance).order('created_at', { ascending: false }))
+    const ct = await fetchAll('crm_contacts', '*', q => {
+      let qq = q.eq('instancia', instance)
+      if (hasRemovido) qq = qq.not('removido', 'is', true)
+      return qq.order('created_at', { ascending: false })
+    })
     // Vínculos extras (lead em vários funis). Resiliente: se a tabela ainda não foi
     // criada (migração não rodou), fica vazio e o CRM funciona como 1 funil por lead.
     const { data: mbs } = await supabase.from('crm_contact_funnels').select('*').eq('instancia', instance)
@@ -521,9 +531,8 @@ export default function CompanyCRM() {
   async function createContact() {
     if (!newForm.phone.trim()) return
     setSaving(true)
-    const { data: nc, error } = await supabase.from('crm_contacts').insert({
-      instancia: instance,
-      phone: newForm.phone.replace(/\D/g,''),
+    const phone = newForm.phone.replace(/\D/g,'')
+    const payload = {
       nome: newForm.nome.trim() || null,
       email: newForm.email.trim() || null,
       origem: newForm.origem || null,
@@ -532,12 +541,35 @@ export default function CompanyCRM() {
       funil_id: activeFunnel,
       observacoes: newForm.observacoes || null,
       data_entrada_etapa: new Date().toISOString(),
-    }).select().single()
+    }
+    const resetForm = () => setNewForm({ nome:'', phone:'', email:'', origem:'', temperatura:'morno', stage_id:'', observacoes:'' })
+    // Já existe lead com esse número (UNIQUE instancia+phone), inclusive removido?
+    const { data: existing } = await supabase.from('crm_contacts').select('*').eq('instancia', instance).eq('phone', phone).maybeSingle()
+    if (existing) {
+      const isRemoved = supportsRemovido && existing.removido === true
+      if (!isRemoved) {
+        setSaving(false)
+        alert('Já existe um lead com esse número no CRM.')
+        const live = contacts.find(c => c.id === existing.id)
+        setNewModal(false); resetForm()
+        if (live) setPanel(live)
+        return
+      }
+      // Estava removido → revive com os dados novos (não cria duplicado)
+      const revive = { ...payload }
+      if (supportsRemovido) { revive.removido = false; revive.removido_at = null }
+      const { data: upd, error } = await supabase.from('crm_contacts').update(revive).eq('id', existing.id).select().single()
+      setSaving(false)
+      if (error) { alert('Erro: '+error.message); return }
+      setContacts(p => [upd, ...p.filter(c => c.id !== upd.id)])
+      setNewModal(false); resetForm()
+      return
+    }
+    const { data: nc, error } = await supabase.from('crm_contacts').insert({ instancia: instance, phone, ...payload }).select().single()
     setSaving(false)
     if (error) { alert('Erro: '+error.message); return }
     setContacts(p => [nc, ...p])
-    setNewModal(false)
-    setNewForm({ nome:'', phone:'', email:'', origem:'', temperatura:'morno', stage_id:'', observacoes:'' })
+    setNewModal(false); resetForm()
   }
 
   async function patchContact(id, changes) {
@@ -729,9 +761,18 @@ export default function CompanyCRM() {
   }
 
   async function deleteContact(id) {
-    await supabase.from('crm_contacts').delete().eq('id', id)
+    // Soft-delete: marca removido em vez de apagar, pra o gatilho de autocriação
+    // NÃO trazer o mesmo número de volta como "novo lead". Se a migração ainda não
+    // rodou (sem a coluna), cai no delete de verdade (comportamento antigo).
+    if (supportsRemovido) {
+      await supabase.from('crm_contact_funnels').delete().eq('contact_id', id) // tira dos funis adicionais
+      const { error } = await supabase.from('crm_contacts').update({ removido: true, removido_at: new Date().toISOString() }).eq('id', id)
+      if (error) { alert('Não consegui remover: ' + error.message); return }
+    } else {
+      await supabase.from('crm_contacts').delete().eq('id', id)
+    }
     setContacts(p => p.filter(c => c.id!==id))
-    setMemberships(p => p.filter(m => m.contact_id !== id)) // vínculos caem por CASCADE no banco
+    setMemberships(p => p.filter(m => m.contact_id !== id))
     setConfirmDel(null)
     if (panel?.id === id) setPanel(null)
   }

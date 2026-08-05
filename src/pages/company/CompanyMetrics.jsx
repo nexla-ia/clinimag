@@ -320,7 +320,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
         ? fetchAll((a, b) => supabase.from(contactsTable).select('*').eq('instancia', instance).range(a, b))
         : Promise.resolve([]),
       // ── CRM ──
-      fetchAll((a, b) => supabase.from('crm_contacts').select('id,phone,nome,stage_id,funil_id,temperatura,origem,responsavel_nome,motivo_perda,data_entrada_etapa,created_at').eq('instancia', instance).order('created_at', { ascending: false }).range(a, b)),
+      fetchAll((a, b) => supabase.from('crm_contacts').select('*').eq('instancia', instance).order('created_at', { ascending: false }).range(a, b)),
       one(supabase.from('crm_stages').select('id,funil_id,nome,cor,posicao,alerta_dias').eq('instancia', instance).order('posicao')),
       one(supabase.from('crm_funnels').select('id,nome,posicao').eq('instancia', instance).order('posicao')),
       fetchAll((a, b) => supabase.from('crm_interactions').select('id,tipo,created_at,autor_nome').eq('instancia', instance).gte('created_at', `${yearLo}T00:00:00`).order('created_at', { ascending: false }).range(a, b)),
@@ -343,7 +343,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     setFinTx(finTxData)
     setFinCats(finCatsData)
     setLeads(leadsData)
-    setCrmContacts(crmContactsData)
+    setCrmContacts((crmContactsData || []).filter(c => c.removido !== true)) // ignora leads removidos (soft-delete)
     setCrmStages(crmStagesData)
     setCrmFunnels(crmFunnelsData)
     setCrmInteractions(crmInteractionsData)
