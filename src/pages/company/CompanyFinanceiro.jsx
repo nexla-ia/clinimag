@@ -171,16 +171,19 @@ function NavBtn({ onClick, children }) {
   )
 }
 
-function TxRow({ tx, catMap, bankMap, onPaid, onEdit, onDelete, showDays, last }) {
+function TxRow({ tx, catMap, bankMap, onPaid, onEdit, onDelete, showDays, last, selected, onToggleSelect }) {
   const cat = catMap[tx.categoria_id]
   const over = isOverdue(tx.vencimento, tx.status)
   const days = showDays ? daysDiff(tx.vencimento) : null
   const bank = bankMap?.[tx.bank_account_id]
   const juros = parseFloat(tx.juros) || 0
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: over ? '#FFF7ED' : C.card, borderBottom: last ? 'none' : `1px solid ${C.border}`, transition: 'background 0.1s' }}
-      onMouseEnter={e => { if (!over) e.currentTarget.style.background = C.bg }}
-      onMouseLeave={e => { e.currentTarget.style.background = over ? '#FFF7ED' : C.card }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: selected ? C.blueDim : over ? '#FFF7ED' : C.card, borderBottom: last ? 'none' : `1px solid ${C.border}`, transition: 'background 0.1s' }}
+      onMouseEnter={e => { if (!selected && !over) e.currentTarget.style.background = C.bg }}
+      onMouseLeave={e => { e.currentTarget.style.background = selected ? C.blueDim : over ? '#FFF7ED' : C.card }}>
+      {onToggleSelect && (tx.status === 'pendente'
+        ? <input type="checkbox" checked={!!selected} onChange={onToggleSelect} onClick={e => e.stopPropagation()} title="Selecionar p/ baixa em lote" style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0, accentColor: C.blue }} />
+        : <span style={{ width: 16, flexShrink: 0 }} />)}
       <div style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: cat?.cor || (tx.tipo === 'receita' ? C.emerald : C.rose) }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -223,15 +226,19 @@ function TxRow({ tx, catMap, bankMap, onPaid, onEdit, onDelete, showDays, last }
 }
 
 // Linha-pai de um grupo recorrente: mostra o total do período e expande as sessões.
-function GroupRow({ item, catMap, bankMap, expanded, onToggle, onPaidGroup, onPaid, onEdit, onDelete, showDays, last }) {
+function GroupRow({ item, catMap, bankMap, expanded, onToggle, onPaidGroup, onPaid, onEdit, onDelete, showDays, last, selectedSet, onToggleSelect }) {
   const cat = catMap[item.categoria_id]
   const over = item.anyOver
   const nPag = item.pagas.length, nPend = item.pend.length
+  const allSelected = nPend > 0 && item.pend.every(t => selectedSet?.has(t.id))
   return (
     <div style={{ borderBottom: last && !expanded ? 'none' : `1px solid ${C.border}` }}>
-      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: over ? '#FFF7ED' : C.card, cursor: 'pointer' }}
-        onMouseEnter={e => { if (!over) e.currentTarget.style.background = C.bg }}
-        onMouseLeave={e => { e.currentTarget.style.background = over ? '#FFF7ED' : C.card }}>
+      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: allSelected ? C.blueDim : over ? '#FFF7ED' : C.card, cursor: 'pointer' }}
+        onMouseEnter={e => { if (!allSelected && !over) e.currentTarget.style.background = C.bg }}
+        onMouseLeave={e => { e.currentTarget.style.background = allSelected ? C.blueDim : over ? '#FFF7ED' : C.card }}>
+        {onToggleSelect && (nPend > 0
+          ? <input type="checkbox" checked={allSelected} onChange={() => onToggleSelect(item.pend.map(t => t.id), !allSelected)} onClick={e => e.stopPropagation()} title="Selecionar as sessões pendentes" style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0, accentColor: C.blue }} />
+          : <span style={{ width: 16, flexShrink: 0 }} />)}
         <ChevronRight size={15} style={{ color: C.muted, flexShrink: 0, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
         <div style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: cat?.cor || C.emerald }} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -291,7 +298,10 @@ export default function CompanyFinanceiro() {
   const [filterStatus, setFilterStatus] = useState('todos')
   const [filterSearch, setFilterSearch] = useState('')
   const [filterForma, setFilterForma] = useState('todos')
-  const [scope, setScope] = useState('mes')   // 'mes' = mês selecionado · 'vencidas' = todas vencidas (qualquer mês)
+  const [scope, setScope] = useState('mes')   // 'mes' = mês · 'periodo' = intervalo de datas · 'vencidas' = todas vencidas
+  const [filterFrom, setFilterFrom] = useState('')  // intervalo De (scope 'periodo')
+  const [filterTo, setFilterTo] = useState('')      // intervalo Até
+  const [selected, setSelected] = useState(new Set()) // ids selecionados p/ baixa em lote
   const [dreYear, setDreYear] = useState(new Date().getFullYear())
   const [catPeriod, setCatPeriod] = useState(currentMonthStr())
   const [catTipo, setCatTipo] = useState('receita')
@@ -444,6 +454,11 @@ export default function CompanyFinanceiro() {
       if (scope === 'vencidas') {
         // Todas as vencidas, de qualquer mês (mês/status não se aplicam aqui)
         if (!isOverdue(t.vencimento, t.status)) return false
+      } else if (scope === 'periodo') {
+        const v = t.vencimento || ''
+        if (filterFrom && v < filterFrom) return false
+        if (filterTo && v > filterTo) return false
+        if (filterStatus !== 'todos' && t.status !== filterStatus) return false
       } else {
         if (!t.vencimento?.startsWith(filterMonth)) return false
         if (filterStatus !== 'todos' && t.status !== filterStatus) return false
@@ -456,7 +471,7 @@ export default function CompanyFinanceiro() {
       if (ao !== bo) return ao - bo
       return (a.vencimento||'').localeCompare(b.vencimento||'')
     })
-  }, [transactions, tab, tipoAtual, filterMonth, filterStatus, filterSearch, filterForma, scope])
+  }, [transactions, tab, tipoAtual, filterMonth, filterFrom, filterTo, filterStatus, filterSearch, filterForma, scope])
 
   // Agrupa as sessões de um mesmo agendamento recorrente (recurrence_group_id) numa
   // linha só, com o total do período. Grupo com 1 sessão visível vira linha normal.
@@ -712,6 +727,31 @@ export default function CompanyFinanceiro() {
     setPayErr('')
   }
 
+  // ── Seleção em lote (dar baixa em várias de uma vez) ────────────────────────
+  function toggleSelect(id) {
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  function toggleSelectMany(ids, on) {
+    setSelected(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n })
+  }
+  // Abre o modal de recebimento/pagamento pros lançamentos selecionados (só os pendentes).
+  function handleBulkPay() {
+    const txs = transactions.filter(t => selected.has(t.id) && t.status === 'pendente')
+    if (!txs.length) return
+    const total = txs.reduce((s, t) => s + (parseFloat(t.valor) || 0), 0)
+    setPayModal({
+      tx: { descricao: `${txs.length} lançamento${txs.length > 1 ? 's' : ''}`, valor: total, vencimento: txs.map(t => t.vencimento).filter(Boolean).sort()[0], tipo: tipoAtual },
+      groupTxIds: txs.map(t => t.id),
+      pagamento_at: todayStr(),
+      juros: '',
+      bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
+      forma_pagamento: '',
+    })
+    setPayErr('')
+  }
+  // Limpa a seleção ao trocar de aba/escopo (evita seleção "fantasma").
+  useEffect(() => { setSelected(new Set()) }, [tab, scope])
+
   // "Receber tudo" de um grupo recorrente: recebe todas as sessões pendentes de uma vez.
   function handleMarkPaidGroup(item) {
     if (!item?.pend?.length) return
@@ -739,6 +779,7 @@ export default function CompanyFinanceiro() {
       }).in('id', p.groupTxIds).select()
       if (error) { setPayErr('Erro: ' + error.message); return }
       if (upd) setTransactions(prev => prev.map(t => { const u = upd.find(x => x.id === t.id); return u || t }))
+      setSelected(new Set())
       setPayModal(null)
       return
     }
@@ -1080,6 +1121,9 @@ export default function CompanyFinanceiro() {
                 <AlertTriangle size={12} /> Vencidas
                 {overdueCount > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 20, padding: '0 6px', minWidth: 16, textAlign: 'center' }}>{overdueCount}</span>}
               </button>
+              <button onClick={() => setScope('periodo')} title="Filtrar por um intervalo de datas específico" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: scope === 'periodo' ? '#fff' : 'transparent', color: scope === 'periodo' ? C.navy : C.muted, boxShadow: scope === 'periodo' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', ...sora }}>
+                Período
+              </button>
             </div>
             {scope === 'mes' && (
               <div style={{ position: 'relative' }}>
@@ -1087,7 +1131,14 @@ export default function CompanyFinanceiro() {
                 <input type="month" className="nx-input" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ paddingLeft: 28, fontSize: 13, width: 160, ...sora }} />
               </div>
             )}
-            {scope === 'mes' && (
+            {scope === 'periodo' && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input type="date" className="nx-input" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} title="De" style={{ fontSize: 13, width: 150, ...sora }} />
+                <span style={{ color: C.muted, fontSize: 12, ...sora }}>até</span>
+                <input type="date" className="nx-input" value={filterTo} onChange={e => setFilterTo(e.target.value)} title="Até" style={{ fontSize: 13, width: 150, ...sora }} />
+              </div>
+            )}
+            {scope !== 'vencidas' && (
               <select className="nx-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 13, width: 130, ...sora }}>
                 <option value="todos">Todos status</option>
                 <option value="pendente">Pendente</option>
@@ -1107,6 +1158,23 @@ export default function CompanyFinanceiro() {
               <Plus size={13} /> Novo lançamento
             </button>
           </div>
+
+          {/* Barra de baixa em lote — aparece quando há selecionados */}
+          {selected.size > 0 && (() => {
+            const selTxs = transactions.filter(t => selected.has(t.id) && t.status === 'pendente')
+            const total = selTxs.reduce((s, t) => s + (parseFloat(t.valor) || 0), 0)
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: C.navy, color: '#fff', borderRadius: 12, padding: '10px 16px', marginBottom: 12, ...sora }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{selTxs.length} selecionado{selTxs.length > 1 ? 's' : ''}</span>
+                <span style={{ fontSize: 12.5, opacity: 0.85, ...mono }}>{fmtBRL(total)}</span>
+                <div style={{ flex: 1 }} />
+                <button onClick={() => setSelected(new Set())} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', borderRadius: 8, padding: '7px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Limpar</button>
+                <button onClick={handleBulkPay} disabled={!selTxs.length} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.emerald, border: 'none', color: '#fff', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: selTxs.length ? 'pointer' : 'default', opacity: selTxs.length ? 1 : 0.6 }}>
+                  <Check size={14} /> Dar baixa em {selTxs.length}
+                </button>
+              </div>
+            )
+          })()}
 
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem', color: C.muted, gap: 8 }}>
@@ -1133,8 +1201,10 @@ export default function CompanyFinanceiro() {
                 ? <GroupRow key={it.key} item={it} catMap={catMap} bankMap={bankMap}
                     expanded={!!expandedGroups[it.key]} onToggle={() => setExpandedGroups(p => ({ ...p, [it.key]: !p[it.key] }))}
                     onPaidGroup={handleMarkPaidGroup} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete}
-                    showDays={scope === 'vencidas'} last={i === displayItems.length - 1} />
-                : <TxRow key={it.tx.id} tx={it.tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} showDays={scope === 'vencidas'} last={i === displayItems.length - 1} />
+                    showDays={scope === 'vencidas'} last={i === displayItems.length - 1}
+                    selectedSet={selected} onToggleSelect={toggleSelectMany} />
+                : <TxRow key={it.tx.id} tx={it.tx} catMap={catMap} bankMap={bankMap} onPaid={handleMarkPaid} onEdit={openEdit} onDelete={setConfirmDelete} showDays={scope === 'vencidas'} last={i === displayItems.length - 1}
+                    selected={selected.has(it.tx.id)} onToggleSelect={() => toggleSelect(it.tx.id)} />
               )}
             </div>
           )}
