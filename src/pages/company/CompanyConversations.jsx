@@ -534,14 +534,19 @@ export default function CompanyConversations() {
   // Carrega contatos salvos
   useEffect(() => {
     if (!instance) return
-    supabase.from('saved_contacts').select('*').eq('instancia', instance)
-      .then(({ data }) => {
-        if (data) {
-          const map = {}
-          data.forEach(c => { map[c.numero] = c })
-          setSavedContacts(map)
-        }
-      })
+    // Pagina: o PostgREST corta em 1000. Sem paginar, clínicas com +1000 contatos
+    // salvos perdiam alguns do mapa → o header mostrava "Salvar" num contato que já
+    // existia e o insert quebrava no UNIQUE(numero,instancia).
+    ;(async () => {
+      const map = {}
+      for (let from = 0; from < 200000; from += 1000) {
+        const { data, error } = await supabase.from('saved_contacts').select('*').eq('instancia', instance).range(from, from + 999)
+        if (error || !data) break
+        data.forEach(c => { map[c.numero] = c })
+        if (data.length < 1000) break
+      }
+      setSavedContacts(map)
+    })()
     const ch = supabase.channel(`convs-saved-contacts-${instance}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'saved_contacts', filter: `instancia=eq.${instance}` },
         (p) => {
@@ -697,13 +702,16 @@ export default function CompanyConversations() {
     setSavingContact(true)
     const { id, numero, nome, notes } = saveContactModal
     const payload = { nome: nome.trim(), notes: notes?.trim() || null }
+    // Upsert (em vez de insert) no caminho sem id: se já existir um contato salvo
+    // com esse numero+instancia (ex: fora do mapa por causa do cap de 1000), ATUALIZA
+    // em vez de estourar o UNIQUE(numero,instancia).
     const { data, error } = id
       ? await supabase.from('saved_contacts').update(payload).eq('id', id).select('*').single()
-      : await supabase.from('saved_contacts').insert({
+      : await supabase.from('saved_contacts').upsert({
           numero, instancia: instance,
           ...payload,
           created_by_email: session?.user?.email,
-        }).select('*').single()
+        }, { onConflict: 'numero,instancia' }).select('*').single()
     setSavingContact(false)
     if (!error) {
       // Atualiza o header na hora (sem depender do realtime da saved_contacts,
