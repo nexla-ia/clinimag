@@ -579,7 +579,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       {tab === 'overview'    && <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, range, period, loading }} />}
       {tab === 'atendimento' && <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />}
       {tab === 'equipe'      && <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />}
-      {tab === 'agenda'      && <AgendaTab      {...{ appts, professionals, range, period, loading }} />}
+      {tab === 'agenda'      && <AgendaTab      {...{ appts, professionals, procedures, range, period, loading }} />}
       {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />}
       {tab === 'leads'       && <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />}
       {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading }} />}
@@ -1040,9 +1040,11 @@ function EquipeTab({ msgs, convs, atts, users, sectors, sectorMembers, range, pe
 }
 
 // ─── Tab: Agenda ────────────────────────────────────────────────────────────
-function AgendaTab({ appts, professionals, range, period, loading }) {
+function AgendaTab({ appts, professionals, procedures, range, period, loading }) {
   const { from, to } = range
   const [proFilter, setProFilter] = useState('todos')
+  const proNameOf  = id => (professionals || []).find(p => p.id === id)?.name || (id ? 'Removido' : '—')
+  const procNameOf = id => (procedures || []).find(p => p.id === id)?.name || (id ? 'Removido' : '—')
 
   // Agendamentos do período (antes do filtro de profissional)
   const periodAppts = useMemo(() => appts.filter(a => inPeriod(a.starts_at, from, to)), [appts, from, to])
@@ -1090,6 +1092,28 @@ function AgendaTab({ appts, professionals, range, period, loading }) {
     total: t.total + p.total, concluidos: t.concluidos + p.concluidos, faltas: t.faltas + p.faltas,
     cancelados: t.cancelados + p.cancelados, faturado: t.faturado + p.faturado, aReceber: t.aReceber + p.aReceber,
   }), { total: 0, concluidos: 0, faltas: 0, cancelados: 0, faturado: 0, aReceber: 0 })
+
+  // Por procedimento — quantos agendamentos, concluídos e valor (mais agendado = 1º)
+  const byProcedure = useMemo(() => {
+    const map = {}
+    inRange.forEach(a => {
+      const id = a.procedure_id || 'sem'
+      if (!map[id]) map[id] = { id, total: 0, concluidos: 0, faturado: 0, aReceber: 0 }
+      const m = map[id]; m.total++
+      if (a.status === 'concluido') { m.concluidos++; const price = Number(a.price || 0); if (a.payment_status === 'pago') m.faturado += price; else m.aReceber += price }
+    })
+    return Object.values(map).map(m => ({ ...m, name: m.id === 'sem' ? 'Sem procedimento' : procNameOf(m.id) }))
+      .sort((a, b) => b.total - a.total || b.faturado - a.faturado)
+  }, [inRange, procedures])
+
+  // Detalhamento: cada agendamento (data, paciente, profissional, procedimento, valor, status)
+  const detalhe = useMemo(() =>
+    inRange.slice().sort((a, b) => (b.starts_at || '').localeCompare(a.starts_at || '')).map(a => ({
+      id: a.id, starts_at: a.starts_at, paciente: a.contact_nome || '—',
+      profissional: proNameOf(a.professional_id), procedimento: procNameOf(a.procedure_id),
+      valor: Number(a.price || 0), status: a.status, pago: a.payment_status === 'pago',
+    }))
+  , [inRange, professionals, procedures])
 
   const counts = inRange.reduce((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc }, {})
   const total = inRange.length
@@ -1192,6 +1216,43 @@ function AgendaTab({ appts, professionals, range, period, loading }) {
         )}
       </div>
 
+      {/* Por procedimento — mais agendados */}
+      <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
+        <SectionTitle icon={ListChecks} text="Por procedimento — mais agendados" right={periodLabel(period)} />
+        {byProcedure.length === 0 ? <Empty /> : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', minWidth: 460 }}>
+              <thead>
+                <tr style={{ color: '#64748B', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>Procedimento</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Agend.</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Concluídos</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Faturado</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>A receber</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byProcedure.map((p, i) => (
+                  <tr key={p.id} style={{ borderTop: '1px solid #F1F5F9' }}>
+                    <td style={{ padding: '9px 8px' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: i === 0 ? '#D97706' : '#94A3B8', minWidth: 16 }}>#{i + 1}</span>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</span>
+                        {i === 0 && <span style={{ fontSize: 9, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A', borderRadius: 20, padding: '1px 7px', textTransform: 'uppercase' }}>+ agendado</span>}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700 }}>{p.total}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: '#16A34A' }}>{p.concluidos}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700, color: '#059669', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(p.faturado)}</td>
+                    <td style={{ padding: '9px 8px', textAlign: 'right', color: '#0891B2', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(p.aReceber)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={Flag} text="Distribuição por status" right={periodLabel(period)} />
         {total === 0 ? <Empty /> : (
@@ -1252,6 +1313,47 @@ function AgendaTab({ appts, professionals, range, period, loading }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Detalhamento — cada agendamento do período */}
+      <div className="nx-card" style={{ padding: '1.25rem', marginTop: 14 }}>
+        <SectionTitle icon={ListChecks} text="Detalhamento dos agendamentos" right={`${detalhe.length} no período`} />
+        {detalhe.length === 0 ? <Empty /> : (
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+              <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', minWidth: 720 }}>
+                <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                  <tr style={{ color: '#64748B', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <th style={{ padding: '7px 8px', textAlign: 'left' }}>Data/hora</th>
+                    <th style={{ padding: '7px 8px', textAlign: 'left' }}>Paciente</th>
+                    <th style={{ padding: '7px 8px', textAlign: 'left' }}>Profissional</th>
+                    <th style={{ padding: '7px 8px', textAlign: 'left' }}>Procedimento</th>
+                    <th style={{ padding: '7px 8px', textAlign: 'right' }}>Valor</th>
+                    <th style={{ padding: '7px 8px', textAlign: 'left' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detalhe.map(d => {
+                    const meta = APPT_STATUS[d.status] || { label: d.status, color: '#64748B' }
+                    const dt = d.starts_at ? new Date(d.starts_at) : null
+                    return (
+                      <tr key={d.id} style={{ borderTop: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '8px', whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{dt && !isNaN(dt.getTime()) ? dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        <td style={{ padding: '8px', fontWeight: 600, color: 'var(--text-primary)' }}>{d.paciente}</td>
+                        <td style={{ padding: '8px', color: 'var(--text-secondary)' }}>{d.profissional}</td>
+                        <td style={{ padding: '8px', color: 'var(--text-secondary)' }}>{d.procedimento}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: d.valor > 0 ? '#059669' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                          {d.valor > 0 ? fmtMoney(d.valor) : '—'}{d.valor > 0 && d.pago && <span style={{ fontSize: 9, color: '#16A34A', marginLeft: 4 }}>pago</span>}
+                        </td>
+                        <td style={{ padding: '8px' }}><span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + '15', borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{meta.label}</span></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
