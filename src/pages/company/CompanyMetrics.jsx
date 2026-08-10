@@ -8,7 +8,7 @@ import {
   Users, MessageSquare, TrendingUp, Clock, Inbox, BarChart2, RefreshCw,
   Calendar, BellRing, Kanban, Headset, CheckCircle2, XCircle, AlertCircle,
   Phone, Bot, ListChecks, Flag, ChevronRight, Layers, DollarSign, Stethoscope, Lock,
-  GitMerge, Thermometer, Target, StickyNote, UserCheck, Tag,
+  GitMerge, Thermometer, Target, StickyNote, UserCheck, Tag, Download,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -464,25 +464,58 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   }
 
   return (
-    <div className="page-enter" style={{ padding: hideHeader ? 0 : '1.5rem' }}>
+    <div id="metrics-print" className="page-enter" style={{ padding: hideHeader ? 0 : '1.5rem' }}>
+      <style>{`
+        .metrics-print-only { display: none; }
+        @media print {
+          @page { margin: 12mm; }
+          body * { visibility: hidden !important; }
+          #metrics-print, #metrics-print * { visibility: visible !important; }
+          #metrics-print { position: absolute !important; left: 0; top: 0; width: 100%; padding: 0 !important; }
+          .metrics-no-print { display: none !important; }
+          .metrics-print-only { display: block !important; }
+          .nx-card { break-inside: avoid; page-break-inside: avoid; box-shadow: none !important; border: 1px solid #E2E8F0 !important; }
+          tr { page-break-inside: avoid; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+      `}</style>
+
+      {/* Cabeçalho do relatório — aparece só na impressão / PDF */}
+      {!hideHeader && (
+        <div className="metrics-print-only" style={{ marginBottom: 18, borderBottom: '2px solid #0F172A', paddingBottom: 10 }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: '#0F172A' }}>
+            Relatório de Métricas — {TABS.find(t => t.key === tab)?.label || ''}
+          </div>
+          <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>
+            {company?.name ? `${company.name} · ` : ''}Período: {periodLabel(period)} · Gerado em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </div>
+      )}
+
       {/* Header — só fora do modo embed do ADM */}
       {!hideHeader && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div className="metrics-no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>Métricas</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
               {lastRefresh ? `Atualizado às ${lastRefresh.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Carregando...'}
             </div>
           </div>
-          <button className="nx-btn-ghost" style={{ fontSize: 12 }} onClick={load} disabled={loading}>
-            <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-            Atualizar
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="nx-btn-ghost" style={{ fontSize: 12 }} onClick={() => window.print()} title="Gerar PDF / imprimir este relatório">
+              <Download size={13} />
+              Baixar PDF
+            </button>
+            <button className="nx-btn-ghost" style={{ fontSize: 12 }} onClick={load} disabled={loading}>
+              <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+              Atualizar
+            </button>
+          </div>
         </div>
       )}
 
       {/* Filtros de período */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className="metrics-no-print" style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {PERIODS.map(p => (
           <button key={p.key} onClick={() => setPeriod(p.key)}
             style={{
@@ -550,7 +583,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+      <div className="metrics-no-print" style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         {TABS.filter(t => aiEnabled || t.key !== 'leads' || contactsTable).map(t => {
           const locked = !advancedAllowed && ADVANCED_TABS.includes(t.key)
           return (
