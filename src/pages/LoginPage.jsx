@@ -11,7 +11,15 @@ export default function LoginPage() {
   const [tab, setTab] = useState('empresa')
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  // Se caiu aqui por ter sido desconectado (conta acessada em outro
+  // dispositivo), mostra o motivo guardado no logout.
+  const [error, setError] = useState(() => {
+    try {
+      const r = localStorage.getItem('nx_logout_reason')
+      if (r) { localStorage.removeItem('nx_logout_reason'); return r }
+    } catch {}
+    return ''
+  })
   const [form, setForm] = useState({ email: '', password: '' })
   // Acesso mestre: { companies, masterEmail } quando o login mestre valida
   const [masterPick, setMasterPick] = useState(null)

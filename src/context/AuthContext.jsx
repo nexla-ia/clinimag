@@ -66,6 +66,12 @@ const AuthContext = createContext(null)
 
 const SESSION_KEY = 'nx_session'
 
+// Token único do dispositivo — usado pra travar a conta em uma sessão só.
+function genDeviceToken() {
+  try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID() } catch {}
+  return 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+}
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem(SESSION_KEY)) } catch { return null }
@@ -114,6 +120,32 @@ export function AuthProvider({ children }) {
     const id = setInterval(checkActive, 5 * 60 * 1000)
     return () => clearInterval(id)
   }, [session?.user?.id, session?.company?.id])
+
+  // Heartbeat da sessão única: mantém a conta "viva" neste dispositivo e
+  // desloga se outro dispositivo assumir a conta. Só pra usuário de empresa
+  // com token (não vale pro suporte/mestre nem pro ADM). Degrada em silêncio
+  // se o RPC ainda não existir.
+  useEffect(() => {
+    const uid = session?.user?.id
+    const token = session?.deviceToken
+    if (session?.role !== 'company' || !uid || session?.user?.master || !token) return
+    let alive = true
+    async function beat() {
+      try {
+        const { data, error } = await supabase.rpc('touch_login_session', {
+          p_user_id: uid, p_token: token,
+        })
+        if (!alive || error) return
+        if (data === false) {
+          try { localStorage.setItem('nx_logout_reason', 'Sua conta foi acessada em outro dispositivo, por isso você foi desconectado aqui.') } catch {}
+          logout()
+        }
+      } catch {}
+    }
+    beat()
+    const id = setInterval(beat, 45 * 1000)
+    return () => { alive = false; clearInterval(id) }
+  }, [session?.user?.id, session?.deviceToken])
 
   async function login(email, password, mode) {
     const { data, error } = await supabase.rpc('login_user', {
@@ -178,6 +210,24 @@ export function AuthProvider({ children }) {
       sector = memberData?.sectors || null
     } catch {}
 
+    // Login em um único dispositivo: tenta ASSUMIR a sessão do usuário.
+    // Se já tem alguém usando a conta (sessão fresca), bloqueia com a
+    // mensagem. Se o RPC ainda não existe (migração não rodada) ou der
+    // erro de rede, entra normal — degradação segura (fail-open).
+    const deviceToken = genDeviceToken()
+    try {
+      const { data: claim, error: claimErr } = await supabase.rpc('claim_login_session', {
+        p_user_id: user.id, p_token: deviceToken,
+      })
+      if (!claimErr) {
+        if (claim && claim.ok === false) {
+          return { ok: false, error: 'Já tem uma pessoa utilizando essa conta no momento. Se foi você, saia da outra tela (ou aguarde ~2 minutos) e tente de novo.' }
+        }
+        setSession({ role: 'company', user: { ...user, sector }, company, deviceToken })
+        return { ok: true }
+      }
+    } catch {}
+
     setSession({ role: 'company', user: { ...user, sector }, company })
     return { ok: true }
   }
@@ -210,7 +260,15 @@ export function AuthProvider({ children }) {
     return { ok: true }
   }
 
-  function logout() { setSession(null); localStorage.removeItem(SESSION_KEY) }
+  function logout() {
+    // Solta a sessão no servidor (best-effort) pra liberar a conta na hora.
+    const s = session
+    if (s?.role === 'company' && s?.user?.id && s?.deviceToken && !s?.user?.master) {
+      try { supabase.rpc('release_login_session', { p_user_id: s.user.id, p_token: s.deviceToken }) } catch {}
+    }
+    setSession(null)
+    localStorage.removeItem(SESSION_KEY)
+  }
 
   async function addCompany(data) {
     const slug = data.name
