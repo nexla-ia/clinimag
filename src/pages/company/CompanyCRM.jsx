@@ -1598,14 +1598,13 @@ export default function CompanyCRM() {
 
                 <div>
                   <div style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:5 }}>Origem</div>
-                  <ComboField
+                  <OrigemSelect
                     value={c.origem || ''}
-                    listId="crm-origem-list"
-                    placeholder="Escolha ou digite (ex: Eventos)"
+                    options={origemOptions}
+                    placeholder="Escolher origem…"
                     onSave={v => patchContact(c.id, { origem: v || null })}
-                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:7,padding:'6px 10px',fontSize:12,color:C.navy,background:C.card,outline:'none',boxSizing:'border-box' }}
                   />
-                  <div style={{ fontSize:10,color:C.muted,marginTop:4 }}>Pode criar uma origem nova — ela vira sugestão pros próximos.</div>
+                  <div style={{ fontSize:10,color:C.muted,marginTop:4 }}>Escolha uma opção ou crie uma nova — ela vira sugestão pros próximos e conta nas métricas.</div>
                 </div>
 
                 {/* Etiquetas coloridas — as mesmas das Conversas */}
@@ -1837,9 +1836,12 @@ export default function CompanyCRM() {
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
                 <div>
                   <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:4 }}>Origem</label>
-                  <input list="crm-origem-list" value={newForm.origem} onChange={e=>setNewForm(p=>({...p,origem:e.target.value}))}
-                    placeholder="Escolha ou digite (ex: Eventos)"
-                    style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',fontSize:13,color:C.navy,background:C.card,outline:'none',boxSizing:'border-box' }}/>
+                  <OrigemSelect
+                    value={newForm.origem || ''}
+                    options={origemOptions}
+                    placeholder="Escolher origem…"
+                    onSave={v => setNewForm(p=>({...p,origem:v||''}))}
+                  />
                 </div>
                 <div>
                   <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:4 }}>Temperatura</label>
@@ -2256,6 +2258,75 @@ function ComboField({ value, listId, placeholder, onSave, style }) {
       onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(value || ''); e.currentTarget.blur() } }}
       style={style}
     />
+  )
+}
+
+// Dropdown de Origem: lista as opções (padrão + criadas pela clínica) pra
+// ESCOLHER E MARCAR, com bolinha colorida, e ainda deixa criar uma nova.
+function OrigemSelect({ value, options, placeholder, onSave }) {
+  const [open, setOpen]         = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [newVal, setNewVal]     = useState('')
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setCreating(false) } }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+  const colorOf = o => ORIGEM_COLORS[o] || '#6B7280'
+  const pick = o => { setOpen(false); setCreating(false); if ((o || '') !== (value || '')) onSave(o || null) }
+  const createNew = () => { const v = newVal.trim(); setNewVal(''); setCreating(false); setOpen(false); if (v && v.toLowerCase() !== (value || '').toLowerCase()) onSave(v) }
+  return (
+    <div ref={ref} style={{ position:'relative' }}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        style={{ width:'100%', display:'flex', alignItems:'center', gap:8, border:`1px solid ${C.border}`, borderRadius:7, padding:'7px 10px', fontSize:12, color: value ? C.navy : C.muted, background:C.card, cursor:'pointer', boxSizing:'border-box', textAlign:'left' }}>
+        {value && <span style={{ width:8, height:8, borderRadius:'50%', background: colorOf(value), flexShrink:0 }} />}
+        <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{value || placeholder}</span>
+        <ChevronDown size={14} color={C.muted} style={{ flexShrink:0 }} />
+      </button>
+      {open && (
+        <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:60, background:'#fff', border:`1px solid ${C.border}`, borderRadius:9, boxShadow:'0 10px 30px rgba(0,0,0,0.12)', overflow:'hidden' }}>
+          {/* lista de opções (rola se for grande) */}
+          <div style={{ padding:5, maxHeight:230, overflowY:'auto' }}>
+            {value && (
+              <div onClick={() => pick('')} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 9px', borderRadius:6, fontSize:12, color:C.muted, cursor:'pointer' }}
+                onMouseEnter={e=>e.currentTarget.style.background='#F1F5F9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <X size={13} /> Sem origem
+              </div>
+            )}
+            {options.map(o => {
+              const sel = (o || '').toLowerCase() === (value || '').toLowerCase()
+              return (
+                <div key={o} onClick={() => pick(o)} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 9px', borderRadius:6, fontSize:12, color:C.navy, cursor:'pointer', background: sel ? C.blueDim : 'transparent', fontWeight: sel ? 700 : 500 }}
+                  onMouseEnter={e=>{ if(!sel) e.currentTarget.style.background='#F1F5F9' }} onMouseLeave={e=>{ if(!sel) e.currentTarget.style.background='transparent' }}>
+                  <span style={{ width:8, height:8, borderRadius:'50%', background: colorOf(o), flexShrink:0 }} />
+                  <span style={{ flex:1 }}>{o}</span>
+                  {sel && <Check size={13} color={C.blue} />}
+                </div>
+              )
+            })}
+          </div>
+          {/* rodapé fixo: criar nova origem (sempre visível) */}
+          <div style={{ borderTop:`1px solid ${C.border}`, padding:5, background:'#FBFCFE' }}>
+            {creating ? (
+              <div style={{ display:'flex', gap:5 }}>
+                <input autoFocus value={newVal} onChange={e=>setNewVal(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==='Enter') createNew(); if(e.key==='Escape'){ setCreating(false); setNewVal('') } }}
+                  placeholder="Nova origem (ex: Eventos)"
+                  style={{ flex:1, border:`1px solid ${C.border}`, borderRadius:6, padding:'6px 8px', fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                <button type="button" onClick={createNew} style={{ border:'none', background:C.blue, color:'#fff', borderRadius:6, padding:'0 12px', fontSize:12, fontWeight:700, cursor:'pointer' }}>OK</button>
+              </div>
+            ) : (
+              <div onClick={()=>setCreating(true)} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 9px', borderRadius:6, fontSize:12, color:C.blue, fontWeight:600, cursor:'pointer' }}
+                onMouseEnter={e=>e.currentTarget.style.background=C.blueDim} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Plus size={13} /> Criar nova origem
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
