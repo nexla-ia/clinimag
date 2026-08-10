@@ -430,6 +430,8 @@ export default function CompanyAgenda() {
       recurrence_months: 3,
       // Lembretes: começa com o padrão marcado como default (se houver)
       reminder_offsets: (reminderPresets.find(p => p.is_default)?.offsets) || [],
+      reminder_message: '',
+      _customMsg: false,
     })
     setApptErr('')
     setPatientHistory([])
@@ -487,6 +489,8 @@ export default function CompanyAgenda() {
       _prevStartsAt: a.starts_at,
       reminder_offsets: Array.isArray(a.reminders) ? a.reminders.map(r => r.offset_minutes) : [],
       _prevReminders: Array.isArray(a.reminders) ? a.reminders : [],
+      reminder_message: a.reminder_message || '',
+      _customMsg: !!(a.reminder_message && a.reminder_message.trim()),
     })
     setApptErr('')
     setPatientHistory([])
@@ -635,6 +639,8 @@ export default function CompanyAgenda() {
       const existing = prevRem.find(r => r.offset_minutes === off)
       return { offset_minutes: off, sent_at: existing?.sent_at || null }
     })
+    // Mensagem do lembrete: personalizada (só se escolheu) senão null (usa o padrão).
+    payload.reminder_message = apptModal._customMsg ? ((apptModal.reminder_message || '').trim() || null) : null
 
     // Recorrência: marca o base e todos os derivados com o mesmo id, para
     // depois ser possível excluir a série inteira de uma vez.
@@ -648,10 +654,12 @@ export default function CompanyAgenda() {
 
     let { error } = await doSave()
 
-    // Se a migration dos lembretes ainda não rodou, salva sem eles
-    if (error && payload.reminders && /reminders/i.test(error.message || '')) {
-      delete payload.reminders
-      ;({ error } = await doSave())
+    // Migrations novas podem não ter rodado: tira a coluna que faltou e tenta de novo.
+    for (let i = 0; error && i < 3; i++) {
+      const m = (error.message || '').toLowerCase()
+      if (m.includes('reminder_message') && 'reminder_message' in payload) { delete payload.reminder_message; ({ error } = await doSave()); continue }
+      if (m.includes('reminders') && payload.reminders) { delete payload.reminders; ({ error } = await doSave()); continue }
+      break
     }
     // Se a migration da série ainda não rodou, salva sem o vínculo em vez de
     // travar o agendamento (a série só perde o "excluir todos").
@@ -1975,6 +1983,40 @@ export default function CompanyAgenda() {
                 ) : (
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
                     O paciente recebe o aviso {(apptModal.reminder_offsets || []).length > 1 ? 'nesses momentos' : 'nesse momento'} antes da consulta (não agora — hoje só a confirmação de que foi marcado).
+                  </div>
+                )}
+
+                {/* Mensagem do lembrete: padrão ou personalizada */}
+                {(apptModal.reminder_offsets || []).length > 0 && (
+                  <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 7 }}>Mensagem do lembrete</div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: apptModal._customMsg ? 8 : 0 }}>
+                      {[{ v: false, label: 'Padrão' }, { v: true, label: 'Personalizada' }].map(o => {
+                        const active = !!apptModal._customMsg === o.v
+                        return (
+                          <button key={o.label} type="button"
+                            onClick={() => setApptModal(p => ({ ...p, _customMsg: o.v, ...(o.v ? {} : { reminder_message: '' }) }))}
+                            style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${active ? '#2563EB' : 'var(--border)'}`, background: active ? '#EFF6FF' : '#fff', color: active ? '#1D4ED8' : 'var(--text-secondary)' }}>
+                            {o.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {apptModal._customMsg ? (
+                      <>
+                        <textarea className="nx-input" rows={3} value={apptModal.reminder_message || ''}
+                          onChange={e => setApptModal(p => ({ ...p, reminder_message: e.target.value }))}
+                          placeholder="Ex: Olá {nome}! Passando pra lembrar da sua sessão em {data}. Posso confirmar? 🩺"
+                          style={{ resize: 'vertical', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 5 }}>
+                          Use <strong>{'{nome}'}</strong> pro nome do paciente e <strong>{'{data}'}</strong> pra data/hora. Enviada no(s) horário(s) marcados acima.
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        Usa o texto padrão de lembrete (ou o do procedimento, se estiver configurado).
+                      </div>
+                    )}
                   </div>
                 )}
 
