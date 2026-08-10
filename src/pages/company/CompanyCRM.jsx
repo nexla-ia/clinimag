@@ -111,6 +111,9 @@ export default function CompanyCRM() {
   function clearSpring() { if (springRef.current.timer) clearTimeout(springRef.current.timer); springRef.current = { funnelId: null, timer: null } }
   const [search, setSearch]           = useState('')
   const [filterTemp, setFilterTemp]   = useState('todos')
+  const [temperatures, setTemperatures] = useState([]) // temperaturas personalizadas (crm_temperatures)
+  const [tempModal, setTempModal]     = useState(null)  // gerenciar temperaturas { nome, cor } | null
+  const [savingTemp, setSavingTemp]   = useState(false)
   const [dragging, setDragging]       = useState(null)
   const [dragOver, setDragOver]       = useState(null)
   const [draggingStage, setDraggingStage] = useState(null) // etapa (coluna) sendo arrastada
@@ -168,6 +171,9 @@ export default function CompanyCRM() {
     // criada (migração não rodou), fica vazio e o CRM funciona como 1 funil por lead.
     const { data: mbs } = await supabase.from('crm_contact_funnels').select('*').eq('instancia', instance)
     setMemberships(mbs || [])
+    // Temperaturas personalizadas (resiliente: sem a tabela, fica só nos 3 padrões).
+    const { data: temps } = await supabase.from('crm_temperatures').select('*').eq('instancia', instance).order('posicao')
+    setTemperatures(temps || [])
     if (kc) setKanbanCols(kc)
     if (ls) setLists(ls)
 
@@ -426,6 +432,32 @@ export default function CompanyCRM() {
   const isPrimaryFunnel = (c, fid) => fid === primaryFunnelOf(c)
   const stageInFunnel = (c, fid) => isPrimaryFunnel(c, fid) ? c.stage_id : (membershipMap[`${c.id}|${fid}`]?.stage_id || null)
   const entradaInFunnel = (c, fid) => isPrimaryFunnel(c, fid) ? c.data_entrada_etapa : (membershipMap[`${c.id}|${fid}`]?.data_entrada_etapa || c.data_entrada_etapa)
+
+  // ── Temperaturas: 3 padrões (frio/morno/quente) + as personalizadas ─────────
+  const tempList = useMemo(() => {
+    const defs = ['frio','morno','quente'].map(k => ({ key: k, label: TEMP[k].label, color: TEMP[k].color, bg: TEMP[k].bg, dot: TEMP[k].dot, icon: TEMP[k].icon, custom: false }))
+    const cust = (temperatures || []).map(t => ({ key: t.id, label: t.nome, color: t.cor || '#64748B', bg: (t.cor || '#64748B') + '18', dot: t.cor || '#64748B', icon: '●', custom: true, id: t.id }))
+    return [...defs, ...cust]
+  }, [temperatures])
+  const tempMap = useMemo(() => { const m = {}; tempList.forEach(t => { m[t.key] = t }); return m }, [tempList])
+  const tempOf = k => tempMap[k] || { key: k, label: 'Sem temp.', color: '#94A3B8', bg: '#F1F5F9', dot: '#94A3B8', icon: '•', custom: false }
+
+  async function createTemperature() {
+    const nome = (tempModal?.nome || '').trim()
+    if (!nome || savingTemp) return
+    setSavingTemp(true)
+    const maxPos = Math.max(-1, ...temperatures.map(t => t.posicao ?? 0))
+    const { data, error } = await supabase.from('crm_temperatures')
+      .insert({ instancia: instance, nome, cor: tempModal.cor || '#64748B', posicao: maxPos + 1 }).select().single()
+    setSavingTemp(false)
+    if (error) { alert('Não consegui criar: ' + error.message + '\n(A migração crm_temperatures já rodou?)'); return }
+    if (data) { setTemperatures(prev => [...prev, data]); setTempModal(m => ({ ...m, nome: '' })) }
+  }
+  async function deleteTemperature(t) {
+    const { error } = await supabase.from('crm_temperatures').delete().eq('id', t.id)
+    if (error) { alert('Erro: ' + error.message); return }
+    setTemperatures(prev => prev.filter(x => x.id !== t.id))
+  }
 
   const filteredContacts = useMemo(() => {
     const q = search.toLowerCase().trim()
@@ -997,7 +1029,7 @@ export default function CompanyCRM() {
           <select value={filterTemp} onChange={e=>setFilterTemp(e.target.value)}
             style={{ height:32, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, padding:'0 10px', background:C.card, color:C.navy, outline:'none', cursor:'pointer' }}>
             <option value="todos">Todos</option>
-            {Object.entries(TEMP).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+            {tempList.map(t => <option key={t.key} value={t.key}>{t.icon} {t.label}</option>)}
           </select>
         </>}
 
@@ -1029,7 +1061,7 @@ export default function CompanyCRM() {
                     const stage = stages.find(s => s.id === c.stage_id)
                     const days = daysIn(c.data_entrada_etapa)
                     const over = stage?.alerta_dias ? days - stage.alerta_dias : 0
-                    const temp = TEMP[c.temperatura] || TEMP.frio
+                    const temp = tempOf(c.temperatura)
                     return (
                       <div key={c.id} onClick={() => setPanel(c)}
                         style={{ background:C.card, border:'1.5px solid #FDE68A', borderLeft:'4px solid #D97706', borderRadius:10, padding:'12px 16px', cursor:'pointer', display:'flex', alignItems:'center', gap:14, transition:'box-shadow 0.15s' }}
@@ -1161,7 +1193,7 @@ export default function CompanyCRM() {
                   <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                     {activeListContacts.map(c => {
                       const stage = stages.find(s => s.id === c.stage_id)
-                      const temp = TEMP[c.temperatura] || TEMP.frio
+                      const temp = tempOf(c.temperatura)
                       const days = daysIn(c.data_entrada_etapa)
                       return (
                         <div key={c.id} onClick={() => setPanel(c)}
@@ -1246,7 +1278,7 @@ export default function CompanyCRM() {
                 {cards.map(contact => {
                   const days = daysIn(contact.data_entrada_etapa)
                   const stale = stage.alerta_dias && days > stage.alerta_dias
-                  const temp = TEMP[contact.temperatura] || TEMP.frio
+                  const temp = tempOf(contact.temperatura)
                   const initStr = resolveInitials(contact)
                   const origemColor = ORIGEM_COLORS[contact.origem] || '#6B7280'
 
@@ -1421,7 +1453,7 @@ export default function CompanyCRM() {
       {panel && (() => {
         const c = contacts.find(x => x.id === panel.id) || panel
         const stage = stages.find(s => s.id === c.stage_id)
-        const temp = TEMP[c.temperatura] || TEMP.frio
+        const temp = tempOf(c.temperatura)
         // Etapas do funil DO CONTATO (não do funil ativo) — pro seletor de etapa
         // funcionar mesmo quando o lead aberto está em outro funil (Alertas/Listas).
         const panelStages = stages.filter(s => s.funil_id === (c.funil_id || activeFunnel)).sort((a,b) => a.posicao - b.posicao)
@@ -1484,17 +1516,53 @@ export default function CompanyCRM() {
             {/* Panel body */}
             <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
 
-              {/* Temperatura */}
+              {/* Temperatura (3 padrões + personalizadas) */}
               <div style={{ background:C.bg, borderRadius:10, padding:'10px 12px' }}>
                 <div style={{ fontSize:9.5,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6 }}>Temperatura</div>
-                <div style={{ display:'flex', gap:4 }}>
-                  {Object.entries(TEMP).map(([k,v]) => (
-                    <button key={k} onClick={() => patchContact(c.id, { temperatura:k })}
-                      style={{ flex:1, padding:'5px 2px', borderRadius:6, border:`1.5px solid ${c.temperatura===k ? v.color : C.border}`, background:c.temperatura===k ? v.bg : 'transparent', cursor:'pointer', fontSize:11.5, fontWeight:700, color:c.temperatura===k ? v.color : C.muted, transition:'all 0.15s' }}>
-                      {v.icon} {v.label}
-                    </button>
-                  ))}
+                <div style={{ display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
+                  {tempList.map(t => {
+                    const on = c.temperatura === t.key
+                    return (
+                      <button key={t.key} onClick={() => patchContact(c.id, { temperatura: t.key })}
+                        style={{ padding:'5px 9px', borderRadius:6, border:`1.5px solid ${on ? t.color : C.border}`, background:on ? t.bg : 'transparent', cursor:'pointer', fontSize:11.5, fontWeight:700, color:on ? t.color : C.muted, transition:'all 0.15s', display:'inline-flex', alignItems:'center', gap:4 }}>
+                        {t.custom ? <span style={{ width:8, height:8, borderRadius:'50%', background:t.color, display:'inline-block' }} /> : t.icon} {t.label}
+                      </button>
+                    )
+                  })}
+                  <button onClick={() => setTempModal(tempModal ? null : { nome:'', cor: STAGE_COLORS[0] })} title="Criar/gerenciar temperaturas"
+                    style={{ width:26, height:26, borderRadius:6, border:`1px dashed ${C.border}`, background:'transparent', color:C.muted, cursor:'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center' }}>
+                    <Plus size={13} />
+                  </button>
                 </div>
+                {tempModal && (
+                  <div style={{ marginTop:9, background:'#fff', border:`1px solid ${C.border}`, borderRadius:9, padding:'10px 11px' }}>
+                    <input autoFocus placeholder="Nome da temperatura (ex: Curioso, VIP)" value={tempModal.nome}
+                      onChange={e => setTempModal(m => ({ ...m, nome: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') createTemperature() }}
+                      style={{ width:'100%', border:`1px solid ${C.border}`, borderRadius:7, padding:'6px 9px', fontSize:12, marginBottom:8, boxSizing:'border-box' }} />
+                    <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:9 }}>
+                      {STAGE_COLORS.map(cc => (
+                        <button key={cc} type="button" onClick={() => setTempModal(m => ({ ...m, cor: cc }))}
+                          style={{ width:20, height:20, borderRadius:'50%', background:cc, border:'none', cursor:'pointer', outline: tempModal.cor === cc ? `2px solid ${cc}` : '2px solid transparent', outlineOffset:2 }} />
+                      ))}
+                    </div>
+                    {temperatures.length > 0 && (
+                      <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:9 }}>
+                        {temperatures.map(t => (
+                          <span key={t.id} style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:10.5, background:C.bg, borderRadius:12, padding:'3px 7px' }}>
+                            <span style={{ width:8, height:8, borderRadius:'50%', background:t.cor }} />{t.nome}
+                            <button onClick={() => deleteTemperature(t)} title="Excluir" style={{ background:'none', border:'none', cursor:'pointer', color:C.muted, padding:0, display:'inline-flex' }}><X size={10} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                      <button onClick={() => setTempModal(null)} style={{ padding:'5px 11px', borderRadius:7, border:`1px solid ${C.border}`, background:'#fff', color:C.slate, cursor:'pointer', fontSize:11.5 }}>Fechar</button>
+                      <button onClick={createTemperature} disabled={!tempModal.nome.trim() || savingTemp}
+                        style={{ padding:'5px 13px', borderRadius:7, border:'none', background:C.blue, color:'#fff', cursor: tempModal.nome.trim() ? 'pointer' : 'not-allowed', fontSize:11.5, fontWeight:700, opacity: tempModal.nome.trim() ? 1 : 0.5 }}>Criar</button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Funis & etapas — o MESMO lead pode aparecer em vários funis, etapa própria em cada */}
@@ -1799,7 +1867,7 @@ export default function CompanyCRM() {
                   <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:4 }}>Temperatura</label>
                   <select value={newForm.temperatura} onChange={e=>setNewForm(p=>({...p,temperatura:e.target.value}))}
                     style={{ width:'100%',border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',fontSize:13,color:C.navy,background:C.card,outline:'none',cursor:'pointer',boxSizing:'border-box' }}>
-                    {Object.entries(TEMP).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+                    {tempList.map(t=><option key={t.key} value={t.key}>{t.icon} {t.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -2014,7 +2082,7 @@ export default function CompanyCRM() {
                     <label style={{ fontSize:11,color:C.muted,display:'block',marginBottom:3 }}>Temperatura</label>
                     <select className="nx-select" value={listModal.filtros?.temperatura||'todos'} onChange={e=>setListModal(p=>({...p,filtros:{...p.filtros,temperatura:e.target.value}}))} style={{ width:'100%',boxSizing:'border-box' }}>
                       <option value="todos">Todas</option>
-                      {Object.entries(TEMP).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+                      {tempList.map(t=><option key={t.key} value={t.key}>{t.icon} {t.label}</option>)}
                     </select>
                   </div>
                   <div>

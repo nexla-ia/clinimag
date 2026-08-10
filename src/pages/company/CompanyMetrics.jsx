@@ -268,6 +268,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   const [crmInteractions, setCrmInteractions] = useState([])
   const [crmTags, setCrmTags]           = useState([])
   const [crmTagAssignments, setCrmTagAssignments] = useState([])
+  const [crmTemperatures, setCrmTemperatures] = useState([])
 
   async function load() {
     if (!instance) return
@@ -302,7 +303,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       professionalsData, proceduresData, insuranceData, finTxData, finCatsData,
       leadsData,
       crmContactsData, crmStagesData, crmFunnelsData, crmInteractionsData,
-      crmTagsData, crmTagAssignsData,
+      crmTagsData, crmTagAssignsData, crmTempsData,
     ] = await Promise.all([
       fetchAll((a, b) => supabase.from('mensagens_geral').select('id, numero, type, mensagem, "horaLastMessage", created_at').eq('instancia', instance).order('id', { ascending: false }).range(a, b)),
       fetchAll((a, b) => supabase.from('conversations').select('session_id, reason, closed_at').eq('instancia', instance).range(a, b)),
@@ -329,6 +330,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       fetchAll((a, b) => supabase.from('crm_interactions').select('id,tipo,created_at,autor_nome').eq('instancia', instance).gte('created_at', `${yearLo}T00:00:00`).order('created_at', { ascending: false }).range(a, b)),
       one(supabase.from('contact_tags').select('id,name,color').eq('instancia', instance)),
       fetchAll((a, b) => supabase.from('contact_tag_assignments').select('tag_id,numero').eq('instancia', instance).range(a, b)),
+      one(supabase.from('crm_temperatures').select('id,nome,cor').eq('instancia', instance)),
     ])
 
     setMsgs(msgsData)
@@ -354,6 +356,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     setCrmInteractions(crmInteractionsData)
     setCrmTags(crmTagsData || [])
     setCrmTagAssignments(crmTagAssignsData || [])
+    setCrmTemperatures(crmTempsData || [])
     setLastRefresh(new Date())
     setLoading(false)
 
@@ -579,7 +582,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       {tab === 'agenda'      && <AgendaTab      {...{ appts, professionals, range, period, loading }} />}
       {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />}
       {tab === 'leads'       && <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />}
-      {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, range, period, loading }} />}
+      {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading }} />}
       {tab === 'atividades'  && <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />}
 
       <LimitReachedModal
@@ -2244,7 +2247,7 @@ function AtividadesTab({ kanbanCards, kanbanColumns, users, range, period, loadi
 }
 
 // ─── Tab: CRM ────────────────────────────────────────────────────────────────
-function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, range, period, loading }) {
+function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading }) {
   const { from, to } = range
   const [funnelSel, setFunnelSel] = useState('todos')
 
@@ -2290,11 +2293,17 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
     return { funnel: f, stages: fw, atStage, reached, entered: reached[0] || 0, lost, totalF: leads.length }
   }), [funnelSel, crmContacts, crmStages, crmFunnels, from, to])
 
-  const tempData = [
-    { key: 'quente', ...CRM_TEMP.quente, value: quentes },
-    { key: 'morno',  ...CRM_TEMP.morno,  value: mornos },
-    { key: 'frio',   ...CRM_TEMP.frio,   value: frios },
-  ].filter(t => t.value > 0)
+  // Temperatura dinâmica: padrões (frio/morno/quente) + as personalizadas do CRM.
+  const tempData = useMemo(() => {
+    const map = {}
+    scopeLeads.forEach(c => { const k = c.temperatura || 'frio'; map[k] = (map[k] || 0) + 1 })
+    const resolve = k => {
+      if (CRM_TEMP[k]) return { label: CRM_TEMP[k].label, color: CRM_TEMP[k].color, icon: CRM_TEMP[k].icon }
+      const t = (crmTemperatures || []).find(x => x.id === k)
+      return t ? { label: t.nome, color: t.cor || '#94A3B8' } : { label: 'Sem temp.', color: '#94A3B8' }
+    }
+    return Object.entries(map).map(([k, v]) => ({ key: k, value: v, ...resolve(k) })).filter(t => t.value > 0).sort((a, b) => b.value - a.value)
+  }, [scopeLeads, crmTemperatures])
 
   const origens = useMemo(() => {
     const m = {}
@@ -2434,7 +2443,7 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {tempData.map(t => (
                   <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
-                    <span style={{ fontSize: 14 }}>{t.icon}</span>
+                    {t.icon ? <span style={{ fontSize: 14 }}>{t.icon}</span> : <span style={{ width: 10, height: 10, borderRadius: '50%', background: t.color, display: 'inline-block' }} />}
                     <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{t.label}</span>
                     <span style={{ fontWeight: 700, color: t.color }}>{t.value}</span>
                     <span style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 38, textAlign: 'right' }}>{total ? Math.round(t.value / total * 100) : 0}%</span>
