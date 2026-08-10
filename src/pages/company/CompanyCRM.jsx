@@ -995,6 +995,13 @@ export default function CompanyCRM() {
           ))}
         </div>
 
+        {/* Atalho: criar/gerenciar temperaturas (mesmo do "+" no painel do lead) */}
+        <button onClick={() => setTempModal(tempModal ? null : { nome:'', cor: STAGE_COLORS[0] })}
+          className="crm-btn" title="Criar / gerenciar temperaturas"
+          style={{ display:'inline-flex', alignItems:'center', gap:5, marginLeft:10, padding:'6px 11px', borderRadius:20, fontSize:11, fontWeight:600, cursor:'pointer', border:`1px solid ${tempModal ? '#2563EB' : C.border}`, background: tempModal ? '#EFF6FF' : 'transparent', color: tempModal ? C.blue : C.slate }}>
+          <Thermometer size={13} /> Temperaturas
+        </button>
+
         <div style={{ flex:1 }} />
 
         {/* View switcher */}
@@ -1534,35 +1541,6 @@ export default function CompanyCRM() {
                     <Plus size={13} />
                   </button>
                 </div>
-                {tempModal && (
-                  <div style={{ marginTop:9, background:'#fff', border:`1px solid ${C.border}`, borderRadius:9, padding:'10px 11px' }}>
-                    <input autoFocus placeholder="Nome da temperatura (ex: Curioso, VIP)" value={tempModal.nome}
-                      onChange={e => setTempModal(m => ({ ...m, nome: e.target.value }))}
-                      onKeyDown={e => { if (e.key === 'Enter') createTemperature() }}
-                      style={{ width:'100%', border:`1px solid ${C.border}`, borderRadius:7, padding:'6px 9px', fontSize:12, marginBottom:8, boxSizing:'border-box' }} />
-                    <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:9 }}>
-                      {STAGE_COLORS.map(cc => (
-                        <button key={cc} type="button" onClick={() => setTempModal(m => ({ ...m, cor: cc }))}
-                          style={{ width:20, height:20, borderRadius:'50%', background:cc, border:'none', cursor:'pointer', outline: tempModal.cor === cc ? `2px solid ${cc}` : '2px solid transparent', outlineOffset:2 }} />
-                      ))}
-                    </div>
-                    {temperatures.length > 0 && (
-                      <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:9 }}>
-                        {temperatures.map(t => (
-                          <span key={t.id} style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:10.5, background:C.bg, borderRadius:12, padding:'3px 7px' }}>
-                            <span style={{ width:8, height:8, borderRadius:'50%', background:t.cor }} />{t.nome}
-                            <button onClick={() => deleteTemperature(t)} title="Excluir" style={{ background:'none', border:'none', cursor:'pointer', color:C.muted, padding:0, display:'inline-flex' }}><X size={10} /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-                      <button onClick={() => setTempModal(null)} style={{ padding:'5px 11px', borderRadius:7, border:`1px solid ${C.border}`, background:'#fff', color:C.slate, cursor:'pointer', fontSize:11.5 }}>Fechar</button>
-                      <button onClick={createTemperature} disabled={!tempModal.nome.trim() || savingTemp}
-                        style={{ padding:'5px 13px', borderRadius:7, border:'none', background:C.blue, color:'#fff', cursor: tempModal.nome.trim() ? 'pointer' : 'not-allowed', fontSize:11.5, fontWeight:700, opacity: tempModal.nome.trim() ? 1 : 0.5 }}>Criar</button>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Funis & etapas — o MESMO lead pode aparecer em vários funis, etapa própria em cada */}
@@ -1887,6 +1865,52 @@ export default function CompanyCRM() {
                 style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 20px',borderRadius:8,background:C.navy,color:'#fff',border:'none',cursor:newForm.phone.trim()?'pointer':'not-allowed',fontSize:13,fontWeight:700,opacity:newForm.phone.trim()?1:0.5 }}>
                 {saving ? <Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/> : <UserPlus size={13}/>}
                 Adicionar Lead
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: criar / gerenciar temperaturas (aberto pelo "+" do painel ou pela barra) ── */}
+      {tempModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:260, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+          onClick={e => { if (e.target === e.currentTarget) setTempModal(null) }}>
+          <div style={{ background:C.card, borderRadius:16, padding:'22px', width:400, maxWidth:'100%', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+              <div style={{ fontWeight:800, fontSize:16, color:C.navy, display:'flex', alignItems:'center', gap:8 }}>
+                <Thermometer size={16} color={C.blue}/> Temperaturas
+              </div>
+              <button onClick={() => setTempModal(null)} style={{ width:28,height:28,borderRadius:7,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.muted }}><X size={14}/></button>
+            </div>
+            <div style={{ fontSize:11.5, color:C.muted, marginBottom:10 }}>Frio, Morno e Quente são padrão. Crie as suas (ex: Curioso, VIP) com uma cor.</div>
+            <input autoFocus placeholder="Nome da temperatura (ex: Curioso, VIP)" value={tempModal.nome}
+              onChange={e => setTempModal(m => ({ ...m, nome: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') createTemperature() }}
+              style={{ width:'100%', border:`1px solid ${C.border}`, borderRadius:8, padding:'8px 11px', fontSize:13, marginBottom:10, boxSizing:'border-box' }} />
+            <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:14 }}>
+              {STAGE_COLORS.map(cc => (
+                <button key={cc} type="button" onClick={() => setTempModal(m => ({ ...m, cor: cc }))}
+                  style={{ width:24, height:24, borderRadius:'50%', background:cc, border:'none', cursor:'pointer', outline: tempModal.cor === cc ? `2px solid ${cc}` : '2px solid transparent', outlineOffset:2 }} />
+              ))}
+            </div>
+            {temperatures.length > 0 && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, fontWeight:700, color:C.muted, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:6 }}>Suas temperaturas</div>
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                  {temperatures.map(t => (
+                    <span key={t.id} style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11.5, background:C.bg, borderRadius:14, padding:'4px 9px' }}>
+                      <span style={{ width:9, height:9, borderRadius:'50%', background:t.cor }} />{t.nome}
+                      <button onClick={() => deleteTemperature(t)} title="Excluir" style={{ background:'none', border:'none', cursor:'pointer', color:C.muted, padding:0, display:'inline-flex' }}><X size={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <button onClick={() => setTempModal(null)} style={{ padding:'8px 16px', borderRadius:8, border:`1px solid ${C.border}`, background:'none', cursor:'pointer', fontSize:13, color:C.slate }}>Fechar</button>
+              <button onClick={createTemperature} disabled={!tempModal.nome.trim() || savingTemp}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 18px', borderRadius:8, border:'none', background:C.blue, color:'#fff', cursor: tempModal.nome.trim() ? 'pointer' : 'not-allowed', fontSize:13, fontWeight:700, opacity: tempModal.nome.trim() ? 1 : 0.5 }}>
+                {savingTemp ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }}/> : <Plus size={13}/>} Criar
               </button>
             </div>
           </div>
