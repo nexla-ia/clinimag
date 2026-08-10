@@ -8,7 +8,7 @@ import {
   Users, MessageSquare, TrendingUp, Clock, Inbox, BarChart2, RefreshCw,
   Calendar, BellRing, Kanban, Headset, CheckCircle2, XCircle, AlertCircle,
   Phone, Bot, ListChecks, Flag, ChevronRight, Layers, DollarSign, Stethoscope, Lock,
-  GitMerge, Thermometer, Target, StickyNote, UserCheck,
+  GitMerge, Thermometer, Target, StickyNote, UserCheck, Tag,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -266,6 +266,8 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   const [crmStages, setCrmStages]       = useState([])
   const [crmFunnels, setCrmFunnels]     = useState([])
   const [crmInteractions, setCrmInteractions] = useState([])
+  const [crmTags, setCrmTags]           = useState([])
+  const [crmTagAssignments, setCrmTagAssignments] = useState([])
 
   async function load() {
     if (!instance) return
@@ -300,6 +302,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       professionalsData, proceduresData, insuranceData, finTxData, finCatsData,
       leadsData,
       crmContactsData, crmStagesData, crmFunnelsData, crmInteractionsData,
+      crmTagsData, crmTagAssignsData,
     ] = await Promise.all([
       fetchAll((a, b) => supabase.from('mensagens_geral').select('id, numero, type, mensagem, "horaLastMessage", created_at').eq('instancia', instance).order('id', { ascending: false }).range(a, b)),
       fetchAll((a, b) => supabase.from('conversations').select('session_id, reason, closed_at').eq('instancia', instance).range(a, b)),
@@ -324,6 +327,8 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       one(supabase.from('crm_stages').select('id,funil_id,nome,cor,posicao,alerta_dias').eq('instancia', instance).order('posicao')),
       one(supabase.from('crm_funnels').select('id,nome,posicao').eq('instancia', instance).order('posicao')),
       fetchAll((a, b) => supabase.from('crm_interactions').select('id,tipo,created_at,autor_nome').eq('instancia', instance).gte('created_at', `${yearLo}T00:00:00`).order('created_at', { ascending: false }).range(a, b)),
+      one(supabase.from('contact_tags').select('id,name,color').eq('instancia', instance)),
+      fetchAll((a, b) => supabase.from('contact_tag_assignments').select('tag_id,numero').eq('instancia', instance).range(a, b)),
     ])
 
     setMsgs(msgsData)
@@ -347,6 +352,8 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     setCrmStages(crmStagesData)
     setCrmFunnels(crmFunnelsData)
     setCrmInteractions(crmInteractionsData)
+    setCrmTags(crmTagsData || [])
+    setCrmTagAssignments(crmTagAssignsData || [])
     setLastRefresh(new Date())
     setLoading(false)
 
@@ -572,7 +579,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       {tab === 'agenda'      && <AgendaTab      {...{ appts, professionals, range, period, loading }} />}
       {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />}
       {tab === 'leads'       && <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />}
-      {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, range, period, loading }} />}
+      {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, range, period, loading }} />}
       {tab === 'atividades'  && <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />}
 
       <LimitReachedModal
@@ -2237,7 +2244,7 @@ function AtividadesTab({ kanbanCards, kanbanColumns, users, range, period, loadi
 }
 
 // ─── Tab: CRM ────────────────────────────────────────────────────────────────
-function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, period, loading }) {
+function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, range, period, loading }) {
   const { from, to } = range
   const [funnelSel, setFunnelSel] = useState('todos')
 
@@ -2294,6 +2301,18 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, pe
     scopeLeads.forEach(c => { const k = (c.origem && c.origem.trim()) || 'Sem origem'; m[k] = (m[k] || 0) + 1 })
     return Object.entries(m).map(([nome, count]) => ({ nome, count })).sort((a, b) => b.count - a.count)
   }, [scopeLeads])
+
+  // Leads por etiqueta (as coloridas, mesmas das Conversas). Casa por telefone
+  // canônico (sem o 9 extra) dos dois lados, pra pegar independente do formato.
+  const porEtiqueta = useMemo(() => {
+    const canon = p => { let d = (p || '').replace(/@.*/, '').replace(/\D/g, ''); if (d.length === 13 && d[4] === '9') d = d.slice(0, 4) + d.slice(5); return d }
+    const byPhone = {}
+    ;(crmTagAssignments || []).forEach(a => { const k = canon(a.numero); if (!k) return; (byPhone[k] || (byPhone[k] = new Set())).add(a.tag_id) })
+    const tagMap = {}; (crmTags || []).forEach(t => { tagMap[t.id] = t })
+    const count = {}
+    scopeLeads.forEach(c => { const ids = byPhone[canon(c.phone)]; if (ids) ids.forEach(id => { count[id] = (count[id] || 0) + 1 }) })
+    return Object.entries(count).map(([id, n]) => ({ tag: tagMap[id], n })).filter(x => x.tag).sort((a, b) => b.n - a.n)
+  }, [scopeLeads, crmTags, crmTagAssignments])
 
   const responsaveis = useMemo(() => {
     const m = {}
@@ -2449,6 +2468,32 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, range, pe
           )}
         </div>
       </div>
+
+      {/* Leads por etiqueta (as coloridas das Conversas) */}
+      {porEtiqueta.length > 0 && (
+        <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
+          <SectionTitle icon={Tag} text="Leads por etiqueta" right={`${porEtiqueta.length} etiquetas`} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {porEtiqueta.slice(0, 12).map(({ tag, n }) => {
+              const max = porEtiqueta[0].n
+              return (
+                <div key={tag.id}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                      <span style={{ width: 9, height: 9, borderRadius: '50%', background: tag.color, flexShrink: 0 }} />
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag.name}</span>
+                    </span>
+                    <span style={{ fontWeight: 700, color: tag.color, flexShrink: 0, marginLeft: 8 }}>{n} <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: 11 }}>({total ? Math.round(n / total * 100) : 0}%)</span></span>
+                  </div>
+                  <div style={{ height: 7, background: '#F1F5F9', borderRadius: 10, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${(n / max) * 100}%`, background: tag.color, transition: 'width 0.4s' }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Responsáveis + Parados */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, marginBottom: 14 }}>
