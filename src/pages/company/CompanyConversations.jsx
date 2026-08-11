@@ -364,6 +364,7 @@ export default function CompanyConversations() {
   const [msgText, setMsgText]         = useState('')
   const [sending, setSending]         = useState(false)
   const [closedLoaded, setClosedLoaded] = useState(false)
+  const [attendancesLoaded, setAttendancesLoaded] = useState(false)
   const [lightbox, setLightbox]       = useState(null)
   const [recording, setRecording]     = useState(false)
   const [recordedAudio, setRecordedAudio] = useState(null) // { base64, mime, duration }
@@ -757,6 +758,7 @@ export default function CompanyConversations() {
           data.forEach(r => { map[canonSession(r.numero)] = r })
           setAttendancesMap(map)
         }
+        setAttendancesLoaded(true)
       })
   }, [instance])
 
@@ -958,14 +960,17 @@ export default function CompanyConversations() {
       })
   }, [instance])
 
-  // Auto-encerra tickets sem atividade após AUTO_CLOSE_HOURS horas
+  // Auto-encerra tickets sem atividade após AUTO_CLOSE_HOURS horas.
+  // Só espera os atendimentos carregarem pra NÃO encerrar (e tirar do setor)
+  // uma conversa que alguém já assumiu.
   useEffect(() => {
-    if (autoCloseDone.current || loadingContacts || !closedLoaded || !instance || !contacts.length) return
+    if (autoCloseDone.current || loadingContacts || !closedLoaded || !attendancesLoaded || !instance || !contacts.length) return
     autoCloseDone.current = true
 
     const cutoff = Date.now() - AUTO_CLOSE_HOURS * 3600_000
     const toClose = contacts.filter(c =>
       !closedMap[c.session_id] &&
+      !attendancesMap[c.session_id] &&   // já assumida por alguém → NÃO encerra
       c.lastTs &&
       new Date(c.lastTs).getTime() < cutoff &&
       !isWaitingPatient(c)   // esperando o paciente → não encerra
@@ -992,7 +997,7 @@ export default function CompanyConversations() {
       toClose.forEach(c => { delete next[c.session_id] })
       return next
     })
-  }, [loadingContacts, closedLoaded, contacts, closedMap, instance])
+  }, [loadingContacts, closedLoaded, attendancesLoaded, contacts, closedMap, attendancesMap, instance])
 
   // Realtime: nova mensagem
   useEffect(() => {
@@ -1012,17 +1017,21 @@ export default function CompanyConversations() {
           if (!sid) return
           const incomingType = (row.type || '').toLowerCase()
           const ts = getTimestamp(row)
+          const isClientMsg = CLIENT_TYPES.includes(incomingType)
 
-          // Reabre ticket encerrado: remove do closed e limpa attendance
-          setClosedMap(prev => {
-            if (!prev[sid]) return prev
-            supabase.from('conversations').delete().eq('session_id', sid).eq('instancia', instance)
-            supabase.from('attendances').delete().eq('numero', sid).eq('instancia', instance)
-            setAttendancesMap(at => { const n = { ...at }; delete n[sid]; return n })
-            const next = { ...prev }; delete next[sid]; return next
-          })
+          // Reabre ticket encerrado SÓ quando o CLIENTE manda mensagem nova.
+          // Mensagens de atendente/IA/sistema/lembrete (e o aviso de "assumido")
+          // NÃO reabrem — senão uma conversa finalizada voltava a abrir sozinha.
+          if (isClientMsg) {
+            setClosedMap(prev => {
+              if (!prev[sid]) return prev
+              supabase.from('conversations').delete().eq('session_id', sid).eq('instancia', instance)
+              supabase.from('attendances').delete().eq('numero', sid).eq('instancia', instance)
+              setAttendancesMap(at => { const n = { ...at }; delete n[sid]; return n })
+              const next = { ...prev }; delete next[sid]; return next
+            })
+          }
 
-          const isClientMsg = incomingType === 'cliente' || incomingType === 'human'
           if (isClientMsg && canonSession(selectedRef.current?.session_id) !== sid) {
             setUnreadCounts(prev => ({ ...prev, [sid]: (prev[sid] || 0) + 1 }))
           }
