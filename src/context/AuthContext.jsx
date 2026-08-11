@@ -66,10 +66,21 @@ const AuthContext = createContext(null)
 
 const SESSION_KEY = 'nx_session'
 
-// Token único do dispositivo — usado pra travar a conta em uma sessão só.
+// Token do DISPOSITIVO (navegador) — usado pra travar a conta em uma sessão
+// só. É estável e fica salvo no navegador: assim, o MESMO navegador sempre
+// reassume a própria sessão (sair e entrar de novo nunca trava). Só troca de
+// navegador/computador é que dispara o bloqueio.
 function genDeviceToken() {
   try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID() } catch {}
   return 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+}
+const DEVICE_KEY = 'nx_device_id'
+function getDeviceToken() {
+  try {
+    let t = localStorage.getItem(DEVICE_KEY)
+    if (!t) { t = genDeviceToken(); localStorage.setItem(DEVICE_KEY, t) }
+    return t
+  } catch { return genDeviceToken() }
 }
 
 export function AuthProvider({ children }) {
@@ -254,7 +265,7 @@ export function AuthProvider({ children }) {
     // Se já tem alguém usando a conta (sessão fresca), bloqueia com a
     // mensagem. Se o RPC ainda não existe (migração não rodada) ou der
     // erro de rede, entra normal — degradação segura (fail-open).
-    const deviceToken = genDeviceToken()
+    const deviceToken = getDeviceToken()
     try {
       const { data: claim, error: claimErr } = await supabase.rpc('claim_login_session', {
         p_user_id: user.id, p_token: deviceToken,
@@ -378,6 +389,25 @@ export function AuthProvider({ children }) {
     return { ok: true }
   }
 
+  // Troca de senha pelo PRÓPRIO usuário: confere a senha atual (via login_user)
+  // e só então grava a nova. Não precisa de migração — usa RPCs que já existem.
+  async function changeOwnPassword(currentPassword, newPassword) {
+    const email = session?.user?.email
+    const uid   = session?.user?.id
+    if (!email || !uid) return { ok: false, error: 'Sessão inválida. Entre de novo e tente outra vez.' }
+    if (!newPassword || newPassword.length < 6) return { ok: false, error: 'A nova senha precisa ter pelo menos 6 caracteres.' }
+
+    // 1) confere a senha atual
+    const { data, error } = await supabase.rpc('login_user', { p_email: email, p_password: currentPassword })
+    if (error) return { ok: false, error: 'Erro ao validar a senha. Tente de novo.' }
+    if (!data?.length) return { ok: false, error: 'Senha atual incorreta.' }
+
+    // 2) grava a nova
+    const { error: pwErr } = await supabase.rpc('update_user_password', { p_user_id: uid, p_password: newPassword })
+    if (pwErr) return { ok: false, error: pwErr.message }
+    return { ok: true }
+  }
+
   async function toggleUserActive(companyId, userId) {
     const company = db.companies.find(c => c.id === companyId)
     const user = company?.users?.find(u => u.id === userId)
@@ -394,7 +424,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, db, dbLoading, dbError, login, masterEnter, logout, loadDB, addCompany, addUser, updateUser, toggleUserActive, toggleCompanyActive }}>
+    <AuthContext.Provider value={{ session, db, dbLoading, dbError, login, masterEnter, logout, loadDB, addCompany, addUser, updateUser, changeOwnPassword, toggleUserActive, toggleCompanyActive }}>
       {children}
     </AuthContext.Provider>
   )

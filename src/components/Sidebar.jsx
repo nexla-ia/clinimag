@@ -1,12 +1,16 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { LogOut } from 'lucide-react'
+import { LogOut, KeyRound } from 'lucide-react'
+import ChangePasswordModal from './ChangePasswordModal'
 import './Sidebar.css'
 
 export default function Sidebar({ links, role }) {
   const { session, logout } = useAuth()
   const navigate = useNavigate()
+  const [pwModal, setPwModal] = useState(false)
+  // Só usuário de empresa "de verdade" troca a senha (ADM global e suporte não).
+  const canChangePassword = session?.user?.id && !session?.user?.master
 
   function handleLogout() {
     logout()
@@ -57,10 +61,19 @@ export default function Sidebar({ links, role }) {
             <div className="sidebar-user-email">{session?.user?.email}</div>
           </div>
         </div>
-        <button className="sidebar-logout" onClick={handleLogout} title="Sair">
-          <LogOut size={15} />
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {canChangePassword && (
+            <button className="sidebar-key" onClick={() => setPwModal(true)} title="Trocar senha">
+              <KeyRound size={15} />
+            </button>
+          )}
+          <button className="sidebar-logout" onClick={handleLogout} title="Sair">
+            <LogOut size={15} />
+          </button>
+        </div>
       </div>
+
+      {pwModal && <ChangePasswordModal onClose={() => setPwModal(false)} />}
     </aside>
   )
 }
