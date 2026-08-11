@@ -338,6 +338,7 @@ export default function CompanyConversations() {
   const [transferringTo, setTransferringTo] = useState('')
   const [transferring, setTransferring] = useState(false)
   const [companyUsers, setCompanyUsers] = useState([]) // outros atendentes pra transferir
+  const [companyHasSectors, setCompanyHasSectors] = useState(false) // a clínica usa setores?
   const [tab, setTab]                 = useState('recepcao')
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [search, setSearch]           = useState('')
@@ -723,6 +724,29 @@ export default function CompanyConversations() {
     else setToast({ message: 'Erro ao salvar: ' + error.message, color: '#DC2626' })
   }
 
+  // Quem pode LER uma conversa assumida (att = registro de atendimento):
+  //  - admin vê tudo
+  //  - clínica sem setores → pool compartilhado (todo mundo vê)
+  //  - tem setor → só as conversas do SEU setor
+  //  - sem setor numa clínica COM setores (ex: removido do setor) → só o que
+  //    não pertence a nenhum setor; conversas de setor ficam bloqueadas
+  const attVisible = (att) => {
+    if (!att) return true
+    if (isAdmin) return true
+    if (!companyHasSectors) return true
+    if (userSector) return att.sector_id === userSector.id
+    return att.sector_id == null
+  }
+
+  // Se a pessoa perde acesso (foi removida do setor, a conversa foi
+  // transferida pra outro setor, etc.), fecha na hora a conversa aberta que
+  // ela não pode mais ler — sem precisar recarregar a página.
+  useEffect(() => {
+    if (!selected) return
+    if (!attVisible(attendancesMap[selected.session_id])) setSelected(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.session_id, attendancesMap, userSector?.id, isAdmin, companyHasSectors])
+
   // Carrega atendimentos ativos (quem está em qual setor + atendente)
   useEffect(() => {
     if (!instance) return
@@ -743,6 +767,17 @@ export default function CompanyConversations() {
     supabase.from('users').select('id, name, email, role').eq('company_id', companyId)
       .then(({ data }) => setCompanyUsers(data || []))
   }, [session?.company?.id])
+
+  // A clínica usa setores? Usado pra decidir o acesso: numa clínica COM
+  // setores, quem não é de nenhum setor (ex: foi removido) não vê as
+  // conversas de setor. Numa clínica SEM setores, é pool compartilhado.
+  useEffect(() => {
+    if (!instance) return
+    let alive = true
+    supabase.from('sectors').select('id').eq('instancia', instance)
+      .then(({ data }) => { if (alive) setCompanyHasSectors((data?.length || 0) > 0) })
+    return () => { alive = false }
+  }, [instance])
 
   // Realtime: attendances
   useEffect(() => {
@@ -2138,7 +2173,7 @@ export default function CompanyConversations() {
   const closed = new Set(Object.keys(closedMap))
   const recepcao    = contacts.filter(c => !closed.has(c.session_id) && !attendancesMap[c.session_id])
   const meuSetor    = contacts.filter(c => !closed.has(c.session_id) && attendancesMap[c.session_id] &&
-    (isAdmin || !userSector || attendancesMap[c.session_id].sector_id === userSector.id))
+    attVisible(attendancesMap[c.session_id]))
   const finalizados = contacts.filter(c => closed.has(c.session_id))
 
   const tabList = [
