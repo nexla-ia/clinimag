@@ -1852,9 +1852,12 @@ export default function CompanyConversations() {
       } : {}
 
       // Aguarda resposta do n8n (retorna instancia + mensagem + id_mensagem) para gravar no banco
+      const sendCtrl = new AbortController()
+      const sendTimer = setTimeout(() => sendCtrl.abort(), 20000)
       fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: sendCtrl.signal,
         body: JSON.stringify({
           message: sentText,
           mensagem: mensagemPayload,
@@ -1876,7 +1879,10 @@ export default function CompanyConversations() {
           ...quotedPayload,
         }),
       })
-        .then(r => r.text())
+        .then(async (r) => {
+          if (!r.ok) throw new Error('HTTP ' + r.status)
+          return r.text()
+        })
         .then(async text => {
           // Nó de erro do n8n (Respond to Webhook) devolve texto começando com
           // "ERRO" quando o WhatsApp recusou o envio — avisa e marca a bolha.
@@ -1928,7 +1934,23 @@ export default function CompanyConversations() {
             setMessages(prev => prev.map(m => m.id === row.id ? { ...m, id_mensagem: msgId } : m))
           }
         })
-        .catch(e => console.warn('webhook envio:', e))
+        .catch(e => {
+          console.warn('webhook envio:', e)
+          setToast({
+            message: '⚠️ Não deu pra confirmar a entrega no WhatsApp. A mensagem ficou salva aqui, mas pode NÃO ter sido enviada — confira e, se precisar, envie de novo.',
+            color: '#DC2626',
+          })
+          setTimeout(() => setToast(null), 8000)
+          setMessages(prev => {
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].type === 'atendente' && prev[i].content === mensagemPayload) {
+                const n = [...prev]; n[i] = { ...n[i], falhou: true }; return n
+              }
+            }
+            return prev
+          })
+        })
+        .finally(() => clearTimeout(sendTimer))
     } finally {
       setSending(false)
       // Mantém o foco na caixa de texto pra digitar a próxima sem clicar de novo

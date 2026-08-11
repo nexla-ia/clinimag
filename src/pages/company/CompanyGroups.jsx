@@ -855,9 +855,12 @@ export default function CompanyGroups() {
       }
       if (/@\d+/.test(text) && !nativeQuote) {
         // Mensagem com menção → só para infogrupo (resposta embutida vai junto).
+        const menCtrl = new AbortController()
+        const menTimer = setTimeout(() => menCtrl.abort(), 20000)
         fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: menCtrl.signal,
           body: JSON.stringify({
             evento:       'mencao',
             instancia:    instance,
@@ -869,7 +872,10 @@ export default function CompanyGroups() {
             sender_email: session?.user?.email,
           }),
         })
-          .then(r => r.text())
+          .then(async (r) => {
+            if (!r.ok) throw new Error('HTTP ' + r.status)
+            return r.text()
+          })
           .then(t => {
             // Se o infogrupo devolver o id_mensagem (mesmo formato do envioNexla:
             // instancia / mensagem / id_mensagem), grava — assim a mensagem com
@@ -881,7 +887,12 @@ export default function CompanyGroups() {
               setMessages(prev => prev.map(m => m.id === insertedId ? { ...m, id_mensagem: msgId } : m))
             }
           })
-          .catch(e => console.warn('webhook mencao:', e))
+          .catch(e => {
+            console.warn('webhook mencao:', e)
+            setSendErr('⚠️ Não deu pra confirmar a entrega no WhatsApp. A mensagem ficou salva aqui, mas pode NÃO ter sido enviada no grupo — confira e, se precisar, envie de novo.')
+            setTimeout(() => setSendErr(''), 9000)
+          })
+          .finally(() => clearTimeout(menTimer))
       } else {
         // Resposta nativa → webhook próprio de grupo; senão envioNexla
         const webhookUrl = nativeQuote
@@ -894,9 +905,12 @@ export default function CompanyGroups() {
           quoted_remoteJid:   selected.idgrupo,       // em grupo, a "conversa" é o grupo
           quoted_participant: replySnap.numero || null, // quem mandou a original no grupo
         } : {}
+        const grpCtrl = new AbortController()
+        const grpTimer = setTimeout(() => grpCtrl.abort(), 20000)
         fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: grpCtrl.signal,
           body: JSON.stringify({
             message: sentText,
             mensagem: mensagemPayload,
@@ -926,7 +940,10 @@ export default function CompanyGroups() {
             ai_enabled: false,
           }),
         })
-          .then(r => r.text())
+          .then(async (r) => {
+            if (!r.ok) throw new Error('HTTP ' + r.status)
+            return r.text()
+          })
           .then(t => {
             // Nó de erro do n8n responde texto começando com "ERRO" quando o
             // WhatsApp recusou o envio.
@@ -945,7 +962,12 @@ export default function CompanyGroups() {
               setMessages(prev => prev.map(m => m.id === insertedId ? { ...m, id_mensagem: msgId } : m))
             }
           })
-          .catch(e => console.warn('webhook grupo:', e))
+          .catch(e => {
+            console.warn('webhook grupo:', e)
+            setSendErr('⚠️ Não deu pra confirmar a entrega no WhatsApp. A mensagem ficou salva aqui, mas pode NÃO ter sido enviada no grupo — confira e, se precisar, envie de novo.')
+            setTimeout(() => setSendErr(''), 9000)
+          })
+          .finally(() => clearTimeout(grpTimer))
       }
     } finally {
       setSending(false)
