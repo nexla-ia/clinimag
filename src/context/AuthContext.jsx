@@ -198,7 +198,8 @@ export function AuthProvider({ children }) {
     }
   }, [session?.user?.id])
 
-  async function login(email, password, mode) {
+  async function login(email, password, mode, opts = {}) {
+    const force = !!opts.force  // "sou eu": desconecta a outra sessão e entra
     const { data, error } = await supabase.rpc('login_user', {
       p_email: email,
       p_password: password,
@@ -266,13 +267,30 @@ export function AuthProvider({ children }) {
     // mensagem. Se o RPC ainda não existe (migração não rodada) ou der
     // erro de rede, entra normal — degradação segura (fail-open).
     const deviceToken = getDeviceToken()
+
+    // "Sou eu": assume a sessão à força (desconecta a outra) — só chega aqui
+    // depois da senha ter sido validada acima.
+    if (force) {
+      try {
+        await supabase.from('users')
+          .update({ session_token: deviceToken, session_seen_at: new Date().toISOString() })
+          .eq('id', user.id)
+      } catch {}
+      setSession({ role: 'company', user: { ...user, sector }, company, deviceToken })
+      return { ok: true }
+    }
+
     try {
       const { data: claim, error: claimErr } = await supabase.rpc('claim_login_session', {
         p_user_id: user.id, p_token: deviceToken,
       })
       if (!claimErr) {
         if (claim && claim.ok === false) {
-          return { ok: false, error: 'Já tem uma pessoa utilizando essa conta no momento. Se foi você, saia da outra tela (ou aguarde ~2 minutos) e tente de novo.' }
+          return {
+            ok: false,
+            blocked: true,
+            error: 'Já tem uma pessoa utilizando essa conta no momento. Se foi você, saia da outra tela (ou aguarde ~2 minutos) e tente de novo.',
+          }
         }
         setSession({ role: 'company', user: { ...user, sector }, company, deviceToken })
         return { ok: true }

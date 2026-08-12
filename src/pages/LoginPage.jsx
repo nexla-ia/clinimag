@@ -25,10 +25,13 @@ export default function LoginPage() {
   const [masterPick, setMasterPick] = useState(null)
   const [masterFilter, setMasterFilter] = useState('')
   const [entering, setEntering] = useState(null)
+  const [blocked, setBlocked] = useState(false) // login travado por sessão única
+  const [forcing, setForcing] = useState(false)
 
   function handleChange(e) {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
     setError('')
+    setBlocked(false)
   }
 
   async function handleSubmit(e) {
@@ -44,7 +47,18 @@ export default function LoginPage() {
       navigate(tab === 'adm' ? '/adm' : '/painel')
     } else {
       setError(result.error)
+      setBlocked(!!result.blocked)
     }
+  }
+
+  // "Sou eu": desconecta a outra sessão e entra (senha já foi digitada).
+  async function handleForceLogin() {
+    if (forcing) return
+    setForcing(true)
+    const result = await login(form.email, form.password, tab, { force: true })
+    setForcing(false)
+    if (result.ok) { setBlocked(false); navigate(tab === 'adm' ? '/adm' : '/painel') }
+    else setError(result.error || 'Não consegui entrar. Confira e-mail e senha.')
   }
 
   async function handleMasterEnter(c) {
@@ -218,6 +232,20 @@ export default function LoginPage() {
             )}
 
             {error && <div className="login-error">{error}</div>}
+
+            {blocked && (
+              <button type="button" onClick={handleForceLogin} disabled={forcing}
+                style={{
+                  width: '100%', marginBottom: 10, padding: '11px 0', borderRadius: 10,
+                  border: '1.5px solid #2563EB', background: forcing ? '#EFF6FF' : '#fff',
+                  color: '#2563EB', fontSize: 13, fontWeight: 700, cursor: forcing ? 'default' : 'pointer',
+                  fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}>
+                {forcing
+                  ? <><Loader2 size={15} className="spin" /> Desconectando a outra sessão...</>
+                  : 'Sou eu — desconectar a outra sessão e entrar'}
+              </button>
+            )}
 
             <button type="submit" className="login-submit" disabled={loading}>
               {loading ? <><Loader2 size={15} className="spin" /> Verificando...</> : tab === 'adm' ? 'Acesso administrativo' : 'Entrar no painel'}
