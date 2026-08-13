@@ -586,6 +586,17 @@ export default function CompanyGroups() {
           }
         }
       )
+      // UPDATEs do grupo aberto: reflete reação (emoji) e exclusão em tempo real.
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: CONV_TABLE, filter: `instancia=eq.${instance}` },
+        (p) => {
+          const row = p.new
+          if (!row?.idgrupo || selectedRef.current?.idgrupo !== row.idgrupo) return
+          setMessages(prev => prev.map(m => m.id === row.id
+            ? { ...m, reaction: row.reaction || null, apagada: !!row.apagada }
+            : m))
+        }
+      )
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [instance])
@@ -1785,6 +1796,17 @@ export default function CompanyGroups() {
                           </span>
                         )}
                       </div>
+                      {msg.reaction && (
+                        <div style={{
+                          marginTop: -5, marginBottom: 3,
+                          background: '#fff', border: '1px solid var(--border)', borderRadius: 20,
+                          padding: '0 8px', height: 23, minWidth: 27, display: 'inline-flex',
+                          alignItems: 'center', justifyContent: 'center', fontSize: 14.5, lineHeight: '23px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
+                        }} title="Reação">
+                          {msg.reaction}
+                        </div>
+                      )}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                           {formatTime(ts, companyTz)}
