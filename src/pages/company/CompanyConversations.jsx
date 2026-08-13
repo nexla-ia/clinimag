@@ -3223,21 +3223,22 @@ export default function CompanyConversations() {
                                 <AlertCircle size={10} /> não entregue no WhatsApp
                               </div>
                             )}
-                            {msg.reaction && (
-                              <div style={{
-                                display: 'inline-flex', alignItems: 'center', marginTop: 5,
-                                background: isAtendente ? 'rgba(255,255,255,0.22)' : '#fff',
-                                border: `1px solid ${isAtendente ? 'rgba(255,255,255,0.4)' : 'var(--border)'}`,
-                                borderRadius: 20, padding: '0 8px', height: 22, fontSize: 14, lineHeight: '22px',
-                                width: 'fit-content', boxShadow: '0 1px 2px rgba(0,0,0,0.10)',
-                              }} title={isCliente ? 'Reação' : 'Reação do cliente'}>
-                                {msg.reaction}
-                              </div>
-                            )}
                           </div>
                         )
                       })()}
                     </div>
+                    {msg.reaction && (
+                      <div style={{ display: 'flex', justifyContent: isLeft ? 'flex-start' : 'flex-end', marginTop: -5, marginBottom: 3 }}>
+                        <div style={{
+                          background: '#fff', border: '1px solid var(--border)', borderRadius: 20,
+                          padding: '0 8px', height: 23, minWidth: 27, display: 'inline-flex',
+                          alignItems: 'center', justifyContent: 'center', fontSize: 14.5, lineHeight: '23px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
+                        }} title={isCliente ? 'Reação' : 'Reação do cliente'}>
+                          {msg.reaction}
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: isLeft ? 'flex-start' : 'flex-end', gap: 5 }}>
                       {!msg.apagada && editingMsgId !== msg.id && (
                         <button
