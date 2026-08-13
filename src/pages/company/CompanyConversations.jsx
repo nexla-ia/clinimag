@@ -1066,6 +1066,7 @@ export default function CompanyConversations() {
                 content: getMessageContent(row),
                 base64: row.base64 || null,
                 apagada: false,
+                reaction: row.reaction || null,
                 nome: sentNome || row.nome || null,
                 ts,
               }]
@@ -1087,16 +1088,16 @@ export default function CompanyConversations() {
           }
         }
       )
-      // Filtra só UPDATEs de exclusão (apagada=true) — dispara apenas quando
-      // alguém apaga (raro), não em todo envio. Mantém o realtime leve.
+      // UPDATEs da conversa aberta: reflete exclusão (apagada) e reação (emoji).
       .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: CONV_TABLE, filter: 'apagada=eq.true' },
+        { event: 'UPDATE', schema: 'public', table: CONV_TABLE, filter: `instancia=eq.${instance}` },
         (p) => {
           const row = p.new
-          if (!row || !row.apagada) return
-          // Só age na conversa aberta (isso já restringe à instância certa)
-          if (selectedRef.current?.session_id !== row.numero) return
-          setMessages(prev => prev.map(m => m.id === row.id ? { ...m, apagada: true } : m))
+          if (!row || row.idgrupo) return
+          if (canonSession(selectedRef.current?.session_id) !== canonSession(row.numero)) return
+          setMessages(prev => prev.map(m => m.id === row.id
+            ? { ...m, apagada: !!row.apagada, reaction: row.reaction || null }
+            : m))
         }
       )
       .subscribe()
@@ -1158,6 +1159,7 @@ export default function CompanyConversations() {
             content: getMessageContent(r),
             base64: r.base64 || null,
             apagada: r.apagada || false,
+            reaction: r.reaction || null,
             nome: r.nome || null,
             ts: getTimestamp(r),
           })))
@@ -1195,6 +1197,7 @@ export default function CompanyConversations() {
         content: getMessageContent(r),
         base64: r.base64 || null,
         apagada: r.apagada || false,
+        reaction: r.reaction || null,
         nome: r.nome || null,
         ts: getTimestamp(r),
       }))
@@ -3218,6 +3221,17 @@ export default function CompanyConversations() {
                             {msg.falhou && (
                               <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, color: isAtendente ? '#FDE68A' : '#DC2626' }}>
                                 <AlertCircle size={10} /> não entregue no WhatsApp
+                              </div>
+                            )}
+                            {msg.reaction && (
+                              <div style={{
+                                display: 'inline-flex', alignItems: 'center', marginTop: 5,
+                                background: isAtendente ? 'rgba(255,255,255,0.22)' : '#fff',
+                                border: `1px solid ${isAtendente ? 'rgba(255,255,255,0.4)' : 'var(--border)'}`,
+                                borderRadius: 20, padding: '0 8px', height: 22, fontSize: 14, lineHeight: '22px',
+                                width: 'fit-content', boxShadow: '0 1px 2px rgba(0,0,0,0.10)',
+                              }} title={isCliente ? 'Reação' : 'Reação do cliente'}>
+                                {msg.reaction}
                               </div>
                             )}
                           </div>
