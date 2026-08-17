@@ -1,19 +1,25 @@
 -- ==============================================================
--- Reabrir conversa: carência de 2 min (evita "reabre sozinho")
+-- Reabrir conversa: SÓ mensagens_geral reabre + carência de 2 min
 --
--- Cenário (relatado na Agência Magnética, que atende MUITO fora — direto
--- no WhatsApp): o atendente vê a mensagem do cliente no WhatsApp e
--- finaliza na plataforma. A MESMA mensagem do cliente chega na plataforma
--- com atraso (n8n) alguns segundos DEPOIS do finalizar, e reabre a
--- conversa — dando a impressão de que ela "voltou sozinha" pra Recepção.
+-- Bug "reabre sozinho" (Agência Magnética): conversa finalizada voltava
+-- pra Recepção mesmo SEM mensagem nova do cliente. Investigação (monitor
+-- ao vivo + dados) mostrou duas coisas:
 --
--- Correção: a mensagem do cliente só reabre se a conversa NÃO foi
--- finalizada nos últimos 2 minutos. Assim a mensagem que você acabou de
--- tratar (e que chegou atrasada) não reabre; mas uma mensagem nova de
--- verdade (minutos/horas depois) reabre normalmente.
+--  1) A trigger reopen_session_on_new_message também está em tabelas
+--     AUXILIARES (public.clientes, public.n8n_chat_histories_*). No ramo
+--     delas, ela reabria a conversa em QUALQUER insert, sem checar tipo —
+--     então uma escrita na memória do n8n (ou re-insert de contato) do
+--     mesmo número reabria a conversa sem mensagem nova de verdade.
+--     ➜ Agora SÓ mensagens_geral reabre. As auxiliares não reabrem mais.
 --
--- Mantém tudo das anteriores: só CLIENTE reabre; mensagem de GRUPO mexe
--- no grupo, nunca no individual do participante.
+--  2) Corrida de tempo: quem atende "fora" (no WhatsApp) finaliza na
+--     plataforma antes da mensagem do cliente cair aqui pelo n8n; quando
+--     cai (segundos depois), reabria.
+--     ➜ Carência: mensagem do cliente só reabre se a conversa NÃO foi
+--        finalizada nos últimos 2 minutos.
+--
+-- Mantém: só CLIENTE reabre; mensagem de GRUPO mexe no grupo, nunca no
+-- individual do participante.
 --
 -- Substitui a 20260812. Seguro rodar mais de uma vez. Cole no SQL Editor
 -- do Supabase (projeto sbzwtnxx).
@@ -26,28 +32,32 @@ declare
   v_session_id text;
   v_type       text;
 begin
-  IF TG_TABLE_NAME = 'mensagens_geral' THEN
-    -- Grupo reabre (no máximo) a conversa do GRUPO, nunca a do participante.
-    IF NEW.idgrupo IS NOT NULL AND NEW.idgrupo <> '' THEN
-      v_session_id := NEW.idgrupo;
-    ELSE
-      v_session_id := NEW.numero;
-    END IF;
-    -- Só o CLIENTE reabre.
-    v_type := lower(coalesce(NEW.type, ''));
-    IF v_type NOT IN ('cliente', 'human') THEN
-      RETURN NEW;
-    END IF;
-  ELSE
-    v_session_id := NEW.session_id;
+  -- SÓ a tabela de mensagens da conversa reabre. Escritas em tabelas
+  -- auxiliares (clientes/contatos, memória do n8n) NÃO reabrem — eram elas
+  -- que causavam a reabertura "sozinha", sem mensagem nova de verdade.
+  IF TG_TABLE_NAME <> 'mensagens_geral' THEN
+    RETURN NEW;
   END IF;
 
-  if v_session_id is not null then
+  -- Grupo reabre (no máximo) a conversa do GRUPO, nunca a do participante.
+  IF NEW.idgrupo IS NOT NULL AND NEW.idgrupo <> '' THEN
+    v_session_id := NEW.idgrupo;
+  ELSE
+    v_session_id := NEW.numero;
+  END IF;
+
+  -- Só o CLIENTE reabre.
+  v_type := lower(coalesce(NEW.type, ''));
+  IF v_type NOT IN ('cliente', 'human') THEN
+    RETURN NEW;
+  END IF;
+
+  IF v_session_id IS NOT NULL THEN
     -- Carência: não reabre se acabou de ser finalizada (< 2 min). Evita o
-    -- "reabre sozinho" da mensagem atrasada que o atendente já tratou.
-    delete from public.conversations
-     where session_id = v_session_id
-       and (closed_at is null or closed_at < now() - interval '2 minutes');
-  end if;
-  return NEW;
+    -- reabrir da mensagem atrasada (n8n) que o atendente já tratou.
+    DELETE FROM public.conversations
+     WHERE session_id = v_session_id
+       AND (closed_at IS NULL OR closed_at < now() - interval '2 minutes');
+  END IF;
+  RETURN NEW;
 end; $$;
