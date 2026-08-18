@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
+import { detectSendError } from '../../lib/sendStatus'
 import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed, Kanban, Check, MoreHorizontal } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
@@ -1724,9 +1725,10 @@ export default function CompanyConversations() {
       })
         .then(r => r.text())
         .then(t => {
-          if (/^ERRO/i.test((t || '').trim())) {
-            setToast({ message: '⚠️ O WhatsApp está com instabilidade e a localização NÃO foi entregue. Tente de novo.', color: '#DC2626' })
-            setTimeout(() => setToast(null), 7000)
+          const locErr = detectSendError(t)
+          if (locErr) {
+            setToast({ message: `⚠️ Localização NÃO entregue no WhatsApp: ${locErr}. Confira o número e tente de novo.`, color: '#DC2626' })
+            setTimeout(() => setToast(null), 8000)
             return
           }
           const lines = (t || '').trim().split('\n')
@@ -1887,14 +1889,15 @@ export default function CompanyConversations() {
           return r.text()
         })
         .then(async text => {
-          // Nó de erro do n8n (Respond to Webhook) devolve texto começando com
-          // "ERRO" quando o WhatsApp recusou o envio — avisa e marca a bolha.
-          if (/^ERRO/i.test((text || '').trim())) {
+          // Detecta falha do envio (texto "ERRO" do n8n OU o JSON de erro do
+          // Evolution — ex: número que não existe no WhatsApp) e avisa/marca.
+          const sendErrReason = detectSendError(text)
+          if (sendErrReason) {
             setToast({
-              message: '⚠️ O WhatsApp está com instabilidade e essa mensagem NÃO foi entregue. Tente enviar de novo.',
+              message: `⚠️ Mensagem NÃO entregue no WhatsApp: ${sendErrReason}. Confira o número e tente de novo.`,
               color: '#DC2626',
             })
-            setTimeout(() => setToast(null), 7000)
+            setTimeout(() => setToast(null), 8000)
             setMessages(prev => {
               for (let i = prev.length - 1; i >= 0; i--) {
                 if (prev[i].type === 'atendente' && prev[i].content === mensagemPayload) {

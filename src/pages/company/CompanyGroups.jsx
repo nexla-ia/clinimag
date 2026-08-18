@@ -6,6 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
+import { detectSendError } from '../../lib/sendStatus'
 import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2, LocateFixed } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
@@ -786,9 +787,10 @@ export default function CompanyGroups() {
       })
         .then(r => r.text())
         .then(t => {
-          if (/^ERRO/i.test((t || '').trim())) {
-            setSendErr('⚠️ O WhatsApp está com instabilidade e a localização NÃO foi entregue no grupo. Tente de novo.')
-            setTimeout(() => setSendErr(''), 8000)
+          const locErr = detectSendError(t)
+          if (locErr) {
+            setSendErr(`⚠️ Localização NÃO entregue no grupo: ${locErr}. Tente de novo.`)
+            setTimeout(() => setSendErr(''), 9000)
             return
           }
           const lines = (t || '').trim().split('\n')
@@ -895,6 +897,13 @@ export default function CompanyGroups() {
             return r.text()
           })
           .then(t => {
+            // Falha do envio (ex: número mencionado que não existe no WhatsApp).
+            const menErr = detectSendError(t)
+            if (menErr) {
+              setSendErr(`⚠️ Menção NÃO entregue no grupo: ${menErr}. Tente de novo.`)
+              setTimeout(() => setSendErr(''), 9000)
+              return
+            }
             // Se o infogrupo devolver o id_mensagem (mesmo formato do envioNexla:
             // instancia / mensagem / id_mensagem), grava — assim a mensagem com
             // menção fica respondível/editável depois.
@@ -963,11 +972,12 @@ export default function CompanyGroups() {
             return r.text()
           })
           .then(t => {
-            // Nó de erro do n8n responde texto começando com "ERRO" quando o
-            // WhatsApp recusou o envio.
-            if (/^ERRO/i.test((t || '').trim())) {
-              setSendErr('⚠️ O WhatsApp está com instabilidade e essa mensagem NÃO foi entregue no grupo. Tente de novo.')
-              setTimeout(() => setSendErr(''), 8000)
+            // Falha do envio (texto "ERRO" do n8n OU JSON de erro do Evolution,
+            // ex: número que não existe no WhatsApp).
+            const grpErr = detectSendError(t)
+            if (grpErr) {
+              setSendErr(`⚠️ Mensagem NÃO entregue no grupo: ${grpErr}. Tente de novo.`)
+              setTimeout(() => setSendErr(''), 9000)
               return
             }
             // Se o n8n devolver o id_mensagem do WhatsApp (mesmo formato das
