@@ -866,6 +866,11 @@ export default function CompanyGroups() {
       }
       if (/@\d+/.test(text) && !nativeQuote) {
         // Mensagem com menção → só para infogrupo (resposta embutida vai junto).
+        // Extrai os @números do texto e manda PRONTOS pro n8n montar o campo
+        // `mentioned` do Evolution (JID = numero@s.whatsapp.net), sem precisar
+        // parsear o texto lá.
+        const mentionedNumbers = [...new Set((sentText.match(/@(\d{6,})/g) || []).map(x => x.slice(1)))]
+        const mentionedJids = mentionedNumbers.map(n => `${n}@s.whatsapp.net`)
         const menCtrl = new AbortController()
         const menTimer = setTimeout(() => menCtrl.abort(), 20000)
         fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
@@ -879,6 +884,8 @@ export default function CompanyGroups() {
             idgrupo:      selected.idgrupo,
             nomegrupo:    selected.nomegrupo || null,
             mensagem:     sentText,
+            mentioned:         mentionedJids,     // JIDs prontos p/ Evolution (campo `mentioned`)
+            mentioned_numbers: mentionedNumbers,  // só os números, se preferir
             sender_name:  session?.user?.name,
             sender_email: session?.user?.email,
           }),
