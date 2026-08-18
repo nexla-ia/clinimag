@@ -736,11 +736,14 @@ export default function CompanyAgenda() {
   // preço do procedimento (convênio > particular) quando o profissional não
   // tem valor cadastrado no Catálogo.
   function resolveApptPrice(professionalId, procedureId, planId, current = 0) {
+    const proc = procedures.find(x => x.id === procedureId)
+    // Mensalidade: o valor é MENSAL (lançado 1x/mês no financeiro), não por
+    // sessão — então a sessão em si não carrega valor.
+    if (proc?.type === 'mensalidade') return 0
     const pro = professionals.find(x => x.id === professionalId)
     const proValue = parseFloat(pro?.valor_atendimento) || 0
     if (proValue > 0) return proValue
     if (!procedureId) return current
-    const proc = procedures.find(x => x.id === procedureId)
     const priceRow = planId
       ? procedurePrices.find(pr => pr.procedure_id === procedureId && pr.insurance_plan_id === planId)
       : null

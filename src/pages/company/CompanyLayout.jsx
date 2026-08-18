@@ -6,7 +6,7 @@ import BillingBanner from '../../components/BillingBanner'
 import BlockedScreen from '../../components/BlockedScreen'
 import SupportWidget from '../../components/SupportWidget'
 import { shouldBlockAccess } from '../../lib/billing'
-import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban, Stethoscope, GraduationCap, Instagram, ShieldCheck, Headset, MessageSquareHeart, Menu, X, Users, DollarSign, GitMerge, Repeat } from 'lucide-react'
+import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban, Stethoscope, GraduationCap, Instagram, ShieldCheck, Headset, MessageSquareHeart, Menu, X, Users, DollarSign, GitMerge } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
@@ -194,7 +194,6 @@ export default function CompanyLayout() {
     { title: 'Gestão', items: [
       ...(mod('contatos') ? [{ to: '/painel/contatos', icon: Contact2, label: 'Pacientes' }] : []),
       ...(mod('agenda') ? [{ to: '/painel/agenda', icon: Calendar, label: 'Agenda' }] : []),
-      ...(isAdmin && mod('planos') ? [{ to: '/painel/planos', icon: Repeat, label: 'Planos / Mensalidades' }] : []),
       ...(mod('kanban') ? [{ to: '/painel/atividades', icon: Kanban, label: 'Kanban' }] : []),
       ...(isAdmin && mod('crm') ? [{ to: '/painel/crm', icon: GitMerge, label: 'CRM' }] : []),
       ...(isAdmin && mod('financeiro') ? [{ to: '/painel/financeiro', icon: DollarSign, label: 'Financeiro' }] : []),

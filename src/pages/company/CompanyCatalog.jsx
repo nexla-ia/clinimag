@@ -25,6 +25,7 @@ const PROC_TYPES = [
   { value: 'consulta',     label: 'Consulta',     color: '#2563EB' },
   { value: 'exame',        label: 'Exame',        color: '#7C3AED' },
   { value: 'procedimento', label: 'Procedimento', color: '#16A34A' },
+  { value: 'mensalidade',  label: 'Mensalidade',  color: '#DB2777' },
 ]
 
 const labelStyle = {
@@ -549,11 +550,16 @@ export default function CompanyCatalog() {
                 {pros.filter(p => p.active !== false).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </Field>
-            <Field label="Valor — Particular (R$)">
+            <Field label={procModal.type === 'mensalidade' ? 'Valor da mensalidade (R$/mês)' : 'Valor — Particular (R$)'}>
               <input className="nx-input" type="number" step="0.01" min={0}
                 value={procModal.price_particular} onChange={e => setProcModal(p => ({ ...p, price_particular: e.target.value }))} />
+              {procModal.type === 'mensalidade' && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Cobrança <strong>mensal</strong>: o financeiro lança este valor <strong>1x por mês</strong> por paciente (não por sessão), mesmo com várias sessões no mês.
+                </div>
+              )}
             </Field>
-            {plans.filter(p => p.active !== false).length > 0 && (
+            {procModal.type !== 'mensalidade' && plans.filter(p => p.active !== false).length > 0 && (
               <div>
                 <label style={labelStyle}>Valores por convênio</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 12px', background: '#F8FAFC', border: '1px solid var(--border)', borderRadius: 8 }}>
