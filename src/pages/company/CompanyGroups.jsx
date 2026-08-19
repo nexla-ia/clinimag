@@ -1624,6 +1624,12 @@ export default function CompanyGroups() {
                 const isAtendente = type === 'atendente' || type === 'humano'
                 const ts = parseTs(msg)
                 const media = detectMedia(msg.base64)
+                // Legenda da mídia: tira o prefixo "🖼️ arquivo" / "🎤 Áudio" / etc.,
+                // deixando só o texto que a pessoa escreveu junto (a legenda). Em
+                // mensagem de texto normal, o replace não casa e mantém o texto todo.
+                const caption = (msg.mensagem || '')
+                  .replace(/^(🎤 Áudio|🖼️ [^\n]+|📄 [^\n]+|🎬 [^\n]+|📎 [^\n]+)(\n|$)/, '')
+                  .trim()
                 const cards = contactCardsOf(msg.contact_card)
                 const loc = locationOf(msg.location)
                 // "📇 Nome" / "📍 ..." é só rótulo pra lista — dentro da bolha o cartão já mostra tudo
@@ -1850,9 +1856,9 @@ export default function CompanyGroups() {
                               </button>
                             </div>
                           </div>
-                        ) : (!media || media.type === 'pdf') && msg.mensagem && !contactLabelOnly && !locationLabelOnly && (
-                          <span style={{ whiteSpace: 'pre-wrap', ...(msg.apagada ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>
-                            {renderTextWithLinks(msg.mensagem, {
+                        ) : caption && !contactLabelOnly && !locationLabelOnly && (
+                          <span style={{ whiteSpace: 'pre-wrap', ...(media ? { display: 'block', marginTop: 6 } : {}), ...(msg.apagada ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>
+                            {renderTextWithLinks(caption, {
                               color: (msg.type || '').toLowerCase() === 'atendente' || (msg.type || '').toLowerCase() === 'humano'
                                 ? 'rgba(255,255,255,0.9)' : '#2563EB',
                               textDecoration: 'underline',
