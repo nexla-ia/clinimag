@@ -1135,6 +1135,9 @@ export default function CompanyConversations() {
   // Carrega mensagens da conversa selecionada (apenas as 50 mais recentes)
   useEffect(() => {
     if (!selected || !instance) return
+    // Corrida: clicar rápido em outra conversa pode fazer a resposta desta
+    // chegar depois e sobrescrever a conversa já aberta. Descarta se obsoleta.
+    let active = true
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
@@ -1146,6 +1149,7 @@ export default function CompanyConversations() {
       .order('id', { ascending: false })
       .limit(MSG_PAGE)
       .then(({ data, error }) => {
+        if (!active) return
         if (!error && data) {
           const sorted = [...data].reverse()
           setHasMoreMsgs(data.length === MSG_PAGE)
@@ -1167,6 +1171,7 @@ export default function CompanyConversations() {
         }
         setLoadingMsgs(false)
       })
+    return () => { active = false }
   }, [selected, instance])
 
   async function loadMoreMessages() {

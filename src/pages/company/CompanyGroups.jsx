@@ -520,22 +520,29 @@ export default function CompanyGroups() {
 
   useEffect(() => {
     if (!selected || !instance) return
+    // Corrida: se clicar rápido em outro grupo, a resposta deste pode chegar
+    // depois e sobrescrever as mensagens do grupo já aberto. O flag descarta
+    // a resposta obsoleta (o grupo já mudou).
+    let active = true
+    const idAtual = selected.idgrupo
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
     supabase.from(CONV_TABLE)
       .select('*')
       .eq('instancia', instance)
-      .eq('idgrupo', selected.idgrupo)
+      .eq('idgrupo', idAtual)
       .order('id', { ascending: false })
       .limit(MSG_PAGE)
       .then(({ data, error }) => {
+        if (!active) return
         if (!error && data) {
           setMessages([...data].reverse())
           setHasMoreMsgs(data.length === MSG_PAGE)
         }
         setLoadingMsgs(false)
       })
+    return () => { active = false }
   }, [selected?.idgrupo, instance])
 
   useEffect(() => {
