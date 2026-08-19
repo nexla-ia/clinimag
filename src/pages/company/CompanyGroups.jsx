@@ -1803,13 +1803,18 @@ export default function CompanyGroups() {
                             </div>
                           </div>
                         ) : (!media || media.type === 'pdf') && msg.mensagem && !contactLabelOnly && !locationLabelOnly && (
-                          <span style={{ whiteSpace: 'pre-wrap' }}>
+                          <span style={{ whiteSpace: 'pre-wrap', ...(msg.apagada ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>
                             {renderTextWithLinks(msg.mensagem, {
                               color: (msg.type || '').toLowerCase() === 'atendente' || (msg.type || '').toLowerCase() === 'humano'
                                 ? 'rgba(255,255,255,0.9)' : '#2563EB',
                               textDecoration: 'underline',
                             })}
                           </span>
+                        )}
+                        {msg.apagada && (
+                          <div style={{ fontSize: 10.5, fontStyle: 'italic', opacity: 0.75, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Trash2 size={10} /> {['atendente', 'humano', 'ia', 'bot'].includes((msg.type || '').toLowerCase()) ? 'mensagem apagada' : 'mensagem apagada pelo cliente'}
+                          </div>
                         )}
                       </div>
                       {msg.reaction && (
