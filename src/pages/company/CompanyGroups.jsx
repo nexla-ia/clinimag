@@ -11,6 +11,7 @@ import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, F
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ImageLightbox from '../../components/ImageLightbox'
+import ConfirmModal from '../../components/ConfirmModal'
 import './Company.css'
 
 function getMutedGroups(instance) {
@@ -214,6 +215,7 @@ export default function CompanyGroups() {
   const [savingContact, setSavingContact] = useState(null)
   const [savedContact, setSavedContact] = useState(null)
   const [memberMenu, setMemberMenu] = useState(null)   // { x, y, numero, nome } — menu ao clicar no nome no thread
+  const [confirmDelMsg, setConfirmDelMsg] = useState(null) // mensagem a apagar (confirmação)
   const [lightbox, setLightbox] = useState(null)       // src da imagem em tela cheia
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
@@ -1060,6 +1062,45 @@ export default function CompanyGroups() {
     }
   }
 
+  // Apaga a mensagem no WhatsApp (grupo) + marca como apagada aqui. Mesmo
+  // fluxo do individual (webhook apagarmeg), mas com o remoteJid do GRUPO.
+  async function handleDeleteMessage(msg) {
+    let idMsg = msg?.id_mensagem
+    if (!idMsg && msg?.id) {
+      const { data } = await supabase.from(CONV_TABLE).select('id_mensagem').eq('id', msg.id).maybeSingle()
+      idMsg = data?.id_mensagem || null
+    }
+    if (!idMsg) {
+      setSendErr('A mensagem ainda está sincronizando. Tente de novo em alguns segundos.')
+      setTimeout(() => setSendErr(''), 4000)
+      return
+    }
+    const fromMe = ['atendente', 'humano', 'ia', 'bot'].includes((msg.type || '').toLowerCase())
+    const payload = {
+      id_mensagem: idMsg,
+      fromMe: String(fromMe),
+      api: apiInstancia || '',
+      instancia: instance || '',
+      // No grupo, a "conversa" (remoteJid) é o próprio grupo (@g.us).
+      numero: selected?.idgrupo || '',
+      remoteJid: selected?.idgrupo || '',
+      idgrupo: selected?.idgrupo || '',
+      // Quem mandou a mensagem no grupo (participant do key do Evolution).
+      participant: (msg.numero || '').replace(/@.*/, ''),
+      numero_empresa: session?.company?.numero_base || '',
+    }
+    // form-urlencoded pra não disparar preflight CORS (chega mesmo sem CORS na resposta).
+    try {
+      await fetch('https://n8n.nexladesenvolvimento.com.br/webhook/apagarmeg', {
+        method: 'POST', body: new URLSearchParams(payload), keepalive: true,
+      })
+    } catch (e) {
+      console.warn('[apagarmeg grupo] fetch rejeitou (provável CORS na resposta; foi enviado):', e)
+    }
+    await supabase.from(CONV_TABLE).update({ apagada: true }).eq('id', msg.id)
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, apagada: true } : m))
+  }
+
   function startReply(msg) {
     if (!msg || msg.apagada) return
     setReplyingTo({
@@ -1874,6 +1915,23 @@ export default function CompanyGroups() {
                             <Pencil size={10} />
                           </button>
                         )}
+                        {/* Apagar: só nas nossas mensagens (igual WhatsApp) */}
+                        {isAtendente && !msg.apagada && editingMsgId !== msg.id && (
+                          <button
+                            onClick={() => setConfirmDelMsg(msg)}
+                            title="Apagar mensagem"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 18, height: 18, borderRadius: 4, border: 'none',
+                              background: 'transparent', cursor: 'pointer', color: '#DC2626',
+                              opacity: 0.5, padding: 0,
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2194,6 +2252,17 @@ export default function CompanyGroups() {
       </>,
       document.body
     )}
+
+    <ConfirmModal
+      open={!!confirmDelMsg}
+      variant="danger"
+      title="Apagar mensagem?"
+      message="A mensagem será apagada no WhatsApp e ficará riscada aqui. Não dá pra desfazer."
+      confirmLabel="Apagar"
+      cancelLabel="Cancelar"
+      onConfirm={() => { const m = confirmDelMsg; setConfirmDelMsg(null); handleDeleteMessage(m) }}
+      onCancel={() => setConfirmDelMsg(null)}
+    />
 
     {memberMenu && createPortal(
       <>
