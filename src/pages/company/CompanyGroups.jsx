@@ -941,16 +941,15 @@ export default function CompanyGroups() {
           body: JSON.stringify({
             message: sentText,
             mensagem: mensagemPayload,
-            audio_base64: audio?.base64 || null,
             audio_mime: audio?.mime || null,
             audio_duration: audio?.duration || null,
-            file_base64: attachedFile?.base64 || null,
             file_mime: attachedFile?.mime || null,
             file_name: attachedFile?.name || null,
             file_kind: attachedFile?.kind || null,
-            // Alias: a mídia (áudio OU arquivo) também vai como "base64"/"mime",
-            // o mesmo nome da coluna do banco, pro fluxo de grupo no n8n achar
-            // o campo sem depender do nome específico acima.
+            // A mídia (áudio OU arquivo) vai UMA vez só, no campo "base64" — o n8n
+            // lê `base64 || audio_base64 || file_base64`, então esse já basta.
+            // (Antes ia DUPLICADA também em audio_base64/file_base64, dobrando o
+            // payload e estourando o limite de corpo do webhook em mídia grande.)
             base64: mediaBase64,
             mime: audio?.mime || attachedFile?.mime || null,
             number: selected.idgrupo,
