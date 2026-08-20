@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import ImageLightbox from '../../components/ImageLightbox'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { MessageSquare, Bot, User, PhoneCall, Info, Headset, ChevronLeft } from 'lucide-react'
@@ -549,14 +549,7 @@ export default function CompanyHistory() {
           </>
         )}
       </div>
-      {lightbox && createPortal(
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, cursor: 'zoom-out' }}
-          onClick={() => setLightbox(null)}
-        >
-          <img src={lightbox} alt="mídia" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }} />
-        </div>
-      , document.body)}
+      {lightbox && <ImageLightbox src={lightbox} alt="mídia" onClose={() => setLightbox(null)} />}
     </div>
   )
 }

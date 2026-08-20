@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
+import ImageLightbox from '../../components/ImageLightbox'
 import {
   ArrowLeft, Pencil, Camera, Phone, Mail, MapPin, Calendar, ShieldCheck,
   AlertTriangle, Pill, Heart, Cake, MessageSquare, X, Trash2, CreditCard,
@@ -1095,16 +1096,7 @@ export default function CompanyPatientDetail() {
       )}
 
       {/* Lightbox */}
-      {lightbox && (
-        <div onClick={() => setLightbox(null)}
-          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out' }}>
-          <img src={lightbox} alt="" style={{ maxWidth:'92vw', maxHeight:'92vh', borderRadius:8, objectFit:'contain' }} />
-          <button onClick={() => setLightbox(null)}
-            style={{ position:'absolute', top:16, right:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff' }}>
-            <X size={18} />
-          </button>
-        </div>
-      )}
+      {lightbox && <ImageLightbox src={lightbox} alt="mídia" onClose={() => setLightbox(null)} />}
 
       {tab === 'historico' && (
         <div className="pat-timeline">

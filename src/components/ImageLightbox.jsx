@@ -1,28 +1,40 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { X, ZoomIn, ZoomOut, Download, RotateCcw } from 'lucide-react'
+import { X, ZoomIn, ZoomOut, Download, RotateCcw, RotateCw, RefreshCw } from 'lucide-react'
 
-// Visualizador de imagem em tela cheia COM zoom.
-// - Botões + / − · scroll do mouse · duplo-clique · arrastar pra mover (quando ampliado)
-// - Pinça de dois dedos no celular · teclas + − 0 Esc · botão Baixar
+// Visualizador de imagem em tela cheia COM zoom e rotação.
+// - Botões + / − · scroll do mouse · duplo-clique · arrastar pra mover (mãozinha)
+// - Girar à esquerda/direita 90° (pra fotos que chegam deitadas ou de cabeça pra baixo)
+// - Pinça de dois dedos no celular · teclas + − 0 R Esc · botão Baixar
 const MIN = 1, MAX = 6
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v))
 
 export default function ImageLightbox({ src, alt = 'imagem', onClose, download = 'imagem.jpg' }) {
   const [scale, setScale] = useState(1)
+  const [rotation, setRotation] = useState(0)   // graus, múltiplos de 90
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const drag = useRef(null)             // { startX, startY, baseX, baseY }
   const pointers = useRef(new Map())    // pointerId → {x,y} (pra pinça)
   const pinch = useRef(null)            // { dist, baseScale }
   const [grabbing, setGrabbing] = useState(false)
 
-  const reset = useCallback(() => { setScale(1); setPos({ x: 0, y: 0 }) }, [])
+  // Dá pra arrastar quando está ampliado OU girado de lado (aí a foto costuma
+  // passar da tela e a pessoa precisa reposicionar com a mãozinha).
+  const canPan = scale > 1 || rotation % 180 !== 0
+
+  const reset = useCallback(() => { setScale(1); setRotation(0); setPos({ x: 0, y: 0 }) }, [])
+  const isReset = scale === 1 && rotation === 0 && pos.x === 0 && pos.y === 0
   const zoomBy = useCallback((delta) => {
     setScale(prev => {
       const next = clamp(+(prev + delta).toFixed(2), MIN, MAX)
       if (next === 1) setPos({ x: 0, y: 0 })
       return next
     })
+  }, [])
+  // Gira em passos de 90° e recentraliza (pra não jogar a foto pra fora da tela).
+  const rotateBy = useCallback((deg) => {
+    setRotation(prev => ((prev + deg) % 360 + 360) % 360)
+    setPos({ x: 0, y: 0 })
   }, [])
 
   // Reseta ao trocar de imagem
@@ -35,10 +47,11 @@ export default function ImageLightbox({ src, alt = 'imagem', onClose, download =
       else if (e.key === '+' || e.key === '=') zoomBy(0.4)
       else if (e.key === '-' || e.key === '_') zoomBy(-0.4)
       else if (e.key === '0') reset()
+      else if (e.key === 'r' || e.key === 'R') rotateBy(90)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, zoomBy, reset])
+  }, [onClose, zoomBy, reset, rotateBy])
 
   const onWheel = e => { e.preventDefault(); zoomBy(e.deltaY < 0 ? 0.3 : -0.3) }
 
@@ -49,7 +62,7 @@ export default function ImageLightbox({ src, alt = 'imagem', onClose, download =
       const [a, b] = [...pointers.current.values()]
       pinch.current = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, baseScale: scale }
       drag.current = null; setGrabbing(false)
-    } else if (scale > 1) {
+    } else if (canPan) {
       drag.current = { startX: e.clientX, startY: e.clientY, baseX: pos.x, baseY: pos.y }
       setGrabbing(true)
     }
@@ -97,10 +110,10 @@ export default function ImageLightbox({ src, alt = 'imagem', onClose, download =
         onPointerDown={onPointerDown}
         style={{
           maxWidth: '92vw', maxHeight: '92vh', objectFit: 'contain', borderRadius: 10,
-          transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
+          transform: `translate(${pos.x}px, ${pos.y}px) rotate(${rotation}deg) scale(${scale})`,
           transition: drag.current || pinch.current ? 'none' : 'transform 0.14s ease',
           transformOrigin: 'center center',
-          cursor: scale > 1 ? (grabbing ? 'grabbing' : 'grab') : 'zoom-in',
+          cursor: canPan ? (grabbing ? 'grabbing' : 'grab') : 'zoom-in',
           userSelect: 'none', WebkitUserSelect: 'none', boxShadow: '0 8px 50px rgba(0,0,0,0.55)',
         }}
       />
@@ -108,9 +121,10 @@ export default function ImageLightbox({ src, alt = 'imagem', onClose, download =
       {/* Barra de controles */}
       <div onClick={e => e.stopPropagation()} style={{
         position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', alignItems: 'center', gap: 6,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap',
+        maxWidth: 'calc(100vw - 24px)',
         background: 'rgba(20,20,22,0.7)', border: '1px solid rgba(255,255,255,0.15)',
-        borderRadius: 999, padding: 6, backdropFilter: 'blur(8px)', boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+        borderRadius: 24, padding: 6, backdropFilter: 'blur(8px)', boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
       }}>
         <button onClick={() => zoomBy(-0.4)} disabled={scale <= MIN} title="Menos zoom (−)"
           style={ctrlBtn({ opacity: scale <= MIN ? 0.4 : 1, cursor: scale <= MIN ? 'default' : 'pointer' })}><ZoomOut size={18} /></button>
@@ -118,8 +132,13 @@ export default function ImageLightbox({ src, alt = 'imagem', onClose, download =
         <button onClick={() => zoomBy(0.4)} disabled={scale >= MAX} title="Mais zoom (+)"
           style={ctrlBtn({ opacity: scale >= MAX ? 0.4 : 1, cursor: scale >= MAX ? 'default' : 'pointer' })}><ZoomIn size={18} /></button>
         <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.2)', margin: '0 2px' }} />
-        <button onClick={reset} disabled={scale === 1 && pos.x === 0 && pos.y === 0} title="Tamanho original (0)"
-          style={ctrlBtn({ opacity: (scale === 1 && pos.x === 0 && pos.y === 0) ? 0.4 : 1 })}><RotateCcw size={16} /></button>
+        <button onClick={() => rotateBy(-90)} title="Girar à esquerda"
+          style={ctrlBtn()}><RotateCcw size={17} /></button>
+        <button onClick={() => rotateBy(90)} title="Girar à direita (R)"
+          style={ctrlBtn()}><RotateCw size={17} /></button>
+        <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.2)', margin: '0 2px' }} />
+        <button onClick={reset} disabled={isReset} title="Restaurar (0)"
+          style={ctrlBtn({ opacity: isReset ? 0.4 : 1, cursor: isReset ? 'default' : 'pointer' })}><RefreshCw size={16} /></button>
         <a href={src} download={download} onClick={e => e.stopPropagation()} title="Baixar" style={ctrlBtn()}><Download size={17} /></a>
       </div>
 
