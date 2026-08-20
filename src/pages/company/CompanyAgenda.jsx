@@ -1145,6 +1145,10 @@ export default function CompanyAgenda() {
                               const status = STATUS_OPTIONS.find(s => s.value === appt.status)
                               if (!status) return null
                               const many = appts.length > 1
+                              // Horário REAL do agendamento (ex.: 17:30), no fuso da clínica.
+                              // Antes mostrava o horário do slot (17:00), então horário
+                              // "quebrado" aparecia grudado na hora cheia.
+                              const apptTime = toClinicTz(appt.starts_at, session?.company?.timezone).timeStr
                               // Zebra: numa turma, alterna tom (normal / mais escuro) pra
                               // os chips não se misturarem visualmente.
                               const chipBg = many && idx % 2 === 1 ? shadeHex(status.color, 0.32) : status.color
@@ -1165,7 +1169,7 @@ export default function CompanyAgenda() {
                                   const y = Math.min(e.clientY, window.innerHeight - 95)
                                   setCtxMenu({ x, y, appt })
                                 }}
-                                title={`${appt.contact_nome} · ${hhmm} · ${status.label}`}
+                                title={`${appt.contact_nome} · ${apptTime} · ${status.label}`}
                                 style={{
                                   background: chipBg,
                                   color: '#fff',
@@ -1187,7 +1191,7 @@ export default function CompanyAgenda() {
                                 </div>
                                 {!many && (
                                   <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.85, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {hhmm} · {status.label}
+                                    {apptTime} · {status.label}
                                   </div>
                                 )}
                               </div>
