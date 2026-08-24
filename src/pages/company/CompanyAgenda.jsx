@@ -428,8 +428,10 @@ export default function CompanyAgenda() {
       recurrence_weekdays: [],
       recurrence_mode: 'meses',
       recurrence_months: 3,
-      // Lembretes: começa com o padrão marcado como default (se houver)
-      reminder_offsets: (reminderPresets.find(p => p.is_default)?.offsets) || [],
+      // Lembretes: usa o preset padrão da clínica (se houver); senão cai no
+      // padrão GLOBAL de avisar 1 dia antes (24h). Assim todo agendamento novo
+      // já nasce com o lembrete de 24h marcado — inclusive em clínicas novas.
+      reminder_offsets: (reminderPresets.find(p => p.is_default)?.offsets) || [1440],
       reminder_message: '',
       _customMsg: false,
     })
