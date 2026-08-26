@@ -41,7 +41,9 @@ export default function LoginPage() {
     const result = await login(form.email, form.password, tab)
     setLoading(false)
     if (result.ok && result.master) {
-      setMasterPick({ companies: result.companies, masterEmail: result.masterEmail })
+      const MASTER_NAMES = { 'admmkt@medmag.com.br': 'admMKT' }
+      const masterName = MASTER_NAMES[result.masterEmail?.toLowerCase()] || 'Suporte Nexla'
+      setMasterPick({ companies: result.companies, masterEmail: result.masterEmail, masterName })
       setMasterFilter('')
     } else if (result.ok) {
       navigate(tab === 'adm' ? '/adm' : '/painel')
@@ -64,7 +66,7 @@ export default function LoginPage() {
   async function handleMasterEnter(c) {
     if (entering) return
     setEntering(c.id)
-    const r = await masterEnter(c.id, masterPick.masterEmail)
+    const r = await masterEnter(c.id, masterPick.masterEmail, masterPick.masterName)
     setEntering(null)
     if (r.ok) navigate('/painel')
     else setError(r.error)

@@ -146,6 +146,17 @@ function numeroVariants(numero) {
   }
   return [...out]
 }
+// Alterna o 9º dígito do celular BR — usado só como FALLBACK de envio quando
+// o Evolution diz "número não existe" (bagunça do nono dígito: DDD que exige o
+// 9 recebe normal, mas recusa o envio sem ele). 12 díg (55+DDD+8) ganha o 9;
+// 13 díg (55+DDD+9+8) perde o 9. Fora desse padrão BR, devolve null (sem retry).
+function brToggle9(numero) {
+  const d = String(numero || '').replace(/@.*/, '').replace(/\D/g, '')
+  if (!d.startsWith('55')) return null
+  if (d.length === 12) return `55${d.slice(2, 4)}9${d.slice(4)}@s.whatsapp.net`
+  if (d.length === 13 && d[4] === '9') return `55${d.slice(2, 4)}${d.slice(5)}@s.whatsapp.net`
+  return null
+}
 function sameConversation(a, b) { return canonSession(a) === canonSession(b) }
 
 const INJECTED_PROMPT_RE = /responda em portugu[eê]s|de forma objetiva|solicite\s|n[aã]o informar|indicar que|apresentaremos|breve explica[çc][aã]o|orienta[çc][õo]es gerais|avalia[çc][aã]o pr[eé]-operat/i
@@ -1861,107 +1872,115 @@ export default function CompanyConversations() {
         quoted_remoteJid: replySnap.numero,
       } : {}
 
-      // Aguarda resposta do n8n (retorna instancia + mensagem + id_mensagem) para gravar no banco
-      const sendCtrl = new AbortController()
-      const sendTimer = setTimeout(() => sendCtrl.abort(), 20000)
-      fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: sendCtrl.signal,
-        body: JSON.stringify({
-          message: sentText,
-          mensagem: mensagemPayload,
-          audio_base64: audio?.base64 || null,
-          audio_mime: audio?.mime || null,
-          audio_duration: audio?.duration || null,
-          file_base64: file?.base64 || null,
-          file_mime: file?.mime || null,
-          file_name: file?.name || null,
-          file_kind: file?.kind || null,
-          session_id: canonSid,
-          phone: canonSid.replace(/@.*/, ''),
-          instancia: instance,
-          api_instancia: apiInstancia,
-          ai_enabled: session?.company?.ai_enabled !== false,
-          company: session?.company?.name,
-          sender_name: session?.user?.name,
-          sender_email: session?.user?.email,
-          ...quotedPayload,
-        }),
+      // Monta o corpo do POST pro n8n. O número de SAÍDA (session_id/phone) é
+      // parametrizado pra permitir o retry com o 9 alternado — o que a gente
+      // grava no banco continua no formato canônico (canonSid, sem 9).
+      const buildBody = (sidJid) => JSON.stringify({
+        message: sentText,
+        mensagem: mensagemPayload,
+        audio_base64: audio?.base64 || null,
+        audio_mime: audio?.mime || null,
+        audio_duration: audio?.duration || null,
+        file_base64: file?.base64 || null,
+        file_mime: file?.mime || null,
+        file_name: file?.name || null,
+        file_kind: file?.kind || null,
+        session_id: sidJid,
+        phone: sidJid.replace(/@.*/, ''),
+        instancia: instance,
+        api_instancia: apiInstancia,
+        ai_enabled: session?.company?.ai_enabled !== false,
+        company: session?.company?.name,
+        sender_name: session?.user?.name,
+        sender_email: session?.user?.email,
+        ...quotedPayload,
       })
-        .then(async (r) => {
+
+      // Uma tentativa de envio (com timeout próprio). Devolve o texto e o motivo
+      // de falha (null = sucesso).
+      const postOnce = async (sidJid) => {
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 20000)
+        try {
+          const r = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: ctrl.signal,
+            body: buildBody(sidJid),
+          })
           if (!r.ok) throw new Error('HTTP ' + r.status)
-          return r.text()
-        })
-        .then(async text => {
-          // Detecta falha do envio (texto "ERRO" do n8n OU o JSON de erro do
-          // Evolution — ex: número que não existe no WhatsApp) e avisa/marca.
-          const sendErrReason = detectSendError(text)
-          if (sendErrReason) {
+          const text = await r.text()
+          return { text, reason: detectSendError(text) }
+        } finally {
+          clearTimeout(timer)
+        }
+      }
+
+      const markFalhou = () => setMessages(prev => {
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].type === 'atendente' && prev[i].content === mensagemPayload) {
+            const n = [...prev]; n[i] = { ...n[i], falhou: true }; return n
+          }
+        }
+        return prev
+      })
+
+      // Sucesso: n8n devolve instancia / mensagem / id_mensagem (uma por linha).
+      const applyOk = async (text) => {
+        const lines = text.trim().split('\n')
+        if (lines.length < 3) return
+        const instResp = lines[0].trim()
+        const msgId    = lines[lines.length - 1].trim()
+        const msgResp  = lines.slice(1, -1).join('\n').trim()
+        if (!msgId || !instResp || !msgResp) return
+        // id_mensagem nunca tem espaço — se tiver, o corte saiu errado.
+        if (/\s/.test(msgId)) return
+        const { data: row } = await supabase
+          .from('mensagens_geral')
+          .select('id')
+          .eq('instancia', instResp)
+          .in('numero', numeroVariants(selected.session_id))
+          .eq('mensagem', msgResp)
+          .eq('type', 'atendente')
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (row?.id) {
+          supabase.from('mensagens_geral').update({ id_mensagem: msgId }).eq('id', row.id).then(() => {})
+          setMessages(prev => prev.map(m => m.id === row.id ? { ...m, id_mensagem: msgId } : m))
+        }
+      }
+
+      // Fire-and-forget: tenta enviar; se o Evolution disser "número não existe"
+      // (nono dígito), reenvia UMA vez com o 9 alternado. Como o exists:false
+      // significa que NÃO entregou, o retry não corre risco de mandar 2x.
+      ;(async () => {
+        try {
+          let res = await postOnce(canonSid)
+          if (res.reason && /n[aã]o existe/i.test(res.reason)) {
+            const alt = brToggle9(canonSid)
+            if (alt && alt !== canonSid) res = await postOnce(alt)
+          }
+          if (res.reason) {
             setToast({
-              message: `⚠️ Mensagem NÃO entregue no WhatsApp: ${sendErrReason}. Confira o número e tente de novo.`,
+              message: `⚠️ Mensagem NÃO entregue no WhatsApp: ${res.reason}. Confira o número e tente de novo.`,
               color: '#DC2626',
             })
             setTimeout(() => setToast(null), 8000)
-            setMessages(prev => {
-              for (let i = prev.length - 1; i >= 0; i--) {
-                if (prev[i].type === 'atendente' && prev[i].content === mensagemPayload) {
-                  const n = [...prev]; n[i] = { ...n[i], falhou: true }; return n
-                }
-              }
-              return prev
-            })
+            markFalhou()
             return
           }
-          // Resposta do n8n: instancia / mensagem / id_mensagem, uma por linha.
-          // A mensagem pode ter quebra de linha, então ancora pelas pontas
-          // (1ª = instancia, última = id) e o miolo é a mensagem inteira.
-          const lines = text.trim().split('\n')
-          if (lines.length < 3) return
-          const instResp = lines[0].trim()
-          const msgId    = lines[lines.length - 1].trim()
-          const msgResp  = lines.slice(1, -1).join('\n').trim()
-          if (!msgId || !instResp || !msgResp) return
-          // id_mensagem nunca tem espaço — se tiver, o corte saiu errado e
-          // gravar isso apontaria a lixeira pra mensagem errada no WhatsApp.
-          if (/\s/.test(msgId)) return
-          // Acha a linha pelo conteúdo da mensagem + instancia + numero (mais recente)
-          const { data: row } = await supabase
-            .from('mensagens_geral')
-            .select('id')
-            .eq('instancia', instResp)
-            .in('numero', numeroVariants(selected.session_id))
-            .eq('mensagem', msgResp)
-            .eq('type', 'atendente')
-            .order('id', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-          if (row?.id) {
-            supabase.from('mensagens_geral')
-              .update({ id_mensagem: msgId })
-              .eq('id', row.id)
-              .then(() => {})
-            // Propaga pro estado local pra lixeira aparecer sem precisar recarregar
-            setMessages(prev => prev.map(m => m.id === row.id ? { ...m, id_mensagem: msgId } : m))
-          }
-        })
-        .catch(e => {
+          await applyOk(res.text)
+        } catch (e) {
           console.warn('webhook envio:', e)
           setToast({
             message: '⚠️ Não deu pra confirmar a entrega no WhatsApp. A mensagem ficou salva aqui, mas pode NÃO ter sido enviada — confira e, se precisar, envie de novo.',
             color: '#DC2626',
           })
           setTimeout(() => setToast(null), 8000)
-          setMessages(prev => {
-            for (let i = prev.length - 1; i >= 0; i--) {
-              if (prev[i].type === 'atendente' && prev[i].content === mensagemPayload) {
-                const n = [...prev]; n[i] = { ...n[i], falhou: true }; return n
-              }
-            }
-            return prev
-          })
-        })
-        .finally(() => clearTimeout(sendTimer))
+          markFalhou()
+        }
+      })()
     } finally {
       setSending(false)
       // Mantém o foco na caixa de texto pra digitar a próxima sem clicar de novo

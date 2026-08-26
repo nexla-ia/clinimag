@@ -303,7 +303,7 @@ export function AuthProvider({ children }) {
 
   // Entra numa empresa via acesso mestre (suporte Nexla). Sessão de admin da
   // empresa com identidade "Suporte Nexla" — ações ficam assinadas como suporte.
-  async function masterEnter(companyId, masterEmail) {
+  async function masterEnter(companyId, masterEmail, displayName = 'Suporte Nexla') {
     const { data: company, error } = await supabase
       .from('companies')
       .select('*, users(*)')
@@ -318,7 +318,7 @@ export function AuthProvider({ children }) {
       role: 'company',
       user: {
         id: null,
-        name: 'Suporte Nexla',
+        name: displayName,
         email: masterEmail,
         role: 'admin',
         sector: null,
