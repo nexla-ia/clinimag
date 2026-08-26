@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
 import { detectSendError } from '../../lib/sendStatus'
-import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed, Kanban, Check, MoreHorizontal } from 'lucide-react'
+import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed, Kanban, Check, MoreHorizontal, ChevronRight } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -389,6 +389,7 @@ export default function CompanyConversations() {
   const [crmLeadMap, setCrmLeadMap]       = useState({})  // telefone canônico → { id, stage_id }
   const [crmMenuOpen, setCrmMenuOpen]     = useState(false)
   const [moreMenuOpen, setMoreMenuOpen]   = useState(false) // menu "⋯ Mais" do cabeçalho da conversa
+  const [crmSubOpen, setCrmSubOpen]       = useState(false)  // submenu "Enviar para etapa do CRM" dentro do ⋯
   const [crmSaving, setCrmSaving]         = useState(false)
   const [futureAppts, setFutureAppts]     = useState({}) // numero (só dígitos) → { starts_at, status, agenda_name }
   const [contextMenu, setContextMenu] = useState(null) // { x, y, contact }
@@ -657,7 +658,9 @@ export default function CompanyConversations() {
   }, [instance])
 
   // Fecha o menu do CRM ao trocar de conversa
-  useEffect(() => { setCrmMenuOpen(false) }, [selected?.session_id])
+  useEffect(() => { setCrmMenuOpen(false); setMoreMenuOpen(false); setCrmSubOpen(false) }, [selected?.session_id])
+  // Recolhe o submenu do CRM quando o menu ⋯ fecha
+  useEffect(() => { if (!moreMenuOpen) setCrmSubOpen(false) }, [moreMenuOpen])
 
   // Adiciona o contato ao CRM (ou move de etapa) na etapa escolhida.
   async function handleAddToCrm(contact, stageId) {
@@ -2669,6 +2672,52 @@ export default function CompanyConversations() {
                             background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
                             boxShadow: '0 8px 28px rgba(0,0,0,0.14)', padding: 6, minWidth: 210,
                           }}>
+                            {/* Enviar para etapa do CRM (submenu que expande as etapas) */}
+                            {(() => {
+                              const crmKey = normalizeBRDigits(selected.phone)
+                              const lead = crmLeadMap[crmKey]
+                              const curStage = lead ? crmStages.find(s => s.id === lead.stage_id) : null
+                              return (
+                                <>
+                                  <button style={mi} onMouseEnter={hov} onMouseLeave={out}
+                                    onClick={() => setCrmSubOpen(v => !v)}>
+                                    <Kanban size={15} color={lead ? '#16A34A' : '#4F46E5'} />
+                                    <span style={{ flex: 1 }}>{lead ? `No CRM: ${curStage?.nome || 'etapa'}` : 'Enviar para etapa do CRM'}</span>
+                                    <ChevronRight size={14} color="var(--text-muted)" style={{ transform: crmSubOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+                                  </button>
+                                  {crmSubOpen && (
+                                    <div style={{ margin: '2px 0 6px 12px', paddingLeft: 8, borderLeft: '2px solid #EEF2F7' }}>
+                                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px 5px' }}>
+                                        {lead ? 'Mover para a etapa' : 'Adicionar na etapa'}
+                                      </div>
+                                      {crmStages.map(s => {
+                                        const active = curStage?.id === s.id
+                                        return (
+                                          <button key={s.id} disabled={crmSaving}
+                                            onClick={() => { handleAddToCrm(selected, s.id); setMoreMenuOpen(false) }}
+                                            onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#F1F5F9' }}
+                                            onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                                            style={{
+                                              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px',
+                                              border: 'none', borderRadius: 6, background: active ? '#EFF6FF' : 'transparent',
+                                              cursor: crmSaving ? 'default' : 'pointer', fontSize: 12.5, fontWeight: active ? 700 : 500,
+                                              color: '#0F172A', textAlign: 'left',
+                                            }}>
+                                            <span style={{ width: 9, height: 9, borderRadius: '50%', background: s.cor || '#64748B', flexShrink: 0 }} />
+                                            <span style={{ flex: 1 }}>{s.nome}</span>
+                                            {active && <Check size={13} color="#2563EB" />}
+                                          </button>
+                                        )
+                                      })}
+                                      {crmStages.length === 0 && (
+                                        <div style={{ padding: '6px 8px', fontSize: 12, color: 'var(--text-muted)' }}>Nenhuma etapa no CRM ainda.</div>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div style={{ height: 1, background: '#F1F5F9', margin: '4px 6px' }} />
+                                </>
+                              )
+                            })()}
                             <button style={mi} onMouseEnter={hov} onMouseLeave={out}
                               onClick={() => { setMoreMenuOpen(false); openSaveContact(selected) }}>
                               {hasContact ? <UserCheck size={15} color="#16A34A" /> : <UserPlus size={15} color="#C9A074" />}
