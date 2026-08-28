@@ -1922,14 +1922,40 @@ export default function CompanyConversations() {
         }
       }
 
-      const markFalhou = () => setMessages(prev => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+      // Falha de CONEXÃO = a requisição não chegou no n8n (fetch rejeitou por
+      // rede). NÃO inclui timeout/abort nem erro HTTP — nesses o n8n pode ter
+      // recebido, então re-tentar arriscaria enviar 2x.
+      const isConnFailure = (e) =>
+        (e && e.name === 'TypeError') ||
+        /failed to fetch|networkerror|err_network|load failed/i.test(String(e?.message || ''))
+
+      // Envia; se a requisição NÃO chegar no n8n (falha de conexão), re-tenta
+      // até 3x com backoff leve. Timeout/erro HTTP não re-tenta (risco de 2x).
+      const sendWithRetry = async (sidJid) => {
+        const MAX = 3
+        for (let attempt = 1; ; attempt++) {
+          try {
+            return await postOnce(sidJid)
+          } catch (e) {
+            if (!isConnFailure(e) || attempt >= MAX) throw e
+            await sleep(1000 * attempt)  // 1s, depois 2s
+          }
+        }
+      }
+
+      // Marca a última mensagem própria com um flag (falhou = vermelho "não
+      // entregue"; incerto = laranja "entrega não confirmada").
+      const markMsg = (patch) => setMessages(prev => {
         for (let i = prev.length - 1; i >= 0; i--) {
           if (prev[i].type === 'atendente' && prev[i].content === mensagemPayload) {
-            const n = [...prev]; n[i] = { ...n[i], falhou: true }; return n
+            const n = [...prev]; n[i] = { ...n[i], ...patch }; return n
           }
         }
         return prev
       })
+      const markFalhou = () => markMsg({ falhou: true })
+      const markIncerto = () => markMsg({ incerto: true })
 
       // Sucesso: n8n devolve instancia / mensagem / id_mensagem (uma por linha).
       const applyOk = async (text) => {
@@ -1957,15 +1983,17 @@ export default function CompanyConversations() {
         }
       }
 
-      // Fire-and-forget: tenta enviar; se o Evolution disser "número não existe"
-      // (nono dígito), reenvia UMA vez com o 9 alternado. Como o exists:false
-      // significa que NÃO entregou, o retry não corre risco de mandar 2x.
+      // Fire-and-forget: tenta enviar (com auto-retry em falha de conexão). Se o
+      // Evolution disser "número não existe" (nono dígito), reenvia com o 9
+      // alternado. Aviso em 2 níveis: vermelho quando REALMENTE não foi (sem
+      // conexão / Evolution recusou); laranja quando só faltou a confirmação
+      // (timeout / resposta perdida — provavelmente foi, não dá pra ter certeza).
       ;(async () => {
         try {
-          let res = await postOnce(canonSid)
+          let res = await sendWithRetry(canonSid)
           if (res.reason && /n[aã]o existe/i.test(res.reason)) {
             const alt = brToggle9(canonSid)
-            if (alt && alt !== canonSid) res = await postOnce(alt)
+            if (alt && alt !== canonSid) res = await sendWithRetry(alt)
           }
           if (res.reason) {
             setToast({
@@ -1979,12 +2007,23 @@ export default function CompanyConversations() {
           await applyOk(res.text)
         } catch (e) {
           console.warn('webhook envio:', e)
-          setToast({
-            message: '⚠️ Não deu pra confirmar a entrega no WhatsApp. A mensagem ficou salva aqui, mas pode NÃO ter sido enviada — confira e, se precisar, envie de novo.',
-            color: '#DC2626',
-          })
-          setTimeout(() => setToast(null), 8000)
-          markFalhou()
+          if (isConnFailure(e)) {
+            // Não chegou no n8n mesmo após re-tentar → realmente não enviou.
+            setToast({
+              message: '⚠️ Mensagem NÃO enviada — sem conexão com o servidor (já tentei reenviar). Tente de novo em instantes.',
+              color: '#DC2626',
+            })
+            setTimeout(() => setToast(null), 8000)
+            markFalhou()
+          } else {
+            // Timeout / erro HTTP → o n8n pode ter recebido; provavelmente foi.
+            setToast({
+              message: 'ℹ️ Entrega não confirmada. A mensagem ficou salva e provavelmente foi enviada — confira no WhatsApp antes de reenviar (pra não duplicar).',
+              color: '#D97706',
+            })
+            setTimeout(() => setToast(null), 8000)
+            markIncerto()
+          }
         }
       })()
     } finally {
@@ -3298,8 +3337,14 @@ export default function CompanyConversations() {
                               </div>
                             )}
                             {msg.falhou && (
-                              <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, color: isAtendente ? '#FDE68A' : '#DC2626' }}>
+                              <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, color: isAtendente ? '#FCA5A5' : '#DC2626' }}>
                                 <AlertCircle size={10} /> não entregue no WhatsApp
+                              </div>
+                            )}
+                            {msg.incerto && !msg.falhou && (
+                              <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, color: isAtendente ? '#FDE68A' : '#D97706' }}
+                                title="A mensagem foi salva e provavelmente enviada, mas o servidor não confirmou. Confira no WhatsApp antes de reenviar.">
+                                <AlertCircle size={10} /> entrega não confirmada
                               </div>
                             )}
                           </div>
