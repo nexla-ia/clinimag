@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchConversaContatos } from '../../lib/queries'
-import { detectSendError } from '../../lib/sendStatus'
+import { detectSendError, isN8nInfraNoise } from '../../lib/sendStatus'
 import { MessageSquare, Bot, User, PhoneCall, CheckCircle2, X, Send, Headset, Sparkles, Inbox, UserCheck, Archive, Mic, Square, Trash2, Paperclip, FileText, Image as ImageIcon, Calendar, UserPlus, BookUser, Lock, ArrowRightLeft, ChevronLeft, Pencil, Film, Mail, MailOpen, AlertCircle, Plus, Reply, Search, MapPin, ExternalLink, LocateFixed, Kanban, Check, MoreHorizontal, ChevronRight } from 'lucide-react'
 import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
@@ -1911,8 +1911,11 @@ export default function CompanyConversations() {
             signal: ctrl.signal,
             body: buildBody(sidJid),
           })
+          const text = await r.text().catch(() => '')
+          // Ruído de infra do n8n (ex.: lock do SQLite no "Respond to Webhook")
+          // não é falha de entrega — ignora em silêncio (sem aviso, sem falhou).
+          if (isN8nInfraNoise(text)) return { text: '', reason: null }
           if (!r.ok) throw new Error('HTTP ' + r.status)
-          const text = await r.text()
           return { text, reason: detectSendError(text) }
         } finally {
           clearTimeout(timer)

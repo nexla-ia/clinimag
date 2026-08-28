@@ -6,7 +6,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
-import { detectSendError } from '../../lib/sendStatus'
+import { detectSendError, isN8nInfraNoise } from '../../lib/sendStatus'
 import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2, LocateFixed } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
@@ -902,8 +902,10 @@ export default function CompanyGroups() {
           }),
         })
           .then(async (r) => {
-            if (!r.ok) throw new Error('HTTP ' + r.status)
-            return r.text()
+            const t = await r.text().catch(() => '')
+            // Ruído de infra do n8n (lock do SQLite) não é falha de entrega → ignora.
+            if (!r.ok && !isN8nInfraNoise(t)) throw new Error('HTTP ' + r.status)
+            return t
           })
           .then(t => {
             // Falha do envio (ex: número mencionado que não existe no WhatsApp).
@@ -976,8 +978,10 @@ export default function CompanyGroups() {
           }),
         })
           .then(async (r) => {
-            if (!r.ok) throw new Error('HTTP ' + r.status)
-            return r.text()
+            const t = await r.text().catch(() => '')
+            // Ruído de infra do n8n (lock do SQLite) não é falha de entrega → ignora.
+            if (!r.ok && !isN8nInfraNoise(t)) throw new Error('HTTP ' + r.status)
+            return t
           })
           .then(t => {
             // Falha do envio (texto "ERRO" do n8n OU JSON de erro do Evolution,
