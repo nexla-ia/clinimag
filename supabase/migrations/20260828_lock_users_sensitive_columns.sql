@@ -30,3 +30,8 @@ GRANT  SELECT (id, name, email, role, active, company_id, created_at)
 REVOKE UPDATE ON public.users FROM anon, authenticated;
 GRANT  UPDATE (name, email, role, active, session_token, session_seen_at)
   ON public.users TO anon, authenticated;
+
+-- Criação/remoção de usuário é só via RPC create_user (SECURITY DEFINER); o
+-- cliente nunca faz INSERT/DELETE direto. Fecha os dois pra evitar que a anon
+-- key crie um admin novo (ou apague usuários) em qualquer empresa.
+REVOKE INSERT, DELETE ON public.users FROM anon, authenticated;
