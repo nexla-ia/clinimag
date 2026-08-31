@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff, Loader2, Sparkles, Calendar, Bot, MessageSquare } from 'lucide-react'
-import TrialCTA from '../components/TrialCTA'
 import './LoginPage.css'
 
 export default function LoginPage() {
@@ -123,7 +122,7 @@ export default function LoginPage() {
 
         {/* COLUNA DIREITA — formulário */}
         <div className="login-right">
-          {/* wrapper coluna para empilhar form + trial CTA */}
+          {/* wrapper coluna do formulário */}
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {masterPick ? (
             <div className="login-card">
@@ -255,11 +254,6 @@ export default function LoginPage() {
 
             <div className="login-footer">Med Mag v2.0 · Plataforma exclusiva · Acesso restrito</div>
           </form>
-          )}
-
-          {/* Trial CTA — visível somente no tab empresa */}
-          {tab === 'empresa' && !masterPick && (
-            <TrialCTA compact />
           )}
           </div>
         </div>
