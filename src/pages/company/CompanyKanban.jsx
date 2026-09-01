@@ -151,11 +151,12 @@ export default function CompanyKanban() {
       instancia: instance,
       ...(isNew ? { position: maxPos + 1 } : {}),
     }
-    const { error } = isNew
-      ? await supabase.from('kanban_columns').insert(payload)
-      : await supabase.from('kanban_columns').update(payload).eq('id', columnModal.id)
+    const { data, error } = isNew
+      ? await supabase.from('kanban_columns').insert(payload).select().single()
+      : await supabase.from('kanban_columns').update(payload).eq('id', columnModal.id).select().single()
     setSavingColumn(false)
     if (error) { setColumnErr('Erro: ' + error.message); return }
+    if (data) setColumns(prev => (prev.some(c => c.id === data.id) ? prev.map(c => c.id === data.id ? data : c) : [...prev, data]).sort((a, b) => (a.position || 0) - (b.position || 0)))
     setColumnModal(null)
   }
   function handleDeleteColumn(col) {
@@ -227,11 +228,14 @@ export default function CompanyKanban() {
       contact_nome: cardModal.contact_nome?.trim() || null,
       ...(isNew ? { position: maxPos + 1, created_by_email: session?.user?.email } : {}),
     }
-    const { error } = isNew
-      ? await supabase.from('kanban_cards').insert(payload)
-      : await supabase.from('kanban_cards').update(payload).eq('id', cardModal.id)
+    const { data, error } = isNew
+      ? await supabase.from('kanban_cards').insert(payload).select().single()
+      : await supabase.from('kanban_cards').update(payload).eq('id', cardModal.id).select().single()
     setSavingCard(false)
     if (error) { setCardErr('Erro: ' + error.message); return }
+    // Atualiza o state na hora (não espera o realtime, que pode atrasar/cair).
+    // Assim o card aparece já na coluna certa, sem precisar de F5.
+    if (data) setCards(prev => prev.some(c => c.id === data.id) ? prev.map(c => c.id === data.id ? data : c) : [...prev, data])
     setCardModal(null)
   }
   function handleDeleteCard() {
@@ -240,8 +244,10 @@ export default function CompanyKanban() {
   }
   async function confirmDeleteCardAction() {
     if (!cardModal?.id) return
+    const cid = cardModal.id
     setDeletingNow(true)
-    await supabase.from('kanban_cards').delete().eq('id', cardModal.id)
+    await supabase.from('kanban_cards').delete().eq('id', cid)
+    setCards(prev => prev.filter(c => c.id !== cid))
     setDeletingNow(false)
     setConfirmDeleteCard(false)
     setCardModal(null)
