@@ -1111,7 +1111,12 @@ export default function CompanyConversations() {
           if (!row || row.idgrupo) return
           if (canonSession(selectedRef.current?.session_id) !== canonSession(row.numero)) return
           setMessages(prev => prev.map(m => m.id === row.id
-            ? { ...m, apagada: !!row.apagada, reaction: row.reaction || null }
+            ? {
+                ...m, apagada: !!row.apagada, reaction: row.reaction || null,
+                // Chegou o id_mensagem (confirmação de entrega, mesmo atrasada) →
+                // limpa "entrega não confirmada"/"não entregue".
+                ...(row.id_mensagem ? { id_mensagem: row.id_mensagem, falhou: false, incerto: false } : {}),
+              }
             : m))
         }
       )
@@ -1903,7 +1908,7 @@ export default function CompanyConversations() {
       // de falha (null = sucesso).
       const postOnce = async (sidJid) => {
         const ctrl = new AbortController()
-        const timer = setTimeout(() => ctrl.abort(), 20000)
+        const timer = setTimeout(() => ctrl.abort(), 45000)
         try {
           const r = await fetch(webhookUrl, {
             method: 'POST',

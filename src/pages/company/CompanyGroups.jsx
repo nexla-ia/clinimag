@@ -883,7 +883,7 @@ export default function CompanyGroups() {
         const mentionedNumbers = [...new Set((sentText.match(/@(\d{6,})/g) || []).map(x => x.slice(1)))]
         const mentionedJids = mentionedNumbers.map(n => `${n}@s.whatsapp.net`)
         const menCtrl = new AbortController()
-        const menTimer = setTimeout(() => menCtrl.abort(), 20000)
+        const menTimer = setTimeout(() => menCtrl.abort(), 45000)
         fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
