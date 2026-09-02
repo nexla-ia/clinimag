@@ -1995,10 +1995,23 @@ export default function CompanyConversations() {
       // (timeout / resposta perdida — provavelmente foi, não dá pra ter certeza).
       ;(async () => {
         try {
-          let res = await sendWithRetry(canonSid)
+          // Envia pro JID REAL que o cliente usa — o número da última mensagem
+          // RECEBIDA dele. Isso acerta o nono dígito de cara (ex.: contato que
+          // recebe em 5521 9 8228... mas normalizaria pra 5521 8228... e falharia).
+          // Fallback: canonSid. O retry com/sem 9 segue como reforço.
+          let sendSid = canonSid
+          try {
+            const { data: lastIn } = await supabase.from('mensagens_geral')
+              .select('numero').eq('instancia', instance)
+              .in('numero', numeroVariants(selected.session_id))
+              .in('type', ['cliente', 'Cliente', 'human', 'Human'])
+              .order('id', { ascending: false }).limit(1).maybeSingle()
+            if (lastIn?.numero) sendSid = String(lastIn.numero).includes('@') ? lastIn.numero : `${lastIn.numero}@s.whatsapp.net`
+          } catch {}
+          let res = await sendWithRetry(sendSid)
           if (res.reason && /n[aã]o existe/i.test(res.reason)) {
-            const alt = brToggle9(canonSid)
-            if (alt && alt !== canonSid) res = await sendWithRetry(alt)
+            const alt = brToggle9(sendSid)
+            if (alt && alt !== sendSid) res = await sendWithRetry(alt)
           }
           if (res.reason) {
             setToast({
