@@ -385,7 +385,8 @@ export default function CompanyConversations() {
   const [savedContacts, setSavedContacts] = useState({}) // numero (só dígitos) → { id, nome, notes }
   const [clientesMap, setClientesMap]     = useState({}) // numero (só dígitos) → { nome, pushname, ... }
   const [crmFunnelId, setCrmFunnelId]     = useState(null)
-  const [crmStages, setCrmStages]         = useState([])  // etapas do funil ativo
+  const [crmStages, setCrmStages]         = useState([])  // TODAS as etapas (de todos os funis), com funil_id
+  const [crmFunnels, setCrmFunnels]       = useState([])  // funis (CRMs) da clínica: [{id, nome}]
   const [crmLeadMap, setCrmLeadMap]       = useState({})  // telefone canônico → { id, stage_id }
   const [crmMenuOpen, setCrmMenuOpen]     = useState(false)
   const [moreMenuOpen, setMoreMenuOpen]   = useState(false) // menu "⋯ Mais" do cabeçalho da conversa
@@ -630,15 +631,14 @@ export default function CompanyConversations() {
     if (!instance) return
     let cancelled = false
     ;(async () => {
-      const { data: fn } = await supabase.from('crm_funnels').select('id').eq('instancia', instance).order('posicao').limit(1)
-      const funnelId = fn?.[0]?.id || null
+      // Todos os funis (CRMs) + TODAS as etapas — pra deixar escolher o funil.
+      const { data: fn } = await supabase.from('crm_funnels').select('id,nome').eq('instancia', instance).order('posicao')
       if (cancelled) return
-      setCrmFunnelId(funnelId)
-      if (funnelId) {
-        const { data: st } = await supabase.from('crm_stages')
-          .select('id,nome,cor,posicao').eq('instancia', instance).eq('funil_id', funnelId).order('posicao')
-        if (!cancelled) setCrmStages(st || [])
-      }
+      setCrmFunnels(fn || [])
+      setCrmFunnelId(fn?.[0]?.id || null)
+      const { data: st } = await supabase.from('crm_stages')
+        .select('id,nome,cor,posicao,funil_id').eq('instancia', instance).order('posicao')
+      if (!cancelled) setCrmStages(st || [])
       // mapa telefone-canônico → { id, stage_id } (pra saber se já é lead e em qual etapa)
       let from = 0, leads = []
       for (;;) {
@@ -671,6 +671,8 @@ export default function CompanyConversations() {
     setCrmSaving(true)
     try {
       const now = new Date().toISOString()
+      // Funil da ETAPA escolhida (cada etapa sabe seu funil) — não o funil fixo.
+      const funilId = crmStages.find(s => s.id === stageId)?.funil_id || crmFunnelId
       let existing = crmLeadMap[key]
       if (!existing) {
         // dupla checagem no banco (com/sem o 9) pra não criar lead duplicado
@@ -681,14 +683,14 @@ export default function CompanyConversations() {
       }
       if (existing) {
         const { error } = await supabase.from('crm_contacts')
-          .update({ stage_id: stageId, funil_id: crmFunnelId, data_entrada_etapa: now }).eq('id', existing.id)
+          .update({ stage_id: stageId, funil_id: funilId, data_entrada_etapa: now }).eq('id', existing.id)
         if (error) { setToast({ message: 'Erro ao mover no CRM: ' + error.message, color: '#DC2626' }); setTimeout(() => setToast(null), 5000); return }
         setCrmLeadMap(prev => ({ ...prev, [key]: { id: existing.id, stage_id: stageId } }))
       } else {
         const nome = savedContacts[phone]?.nome || clientesMap[phone]?.nome || null
         const { data, error } = await supabase.from('crm_contacts').insert({
           instancia: instance, phone, nome, origem: 'WhatsApp', temperatura: 'morno',
-          stage_id: stageId, funil_id: crmFunnelId, data_entrada_etapa: now,
+          stage_id: stageId, funil_id: funilId, data_entrada_etapa: now,
         }).select('id').single()
         if (error) { setToast({ message: 'Erro ao adicionar no CRM: ' + error.message, color: '#DC2626' }); setTimeout(() => setToast(null), 5000); return }
         setCrmLeadMap(prev => ({ ...prev, [key]: { id: data.id, stage_id: stageId } }))
@@ -700,6 +702,47 @@ export default function CompanyConversations() {
     } finally {
       setCrmSaving(false)
     }
+  }
+
+  // Lista de etapas agrupadas por FUNIL (mostra o nome do funil só quando há
+  // mais de um CRM). onPick(stageId) é chamado ao clicar numa etapa.
+  function renderCrmStages(curStageId, onPick, small) {
+    if (!crmStages.length) {
+      return <div style={{ padding: small ? '6px 8px' : '8px 10px', fontSize: 12, color: 'var(--text-muted)' }}>Nenhuma etapa no CRM ainda.</div>
+    }
+    const multi = crmFunnels.length > 1
+    const groups = (crmFunnels.length ? crmFunnels : [{ id: '__all', nome: '' }])
+      .map(f => ({ f, stages: crmStages.filter(s => crmFunnels.length ? s.funil_id === f.id : true) }))
+      .filter(g => g.stages.length)
+    const shown = new Set(groups.flatMap(g => g.stages.map(s => s.id)))
+    const orphans = crmStages.filter(s => !shown.has(s.id))
+    if (orphans.length) groups.push({ f: { id: '__o', nome: 'Outras' }, stages: orphans })
+    return groups.map(({ f, stages }) => (
+      <div key={f.id}>
+        {(multi || f.id === '__o') && (
+          <div style={{ fontSize: 10, fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '7px 8px 3px' }}>{f.nome || 'Funil'}</div>
+        )}
+        {stages.map(s => {
+          const active = curStageId === s.id
+          return (
+            <button key={s.id} disabled={crmSaving}
+              onClick={() => onPick(s.id)}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#F1F5F9' }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: small ? '7px 8px' : '8px 10px',
+                border: 'none', borderRadius: small ? 6 : 7, background: active ? '#EFF6FF' : 'transparent',
+                cursor: crmSaving ? 'default' : 'pointer', fontSize: 12.5, fontWeight: active ? 700 : 500,
+                color: '#0F172A', textAlign: 'left',
+              }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: s.cor || '#64748B', flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>{s.nome}</span>
+              {active && <Check size={13} color="#2563EB" />}
+            </button>
+          )
+        })}
+      </div>
+    ))
   }
 
   function openSaveContact(contact) {
@@ -2675,28 +2718,7 @@ export default function CompanyConversations() {
                                 <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '5px 10px 7px' }}>
                                   {lead ? 'Mover para a etapa' : 'Adicionar ao CRM na etapa'}
                                 </div>
-                                {crmStages.map(s => {
-                                  const active = curStage?.id === s.id
-                                  return (
-                                    <button key={s.id} disabled={crmSaving}
-                                      onClick={() => handleAddToCrm(selected, s.id)}
-                                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#F1F5F9' }}
-                                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-                                      style={{
-                                        display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
-                                        border: 'none', borderRadius: 7, background: active ? '#EFF6FF' : 'transparent',
-                                        cursor: crmSaving ? 'default' : 'pointer', fontSize: 12.5, fontWeight: active ? 700 : 500,
-                                        color: '#0F172A', textAlign: 'left',
-                                      }}>
-                                      <span style={{ width: 9, height: 9, borderRadius: '50%', background: s.cor || '#64748B', flexShrink: 0 }} />
-                                      <span style={{ flex: 1 }}>{s.nome}</span>
-                                      {active && <Check size={13} color="#2563EB" />}
-                                    </button>
-                                  )
-                                })}
-                                {crmStages.length === 0 && (
-                                  <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-muted)' }}>Nenhuma etapa no CRM ainda.</div>
-                                )}
+                                {renderCrmStages(curStage?.id, (id) => handleAddToCrm(selected, id), false)}
                               </div>
                             </>
                           )}
@@ -2750,28 +2772,7 @@ export default function CompanyConversations() {
                                       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px 5px' }}>
                                         {lead ? 'Mover para a etapa' : 'Adicionar na etapa'}
                                       </div>
-                                      {crmStages.map(s => {
-                                        const active = curStage?.id === s.id
-                                        return (
-                                          <button key={s.id} disabled={crmSaving}
-                                            onClick={() => { handleAddToCrm(selected, s.id); setMoreMenuOpen(false) }}
-                                            onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#F1F5F9' }}
-                                            onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-                                            style={{
-                                              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px',
-                                              border: 'none', borderRadius: 6, background: active ? '#EFF6FF' : 'transparent',
-                                              cursor: crmSaving ? 'default' : 'pointer', fontSize: 12.5, fontWeight: active ? 700 : 500,
-                                              color: '#0F172A', textAlign: 'left',
-                                            }}>
-                                            <span style={{ width: 9, height: 9, borderRadius: '50%', background: s.cor || '#64748B', flexShrink: 0 }} />
-                                            <span style={{ flex: 1 }}>{s.nome}</span>
-                                            {active && <Check size={13} color="#2563EB" />}
-                                          </button>
-                                        )
-                                      })}
-                                      {crmStages.length === 0 && (
-                                        <div style={{ padding: '6px 8px', fontSize: 12, color: 'var(--text-muted)' }}>Nenhuma etapa no CRM ainda.</div>
-                                      )}
+                                      {renderCrmStages(curStage?.id, (id) => { handleAddToCrm(selected, id); setMoreMenuOpen(false) }, true)}
                                     </div>
                                   )}
                                   <div style={{ height: 1, background: '#F1F5F9', margin: '4px 6px' }} />
