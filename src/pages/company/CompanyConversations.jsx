@@ -381,7 +381,7 @@ export default function CompanyConversations() {
   const [recording, setRecording]     = useState(false)
   const [recordedAudio, setRecordedAudio] = useState(null) // { base64, mime, duration }
   const [recordTime, setRecordTime]   = useState(0)
-  const [attachedFile, setAttachedFile] = useState(null) // { base64, mime, name, size, kind: 'image'|'pdf'|'file' }
+  const [attachedFiles, setAttachedFiles] = useState([]) // lista de { base64, mime, name, size, kind: 'image'|'pdf'|'video'|'file' }
   const [savedContacts, setSavedContacts] = useState({}) // numero (só dígitos) → { id, nome, notes }
   const [clientesMap, setClientesMap]     = useState({}) // numero (só dígitos) → { nome, pushname, ... }
   const [crmFunnelId, setCrmFunnelId]     = useState(null)
@@ -1678,13 +1678,13 @@ export default function CompanyConversations() {
       : file.type === 'application/pdf' ? 'pdf'
       : file.type.startsWith('video/') ? 'video'
       : 'file'
-    setAttachedFile({ base64, mime: file.type || 'application/octet-stream', name: file.name || `arquivo-${Date.now()}`, size: file.size, kind })
+    setAttachedFiles(prev => prev.length >= 10 ? prev : [...prev, { base64, mime: file.type || 'application/octet-stream', name: file.name || `arquivo-${Date.now()}`, size: file.size, kind }])
   }
 
   async function handlePickFile(e) {
-    const file = e.target.files?.[0]
+    const files = Array.from(e.target.files || [])
     e.target.value = ''
-    await attachFile(file)
+    for (const f of files) await attachFile(f)  // seleção múltipla (igual WhatsApp)
   }
 
   // Colar imagem da área de transferência (Ctrl+V) — ex: um print de tela.
@@ -1708,8 +1708,8 @@ export default function CompanyConversations() {
     }
   }
 
-  function discardFile() {
-    setAttachedFile(null)
+  function discardFile(idx) {
+    setAttachedFiles(prev => typeof idx === 'number' ? prev.filter((_, i) => i !== idx) : [])
   }
 
   // Pega a localização atual do aparelho (GPS/navegador), igual ao "enviar
@@ -1822,8 +1822,12 @@ export default function CompanyConversations() {
     return att.attendant_email === session?.user?.email
   }
 
-  async function handleSend() {
-    if (sending || !selected) return
+  // opts.file definido = chamada interna do loop de várias imagens (não lê/limpa
+  // o composer; usa opts.file/text/audio/replySnap).
+  async function handleSend(opts = {}) {
+    if (!selected) return
+    const override = opts.file !== undefined
+    if (sending && !override) return
     if (!canRespond(selected)) {
       const att = attendancesMap[selected.session_id]
       setToast({
@@ -1833,11 +1837,26 @@ export default function CompanyConversations() {
       setTimeout(() => setToast(null), 4000)
       return
     }
-    let audio = recordedAudio
-    if (recording) {
+    // Várias imagens (igual WhatsApp): manda uma a uma — legenda na última,
+    // resposta citada na primeira. Cada imagem vira uma mensagem.
+    if (!override && attachedFiles.length > 1) {
+      let audioM = recordedAudio
+      if (recording) audioM = await stopRecording({ persistPreview: false })
+      const files = attachedFiles
+      const text = msgText.trim()
+      const replySnap = replyingTo
+      setMsgText(''); setAttachedFiles([]); setReplyingTo(null); setRecordedAudio(null); setRecordTime(0)
+      for (let i = 0; i < files.length; i++) {
+        await handleSend({ file: files[i], text: i === files.length - 1 ? text : '', audio: null, replySnap: i === 0 ? replySnap : null })
+        if (i < files.length - 1) await new Promise(r => setTimeout(r, 350))
+      }
+      return
+    }
+    let audio = override ? (opts.audio || null) : recordedAudio
+    if (!override && recording) {
       audio = await stopRecording({ persistPreview: false })
     }
-    if (!msgText.trim() && !audio && !attachedFile) return
+    if (!override && !msgText.trim() && !audio && !attachedFiles.length) return
     setSending(true)
     try {
       // Auto-assume se ainda não está atribuído a ninguém
@@ -1856,10 +1875,10 @@ export default function CompanyConversations() {
         setAttendancesMap(prev => ({ ...prev, [canonSid]: newAtt }))
         setTab('meu-setor')
       }
-      const text = msgText.trim()
-      const file = attachedFile
+      const text = override ? (opts.text || '') : msgText.trim()
+      const file = override ? opts.file : (attachedFiles[0] || null)
       // Foto do reply antes de limpar o estado (o envio é assíncrono)
-      const replySnap = replyingTo
+      const replySnap = override ? (opts.replySnap || null) : replyingTo
       // Resposta nativa (balão de citação) só com id do WhatsApp. Sem ele
       // (mensagem antiga), embute a citação no próprio texto.
       const nativeQuote = !!replySnap?.id_mensagem
@@ -1867,11 +1886,13 @@ export default function CompanyConversations() {
         ? `↩️ _${(replySnap.content || 'mensagem').replace(/\s+/g, ' ').trim().slice(0, 120)}_\n\n`
         : ''
       const sentText = citation + text
-      setReplyingTo(null)
-      setMsgText('')
-      setRecordedAudio(null)
-      setRecordTime(0)
-      setAttachedFile(null)
+      if (!override) {
+        setReplyingTo(null)
+        setMsgText('')
+        setRecordedAudio(null)
+        setRecordTime(0)
+        setAttachedFiles([])
+      }
 
       const filePrefix = file
         ? (file.kind === 'image' ? '🖼️ ' : file.kind === 'pdf' ? '📄 ' : file.kind === 'video' ? '🎬 ' : '📎 ') + file.name
@@ -3470,54 +3491,34 @@ export default function CompanyConversations() {
                     </button>
                   </div>
                 )}
-                {attachedFile && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    background: '#EFF6FF', border: '1px solid #BFDBFE',
-                    borderRadius: 8, padding: '8px 12px', marginBottom: 8,
-                  }}>
-                    {attachedFile.kind === 'image' ? (
-                      <img src={`data:${attachedFile.mime};base64,${attachedFile.base64}`}
-                        alt={attachedFile.name}
-                        style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-                    ) : attachedFile.kind === 'video' ? (
-                      <div style={{
-                        width: 44, height: 44, borderRadius: 6,
-                        background: '#EDE9FE', color: '#7C3AED',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                {attachedFiles.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    {attachedFiles.map((af, idx) => (
+                      <div key={idx} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        background: '#EFF6FF', border: '1px solid #BFDBFE',
+                        borderRadius: 8, padding: '6px 8px',
                       }}>
-                        <Film size={20} />
+                        {af.kind === 'image' ? (
+                          <img src={`data:${af.mime};base64,${af.base64}`} alt={af.name}
+                            style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                        ) : af.kind === 'video' ? (
+                          <div style={{ width: 40, height: 40, borderRadius: 6, background: '#EDE9FE', color: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Film size={18} /></div>
+                        ) : (
+                          <div style={{ width: 40, height: 40, borderRadius: 6, background: af.kind === 'pdf' ? '#FEE2E2' : '#E5E7EB', color: af.kind === 'pdf' ? '#DC2626' : '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><FileText size={18} /></div>
+                        )}
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{af.name}</div>
+                          <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                            {af.size >= 1024 * 1024 ? (af.size / (1024 * 1024)).toFixed(1) + ' MB' : (af.size / 1024).toFixed(0) + ' KB'}
+                          </div>
+                        </div>
+                        <button onClick={() => discardFile(idx)} title="Remover"
+                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', borderRadius: 6, width: 24, height: 24, cursor: 'pointer', flexShrink: 0 }}>
+                          <X size={13} />
+                        </button>
                       </div>
-                    ) : (
-                      <div style={{
-                        width: 44, height: 44, borderRadius: 6,
-                        background: attachedFile.kind === 'pdf' ? '#FEE2E2' : '#E5E7EB',
-                        color: attachedFile.kind === 'pdf' ? '#DC2626' : '#6B7280',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                      }}>
-                        <FileText size={20} />
-                      </div>
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {attachedFile.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {attachedFile.size >= 1024 * 1024
-                          ? (attachedFile.size / (1024 * 1024)).toFixed(1) + ' MB'
-                          : (attachedFile.size / 1024).toFixed(0) + ' KB'
-                        } · {attachedFile.kind === 'pdf' ? 'PDF' : attachedFile.kind === 'image' ? 'Imagem' : attachedFile.kind === 'video' ? 'Vídeo' : 'Arquivo'}
-                      </div>
-                    </div>
-                    <button onClick={discardFile} title="Remover arquivo"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        background: '#FEF2F2', border: '1px solid #FECACA',
-                        color: '#DC2626', borderRadius: 6, padding: '5px 10px',
-                        fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
-                      }}>
-                      <Trash2 size={11} /> Remover
-                    </button>
+                    ))}
                   </div>
                 )}
                 {recordedAudio && (
@@ -3583,7 +3584,7 @@ export default function CompanyConversations() {
                     placeholder={
                       !canRespond(selected) ? "Conversa está com outro atendente — você não pode responder"
                       : recordedAudio ? "Mensagem opcional para acompanhar o áudio..."
-                      : attachedFile ? "Mensagem opcional para acompanhar o arquivo..."
+                      : attachedFiles.length ? (attachedFiles.length > 1 ? "Legenda (vai na última imagem)..." : "Mensagem opcional para acompanhar o arquivo...")
                       : "Digite uma mensagem...  (Shift+Enter pula linha)"
                     }
                     value={msgText}
@@ -3603,11 +3604,12 @@ export default function CompanyConversations() {
                   <input
                     ref={fileInputRef}
                     type="file"
+                    multiple
                     accept="image/*,application/pdf,video/*"
                     style={{ display: 'none' }}
                     onChange={handlePickFile}
                   />
-                  {!recording && !recordedAudio && !attachedFile && (
+                  {!recording && !recordedAudio && !attachedFiles.length && (
                     <>
                       <button
                         onClick={() => setShowEmoji(v => !v)}
@@ -3680,7 +3682,7 @@ export default function CompanyConversations() {
                     className="nx-btn-primary"
                     style={{ padding: '0 16px', flexShrink: 0 }}
                     onClick={handleSend}
-                    disabled={(!msgText.trim() && !recordedAudio && !attachedFile && !recording) || sending || !canRespond(selected)}
+                    disabled={(!msgText.trim() && !recordedAudio && !attachedFiles.length && !recording) || sending || !canRespond(selected)}
                   >
                     <Send size={14} />
                   </button>
