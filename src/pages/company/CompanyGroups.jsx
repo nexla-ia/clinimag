@@ -132,8 +132,35 @@ function groupLabel(g) {
   return g.idgrupo.replace('@g.us', '')
 }
 
+// Tira o rótulo de mídia ("🖼️ arquivo", "🎤 Áudio", ...) do começo, deixando o texto.
+function stripMediaLabel(text) {
+  return (text || '').replace(/^(🎤 Áudio|🖼️ [^\n]+|📄 [^\n]+|🎬 [^\n]+|📎 [^\n]+)(\n|$)/, '')
+}
+
+// Colaborador respondeu pelo WhatsApp (fora da plataforma) e se identificou com
+// *Nome* no começo da mensagem. Ex.: "*Andrielly*\nBom dia!" → { nome:'Andrielly', text:'Bom dia!' }.
+// Aceita "*Nome*\ntexto", "*Nome* texto" e "*Nome:*\ntexto". Assim a resposta feita
+// pelo celular aparece igual à feita pela plataforma (nome do colaborador do lado verde).
+function parseSelfIntro(text) {
+  const m = (text || '').match(/^\*[ \t]*([^*\n]{1,40}?)[ \t]*\*[:：]?[ \t]*\n?([\s\S]*)$/)
+  if (!m) return null
+  const nome = m[1].trim()
+  if (!nome) return null
+  return { nome, text: (m[2] || '').trim() }
+}
+
+// Texto para a prévia da lista lateral: sem o "*Nome*" (quando é auto-identificação).
+function previewText(row) {
+  if (!row) return ''
+  const intro = parseSelfIntro(stripMediaLabel(row.mensagem))
+  if (intro && intro.text) return intro.text
+  return row.mensagem || ''
+}
+
 function senderLabel(row) {
   if (row.nome) return row.nome
+  const intro = parseSelfIntro(stripMediaLabel(row.mensagem))
+  if (intro) return intro.nome
   return (row.numero || '').replace(/@.*$/, '')
 }
 
@@ -513,8 +540,10 @@ export default function CompanyGroups() {
   }
   function searchWho(row) {
     const ty = (row.type || '').toLowerCase()
-    if (ty === 'atendente' || ty === 'humano') return row.nome || 'Você'
-    return row.nome || (row.numero || '').replace(/@.*$/, '') || 'Membro'
+    const intro = !row.nome ? parseSelfIntro(stripMediaLabel(row.mensagem)) : null
+    const name = row.nome || (intro && intro.nome)
+    if (ty === 'atendente' || ty === 'humano') return name || 'Você'
+    return name || (row.numero || '').replace(/@.*$/, '') || 'Membro'
   }
   function searchDate(row) {
     return formatTime(parseTs(row), companyTz)
@@ -1375,7 +1404,7 @@ export default function CompanyGroups() {
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
                     {g.lastSenderRow && <strong style={{ fontWeight: 600 }}>{senderLabel(g.lastSenderRow)}: </strong>}
-                    {g.lastMsg}
+                    {g.lastSenderRow ? previewText(g.lastSenderRow) : g.lastMsg}
                   </div>
                   {(() => { const gt = tagsOf(g.idgrupo); return gt.length > 0 ? <TagList tags={gt} size="xs" style={{ marginTop: 4 }} /> : null })()}
                 </div>
@@ -1655,6 +1684,17 @@ export default function CompanyGroups() {
                 const caption = (msg.mensagem || '')
                   .replace(/^(🎤 Áudio|🖼️ [^\n]+|📄 [^\n]+|🎬 [^\n]+|📎 [^\n]+)(\n|$)/, '')
                   .trim()
+                // Colaborador que respondeu pelo WhatsApp (na rua) e se identificou com
+                // *Nome* no começo. Vale quando veio do próprio número da clínica (fromMe)
+                // e ainda não temos o nome no banco. Aí mostramos o nome no lado verde e
+                // limpamos o "*Nome*" do texto — igual à resposta feita pela plataforma.
+                const ownerDigits = String(instanceOwner || '').replace(/@.*$/, '')
+                const msgDigits = (msg.numero || '').replace(/@.*$/, '')
+                const fromClinic = !!ownerDigits && msgDigits === ownerDigits
+                const selfIntro = (!msg.nome && (isAtendente || fromClinic)) ? parseSelfIntro(caption) : null
+                const showAsAtendente = isAtendente || !!selfIntro
+                const displayName = msg.nome || (selfIntro ? selfIntro.nome : null)
+                const bodyText = selfIntro ? selfIntro.text : caption
                 const cards = contactCardsOf(msg.contact_card)
                 const loc = locationOf(msg.location)
                 // "📇 Nome" / "📍 ..." é só rótulo pra lista — dentro da bolha o cartão já mostra tudo
@@ -1663,9 +1703,9 @@ export default function CompanyGroups() {
                 const contactOnly = cards.length > 0 && contactLabelOnly && !media
                 const locationOnly = !!loc && locationLabelOnly && !media && cards.length === 0
                 return (
-                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} data-db-id={msg.id} className={`msg-row ${isAtendente ? 'client' : 'ai'}`}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAtendente ? 'flex-end' : 'flex-start', maxWidth: editingMsgId === msg.id ? '94%' : '70%' }}>
-                      {!isAtendente && (
+                  <div key={msg.id} data-msg-id={msg.id_mensagem || undefined} data-db-id={msg.id} className={`msg-row ${showAsAtendente ? 'client' : 'ai'}`}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: showAsAtendente ? 'flex-end' : 'flex-start', maxWidth: editingMsgId === msg.id ? '94%' : '70%' }}>
+                      {!showAsAtendente && (
                         <span
                           onClick={(e) => {
                             e.stopPropagation()
@@ -1686,10 +1726,11 @@ export default function CompanyGroups() {
                         </span>
                       )}
                       {/* Nome do colaborador que enviou (nosso lado). Igual ao WhatsApp,
-                          que mostra quem falou no grupo. Só quando temos o nome. */}
-                      {isAtendente && msg.nome && (
+                          que mostra quem falou no grupo. Vem do banco (envio pela plataforma)
+                          ou do "*Nome*" que a pessoa digitou ao responder pelo celular. */}
+                      {showAsAtendente && displayName && (
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#16A34A', marginBottom: 3, marginRight: 2 }}>
-                          {msg.nome}
+                          {displayName}
                         </span>
                       )}
                       <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : ((contactOnly || locationOnly) ? 0 : undefined), ...((contactOnly || locationOnly) ? { background: 'transparent', boxShadow: 'none', border: 'none' } : {}) }}>
@@ -1881,11 +1922,10 @@ export default function CompanyGroups() {
                               </button>
                             </div>
                           </div>
-                        ) : caption && !contactLabelOnly && !locationLabelOnly && (
+                        ) : bodyText && !contactLabelOnly && !locationLabelOnly && (
                           <span style={{ whiteSpace: 'pre-wrap', ...(media ? { display: 'block', marginTop: 6 } : {}), ...(msg.apagada ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>
-                            {renderTextWithLinks(caption, {
-                              color: (msg.type || '').toLowerCase() === 'atendente' || (msg.type || '').toLowerCase() === 'humano'
-                                ? 'rgba(255,255,255,0.9)' : '#2563EB',
+                            {renderTextWithLinks(bodyText, {
+                              color: showAsAtendente ? 'rgba(255,255,255,0.9)' : '#2563EB',
                               textDecoration: 'underline',
                             })}
                           </span>
