@@ -274,6 +274,23 @@ export default function CompanyGroups() {
   const bottomRef = useRef(null)
   const chatBodyRef = useRef(null)
   const skipScrollRef = useRef(false)
+  const atBottomRef = useRef(true)        // usuário está no fim do chat?
+  const initialScrollRef = useRef(false)  // já deu o pulo inicial pro fim neste chat?
+  const prevCountRef = useRef(0)          // qtd de mensagens no render anterior
+  function scrollToBottom(behavior = 'auto') {
+    if (behavior === 'smooth') { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); return }
+    const el = chatBodyRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }
+  function handleChatScroll() {
+    const el = chatBodyRef.current
+    if (el) atBottomRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) < 120
+  }
+  // Quando uma mídia lazy termina de carregar e cresce, mantém colado no fim —
+  // mas só se o usuário já estava no fim (não puxa se ele rolou pra cima).
+  function stickIfAtBottom() {
+    if (atBottomRef.current) scrollToBottom('auto')
+  }
   const selectedRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
@@ -574,6 +591,9 @@ export default function CompanyGroups() {
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
+    initialScrollRef.current = false   // novo chat: o próximo render pula pro fim
+    atBottomRef.current = true
+    prevCountRef.current = 0
     supabase.from(CONV_TABLE)
       .select(msgCols)
       .eq('instancia', instance)
@@ -592,8 +612,20 @@ export default function CompanyGroups() {
   }, [selected?.idgrupo, instance])
 
   useEffect(() => {
-    if (skipScrollRef.current) { skipScrollRef.current = false; return }
-    if (!loadingMsgs) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (loadingMsgs) return
+    if (skipScrollRef.current) { skipScrollRef.current = false; prevCountRef.current = messages.length; return }
+    if (!initialScrollRef.current) {
+      // Abertura do chat: pula direto pro fim, SEM animação (não "desce do topo"
+      // nem dispara o carregamento de todas as imagens no caminho).
+      scrollToBottom('auto')
+      initialScrollRef.current = true
+      atBottomRef.current = true
+    } else if (messages.length > prevCountRef.current) {
+      // Mensagem nova: só rola se o usuário já estava no fim.
+      if (atBottomRef.current) scrollToBottom('smooth')
+    }
+    // Se só mudou o base64 (mídia lazy), a contagem não muda → não rola.
+    prevCountRef.current = messages.length
   }, [messages, loadingMsgs])
 
   useEffect(() => {
@@ -1677,7 +1709,7 @@ export default function CompanyGroups() {
               </div>
             )}
 
-            <div ref={chatBodyRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div ref={chatBodyRef} onScroll={handleChatScroll} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 2 }}>
               {!loadingMsgs && hasMoreMsgs && (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 8px' }}>
                   <button onClick={loadMoreMessages} disabled={loadingMoreMsgs} style={{
@@ -1811,6 +1843,7 @@ export default function CompanyGroups() {
                           <div style={{ position: 'relative', display: 'inline-block' }}>
                             <img src={media.src} alt="imagem"
                               onClick={() => setLightbox(media.src)}
+                              onLoad={stickIfAtBottom}
                               style={{ maxWidth: 240, maxHeight: 280, borderRadius: 8, display: 'block', cursor: 'zoom-in' }} />
                             <a href={media.src} download="imagem.jpg" onClick={e => e.stopPropagation()}
                               title="Baixar imagem"
@@ -1820,7 +1853,7 @@ export default function CompanyGroups() {
                           </div>
                         )}
                         {media?.type === 'video' && (
-                          <video controls src={media.src}
+                          <video controls src={media.src} onLoadedData={stickIfAtBottom}
                             style={{ maxWidth: 240, borderRadius: 8, display: 'block' }} />
                         )}
                         {media?.type === 'pdf' && (

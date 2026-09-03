@@ -438,6 +438,22 @@ export default function CompanyConversations() {
   const bottomRef    = useRef(null)
   const chatBodyRef  = useRef(null)
   const skipScrollRef = useRef(false)
+  const atBottomRef = useRef(true)        // usuário está no fim do chat?
+  const initialScrollRef = useRef(false)  // já deu o pulo inicial pro fim nesta conversa?
+  const prevCountRef = useRef(0)          // qtd de mensagens no render anterior
+  function scrollToBottom(behavior = 'auto') {
+    if (behavior === 'smooth') { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); return }
+    const el = chatBodyRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }
+  function handleChatScroll() {
+    const el = chatBodyRef.current
+    if (el) atBottomRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) < 120
+  }
+  // Mídia lazy que cresceu ao carregar: mantém colado no fim só se o usuário já estava lá.
+  function stickIfAtBottom() {
+    if (atBottomRef.current) scrollToBottom('auto')
+  }
 
   // Auto-cresce o composer conforme digita (até ~5 linhas), tipo WhatsApp
   useEffect(() => {
@@ -1230,6 +1246,9 @@ export default function CompanyConversations() {
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
+    initialScrollRef.current = false   // nova conversa: o próximo render pula pro fim
+    atBottomRef.current = true
+    prevCountRef.current = 0
     supabase.from(CONV_TABLE).select(msgCols)
       .eq('instancia', instance)
       .in('numero', numeroVariants(selected.session_id))
@@ -1356,8 +1375,17 @@ export default function CompanyConversations() {
   }
 
   useEffect(() => {
-    if (skipScrollRef.current) { skipScrollRef.current = false; return }
-    if (!loadingMsgs) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (loadingMsgs) return
+    if (skipScrollRef.current) { skipScrollRef.current = false; prevCountRef.current = messages.length; return }
+    if (!initialScrollRef.current) {
+      // Abertura da conversa: pula direto pro fim, SEM animação.
+      scrollToBottom('auto')
+      initialScrollRef.current = true
+      atBottomRef.current = true
+    } else if (messages.length > prevCountRef.current) {
+      if (atBottomRef.current) scrollToBottom('smooth')
+    }
+    prevCountRef.current = messages.length
   }, [messages, loadingMsgs])
 
   // Scroll para o fim ao abrir edição (evita textarea ficar atrás do compositor)
@@ -3075,7 +3103,7 @@ export default function CompanyConversations() {
               </div>
             )}
 
-            <div className="chat-body" ref={chatBodyRef}>
+            <div className="chat-body" ref={chatBodyRef} onScroll={handleChatScroll}>
               {loadingMsgs && (
                 <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', marginTop: '2rem' }}>
                   Carregando mensagens...
@@ -3200,11 +3228,11 @@ export default function CompanyConversations() {
                                 <AudioPlayer src={src} style={{ marginBottom: hasOnlyMedia ? 0 : 6 }} />
                               )
                               if (media.type === 'image') return (
-                                <img src={src} alt="mídia" style={{ maxWidth: 280, width: '100%', borderRadius: 8, display: 'block', marginBottom: hasOnlyMedia ? 0 : 6, cursor: 'zoom-in' }}
+                                <img src={src} alt="mídia" onLoad={stickIfAtBottom} style={{ maxWidth: 280, width: '100%', borderRadius: 8, display: 'block', marginBottom: hasOnlyMedia ? 0 : 6, cursor: 'zoom-in' }}
                                   onClick={() => setLightbox(src)} />
                               )
                               if (media.type === 'video') return (
-                                <video controls style={{ maxWidth: 280, width: '100%', borderRadius: 8, display: 'block', marginBottom: hasOnlyMedia ? 0 : 6 }}>
+                                <video controls onLoadedData={stickIfAtBottom} style={{ maxWidth: 280, width: '100%', borderRadius: 8, display: 'block', marginBottom: hasOnlyMedia ? 0 : 6 }}>
                                   <source src={src} type={media.mime} />
                                 </video>
                               )
