@@ -90,6 +90,7 @@ export default function CompanyCRM() {
   const [memberships, setMemberships] = useState([]) // vínculos extras lead↔funil (crm_contact_funnels)
   const [supportsRemovido, setSupportsRemovido] = useState(false) // coluna removido existe? (migração rodou)
   const [nameMap, setNameMap]         = useState({}) // telefone canônico → nome (contatos salvos + clientes)
+  const [ownNames, setOwnNames]       = useState(() => new Set()) // nomes da PRÓPRIA clínica (p/ ignorar poluição)
   const [panelTimeline, setPanelTimeline] = useState([])
   const [panelLoading, setPanelLoading]  = useState(false)
   const [users, setUsers]               = useState([])
@@ -207,18 +208,37 @@ export default function CompanyCRM() {
   // (o nome salvo à mão pela clínica tem prioridade sobre o pushname).
   async function loadNameMap() {
     if (!instance) return
-    const map = {}
-    // clientes primeiro (pushname), saved_contacts por cima (nome salvo à mão vence).
+    const ownNumber = normPhone(session?.company?.numero_base)
+    const raw = {}                 // telefone → nome bruto (clientes/pushname)
+    const counts = {}              // nome(lower) → conjunto de telefones distintos
     const clientes = await fetchAll('clientes', 'numero,nome', q => q.eq('instancia', instance))
     for (const c of clientes) {
       const k = normPhone(c.numero)
-      if (k && c.nome && c.nome.trim()) map[k] = c.nome.trim()
+      const nm = (c.nome || '').trim()
+      if (!k || !nm) continue
+      raw[k] = nm
+      const low = nm.toLowerCase()
+      ;(counts[low] || (counts[low] = new Set())).add(k)
     }
+    // Nomes da PRÓPRIA clínica que poluem os leads: (1) o cadastro da empresa,
+    // (2) o nome de perfil do WhatsApp da clínica (o número próprio), e (3) qualquer
+    // nome que apareça em muitos telefones diferentes — sinal de que é o nome da
+    // clínica copiado pelo n8n (uma pessoa real não repete em 4+ números).
+    const own = new Set()
+    const cn = (session?.company?.name || '').trim().toLowerCase()
+    if (cn) own.add(cn)
+    if (ownNumber && raw[ownNumber]) own.add(raw[ownNumber].toLowerCase())
+    for (const [low, set] of Object.entries(counts)) if (set.size >= 4) own.add(low)
+    // Map final ignorando os nomes próprios.
+    const map = {}
+    for (const [k, nm] of Object.entries(raw)) if (!own.has(nm.toLowerCase())) map[k] = nm
+    // saved_contacts por cima (nome salvo à mão sempre vence).
     const salvos = await fetchAll('saved_contacts', 'numero,nome', q => q.eq('instancia', instance))
     for (const s of salvos) {
       const k = normPhone(s.numero)
       if (k && s.nome && s.nome.trim()) map[k] = s.nome.trim()
     }
+    setOwnNames(own)
     setNameMap(map)
   }
 
@@ -227,9 +247,13 @@ export default function CompanyCRM() {
   // a clínica responde e o fluxo pega o remetente errado), ignoramos esse nome e
   // usamos o nome real do cliente (contatos salvos / clientes).
   const ownName = (session?.company?.name || '').trim().toLowerCase()
+  function isOwnName(nm) {
+    const low = (nm || '').trim().toLowerCase()
+    return !low || low === ownName || ownNames.has(low)
+  }
   function bestName(c) {
     const crmNome = (c?.nome || '').trim()
-    if (crmNome && crmNome.toLowerCase() !== ownName) return crmNome
+    if (crmNome && !isOwnName(crmNome)) return crmNome
     return nameMap[normPhone(c?.phone)] || ''
   }
   function resolveName(c) {
