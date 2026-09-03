@@ -387,6 +387,7 @@ export default function CompanyConversations() {
   const [crmFunnelId, setCrmFunnelId]     = useState(null)
   const [crmStages, setCrmStages]         = useState([])  // TODAS as etapas (de todos os funis), com funil_id
   const [crmFunnels, setCrmFunnels]       = useState([])  // funis (CRMs) da clínica: [{id, nome}]
+  const [crmMenuFunnel, setCrmMenuFunnel] = useState(null) // funil escolhido no seletor do menu
   const [crmLeadMap, setCrmLeadMap]       = useState({})  // telefone canônico → { id, stage_id }
   const [crmMenuOpen, setCrmMenuOpen]     = useState(false)
   const [moreMenuOpen, setMoreMenuOpen]   = useState(false) // menu "⋯ Mais" do cabeçalho da conversa
@@ -658,7 +659,7 @@ export default function CompanyConversations() {
   }, [instance])
 
   // Fecha o menu do CRM ao trocar de conversa
-  useEffect(() => { setCrmMenuOpen(false); setMoreMenuOpen(false); setCrmSubOpen(false) }, [selected?.session_id])
+  useEffect(() => { setCrmMenuOpen(false); setMoreMenuOpen(false); setCrmSubOpen(false); setCrmMenuFunnel(null) }, [selected?.session_id])
   // Recolhe o submenu do CRM quando o menu ⋯ fecha
   useEffect(() => { if (!moreMenuOpen) setCrmSubOpen(false) }, [moreMenuOpen])
 
@@ -711,16 +712,25 @@ export default function CompanyConversations() {
       return <div style={{ padding: small ? '6px 8px' : '8px 10px', fontSize: 12, color: 'var(--text-muted)' }}>Nenhuma etapa no CRM ainda.</div>
     }
     const multi = crmFunnels.length > 1
-    const groups = (crmFunnels.length ? crmFunnels : [{ id: '__all', nome: '' }])
-      .map(f => ({ f, stages: crmStages.filter(s => crmFunnels.length ? s.funil_id === f.id : true) }))
-      .filter(g => g.stages.length)
-    const shown = new Set(groups.flatMap(g => g.stages.map(s => s.id)))
-    const orphans = crmStages.filter(s => !shown.has(s.id))
-    if (orphans.length) groups.push({ f: { id: '__o', nome: 'Outras' }, stages: orphans })
-    return groups.map(({ f, stages }) => (
-      <div key={f.id}>
-        {(multi || f.id === '__o') && (
-          <div style={{ fontSize: 10, fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '7px 8px 3px' }}>{f.nome || 'Funil'}</div>
+    // Funil ativo: o escolhido no seletor, ou o do lead atual, ou o primeiro.
+    const leadFunnel = crmStages.find(s => s.id === curStageId)?.funil_id
+    const activeFunnel = crmMenuFunnel || leadFunnel || crmFunnels[0]?.id || null
+    const stages = multi ? crmStages.filter(s => s.funil_id === activeFunnel) : crmStages
+    return (
+      <>
+        {multi && (
+          <select
+            value={activeFunnel || ''}
+            onClick={e => e.stopPropagation()}
+            onChange={e => setCrmMenuFunnel(e.target.value)}
+            title="Escolha o funil (CRM)"
+            style={{
+              width: '100%', margin: '2px 0 8px', padding: '7px 8px',
+              border: '1px solid #C7D2FE', borderRadius: 7, background: '#F5F3FF',
+              fontSize: 12, fontWeight: 700, color: '#4F46E5', cursor: 'pointer',
+            }}>
+            {crmFunnels.map(f => <option key={f.id} value={f.id}>{f.nome || 'Funil'}</option>)}
+          </select>
         )}
         {stages.map(s => {
           const active = curStageId === s.id
@@ -741,8 +751,11 @@ export default function CompanyConversations() {
             </button>
           )
         })}
-      </div>
-    ))
+        {!stages.length && (
+          <div style={{ padding: small ? '6px 8px' : '8px 10px', fontSize: 12, color: 'var(--text-muted)' }}>Nenhuma etapa neste funil.</div>
+        )}
+      </>
+    )
   }
 
   function openSaveContact(contact) {
