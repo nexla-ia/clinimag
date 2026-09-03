@@ -1111,6 +1111,12 @@ export default function CompanyGroups() {
             session_id: selected?.idgrupo,
             idgrupo: selected?.idgrupo,
             numero: instanceOwner || selected?.idgrupo,
+            // No grupo, o remoteJid do key é o próprio grupo (@g.us) — SEM colar
+            // @s.whatsapp.net. E o participant é quem mandou (o dono da instância,
+            // pois é fromMe). Igual ao fluxo de apagar, pra o Evolution casar o key.
+            remoteJid: selected?.idgrupo || '',
+            participant: (msg.numero || instanceOwner || '').replace(/@.*/, ''),
+            fromMe: 'true',
             nomegrupo: selected?.nomegrupo || null,
             instancia: instance,
             api_instancia: apiInstancia,
