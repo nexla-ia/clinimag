@@ -12,9 +12,13 @@ import { useContactTags, TagPicker, TagList, TagFilter, stripPhoneSuffix, buildT
 import QuickMessages from '../../components/QuickMessages'
 import ConfirmModal from '../../components/ConfirmModal'
 import ImageLightbox from '../../components/ImageLightbox'
+import LazyMedia, { announcesMediaKind } from '../../components/LazyMedia'
 import './Company.css'
 
 const CONV_TABLE = 'mensagens_geral'
+
+// Colunas do thread SEM o base64 (mídia baixada sob demanda, on-view) — corta egress.
+const MSG_COLS = 'id, nome, instancia, numero, mensagem, "horaLastMessage", type, created_at, id_mensagem, aplicativo, recipient_id, idgrupo, nomegrupo, apagada, quoted_id_mensagem, quoted_text, contact_card, location, reaction, tem_midia'
 
 function formatPhone(val) {
   return (val || '').replace(/@.*$/, '')
@@ -362,6 +366,16 @@ export default function CompanyConversations() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
+  // Colunas do thread: '*' (seguro) até confirmar que tem_midia existe, então
+  // vira o modo leve (sem base64). Evita quebra por ordem de deploy da migration.
+  const [msgCols, setMsgCols] = useState('*')
+  useEffect(() => {
+    let active = true
+    supabase.from(CONV_TABLE).select('tem_midia').limit(1).then(({ error }) => {
+      if (active && !error) setMsgCols(MSG_COLS)
+    })
+    return () => { active = false }
+  }, [])
   const [closeModal, setCloseModal]   = useState(null)
   const [reason, setReason]           = useState('')
   const [customReasons, setCustomReasons] = useState([]) // motivos criados pela empresa
@@ -1216,7 +1230,7 @@ export default function CompanyConversations() {
     setLoadingMsgs(true)
     setMessages([])
     setHasMoreMsgs(false)
-    supabase.from(CONV_TABLE).select('*')
+    supabase.from(CONV_TABLE).select(msgCols)
       .eq('instancia', instance)
       .in('numero', numeroVariants(selected.session_id))
       .is('idgrupo', null)
@@ -1238,6 +1252,7 @@ export default function CompanyConversations() {
             type: getMessageType(r),
             content: getMessageContent(r),
             base64: r.base64 || null,
+            temMidia: r.tem_midia,
             apagada: r.apagada || false,
             reaction: r.reaction || null,
             nome: r.nome || null,
@@ -1256,7 +1271,7 @@ export default function CompanyConversations() {
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
     const { data, error } = await supabase.from(CONV_TABLE)
-      .select('*')
+      .select(msgCols)
       .eq('instancia', instance)
       .in('numero', numeroVariants(selected.session_id))
       .is('idgrupo', null)
@@ -1277,6 +1292,7 @@ export default function CompanyConversations() {
         type: getMessageType(r),
         content: getMessageContent(r),
         base64: r.base64 || null,
+        temMidia: r.tem_midia,
         apagada: r.apagada || false,
         reaction: r.reaction || null,
         nome: r.nome || null,
@@ -2237,6 +2253,7 @@ export default function CompanyConversations() {
       type: getMessageType(r),
       content: getMessageContent(r),
       base64: r.base64 || null,
+      temMidia: r.tem_midia,
       apagada: r.apagada || false,
       nome: r.nome || null,
       ts: getTimestamp(r),
@@ -2253,7 +2270,7 @@ export default function CompanyConversations() {
     const esc = q.replace(/[\\%_]/g, s => '\\' + s)
     const h = setTimeout(async () => {
       const { data } = await supabase.from(CONV_TABLE)
-        .select('*')
+        .select(msgCols)
         .eq('instancia', instance)
         .in('numero', numeroVariants(selected.session_id))
         .is('idgrupo', null)
@@ -2274,7 +2291,7 @@ export default function CompanyConversations() {
     if (messages.some(m => m.id === row.id)) { flashDbMessage(row.id); return }
     setJumpingTo(row.id)
     const oldestId = messages[0]?.id
-    let query = supabase.from(CONV_TABLE).select('*')
+    let query = supabase.from(CONV_TABLE).select(msgCols)
       .eq('instancia', instance).in('numero', numeroVariants(selected.session_id))
       .is('idgrupo', null).or('aplicativo.eq.whatsapp,aplicativo.is.null')
       .gte('id', row.id).order('id', { ascending: false }).limit(1000)
@@ -3106,6 +3123,10 @@ export default function CompanyConversations() {
                       {(() => {
                         const media = detectMedia(msg.base64)
                         const rawContent = msg.content || ''
+                        // Mídia ainda não baixada (tem_midia nas novas, rótulo emoji nas antigas):
+                        // baixa o base64 sob demanda quando a bolha aparece na tela.
+                        const lazyKind = announcesMediaKind(rawContent)
+                        const wantsMedia = !media && (msg.temMidia === true || (msg.temMidia == null && !!lazyKind))
                         const fileLineMatch = rawContent.match(/^(🎤 Áudio|🖼️ [^\n]+|📄 [^\n]+|🎬 [^\n]+|📎 [^\n]+)(\n([\s\S]*))?$/)
                         const fileLine = fileLineMatch?.[1] || null
                         const extraText = fileLineMatch?.[3]?.trim() || ''
@@ -3117,7 +3138,7 @@ export default function CompanyConversations() {
                         const contactLabelOnly = cards.length > 0 && /^📇/.test(rawContent.trim())
                         const locationLabelOnly = !!loc && /^📍/.test(rawContent.trim())
                         const displayContent = (contactLabelOnly || locationLabelOnly) ? '' : (isPlaceholder ? extraText : rawContent)
-                        const hasOnlyMedia = media && !displayContent
+                        const hasOnlyMedia = (media || wantsMedia) && !displayContent
                         // Só um contato/localização compartilhado (sem texto/mídia) → bolha "nua"
                         const contactOnly = cards.length > 0 && !displayContent && !media
                         const locationOnly = !!loc && !displayContent && !media && cards.length === 0
@@ -3213,35 +3234,12 @@ export default function CompanyConversations() {
                               }
                               return null
                             })()}
-                            {isImage && !msg.base64 && (
-                              <div style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 5,
-                                fontSize: 11, fontWeight: 600, color: '#6B7280',
-                                background: '#F3F4F6', border: '1px solid #E5E7EB',
-                                borderRadius: 6, padding: '2px 8px', marginBottom: 6,
-                              }}>🖼️ Imagem enviada</div>
-                            )}
-                            {fileLine?.startsWith('🎬') && !media && (
-                              <div style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 10,
-                                background: '#F5F3FF', border: '1px solid #DDD6FE',
-                                borderRadius: 8, padding: '10px 14px', marginBottom: extraText ? 6 : 0,
-                                minWidth: 200,
-                              }}>
-                                <div style={{
-                                  width: 36, height: 36, borderRadius: 6, background: '#EDE9FE',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  color: '#7C3AED', flexShrink: 0,
-                                }}>
-                                  <Film size={18} />
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {fileLine.replace(/^🎬\s*/, '')}
-                                  </div>
-                                  <div style={{ fontSize: 11, color: '#6B7280' }}>Vídeo enviado</div>
-                                </div>
-                              </div>
+                            {wantsMedia && (
+                              <LazyMedia
+                                id={msg.id}
+                                kind={lazyKind || 'image'}
+                                onLoaded={(b64) => setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, base64: b64 } : m))}
+                              />
                             )}
                             {/* Cartão de contato compartilhado (vCard) */}
                             {cards.map((cc, ci) => (

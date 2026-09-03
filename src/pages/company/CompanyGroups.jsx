@@ -12,6 +12,7 @@ import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '.
 import QuickMessages from '../../components/QuickMessages'
 import ImageLightbox from '../../components/ImageLightbox'
 import ConfirmModal from '../../components/ConfirmModal'
+import LazyMedia, { announcesMediaKind } from '../../components/LazyMedia'
 import './Company.css'
 
 function getMutedGroups(instance) {
@@ -22,6 +23,10 @@ function setMutedGroups(instance, arr) {
 }
 
 const CONV_TABLE = 'mensagens_geral'
+
+// Colunas do thread SEM o base64 (mídia é baixada sob demanda, on-view). Corta
+// o egress: abrir um chat não baixa mais a mídia inteira de 50 mensagens.
+const MSG_COLS = 'id, nome, instancia, numero, mensagem, "horaLastMessage", type, created_at, id_mensagem, aplicativo, recipient_id, idgrupo, nomegrupo, apagada, quoted_id_mensagem, quoted_text, contact_card, location, reaction, tem_midia'
 
 const URL_REGEX = /(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+\.[^\s<>"]{2,})/gi
 
@@ -246,6 +251,16 @@ export default function CompanyGroups() {
   const [lightbox, setLightbox] = useState(null)       // src da imagem em tela cheia
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
+  // Colunas do thread: começa em '*' (seguro) e vira o modo leve (sem base64) só
+  // depois de confirmar que a coluna tem_midia existe — pra ordem de deploy não quebrar.
+  const [msgCols, setMsgCols] = useState('*')
+  useEffect(() => {
+    let active = true
+    supabase.from(CONV_TABLE).select('tem_midia').limit(1).then(({ error }) => {
+      if (active && !error) setMsgCols(MSG_COLS)
+    })
+    return () => { active = false }
+  }, [])
   const [searchOpen, setSearchOpen]       = useState(false) // busca dentro do grupo (estilo WhatsApp)
   const [searchTerm, setSearchTerm]       = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -476,7 +491,7 @@ export default function CompanyGroups() {
     const esc = q.replace(/[\\%_]/g, s => '\\' + s)
     const h = setTimeout(async () => {
       const { data } = await supabase.from(CONV_TABLE)
-        .select('*')
+        .select(msgCols)
         .eq('instancia', instance)
         .eq('idgrupo', selected.idgrupo)
         .ilike('mensagem', `%${esc}%`)
@@ -507,7 +522,7 @@ export default function CompanyGroups() {
     if (messages.some(m => m.id === row.id)) { flashDbMessage(row.id); return }
     setJumpingTo(row.id)
     const oldestId = messages[0]?.id
-    let query = supabase.from(CONV_TABLE).select('*')
+    let query = supabase.from(CONV_TABLE).select(msgCols)
       .eq('instancia', instance).eq('idgrupo', selected.idgrupo)
       .gte('id', row.id).order('id', { ascending: false }).limit(1000)
     if (oldestId) query = query.lt('id', oldestId)
@@ -560,7 +575,7 @@ export default function CompanyGroups() {
     setMessages([])
     setHasMoreMsgs(false)
     supabase.from(CONV_TABLE)
-      .select('*')
+      .select(msgCols)
       .eq('instancia', instance)
       .eq('idgrupo', idAtual)
       .order('id', { ascending: false })
@@ -1189,7 +1204,7 @@ export default function CompanyGroups() {
     setLoadingMoreMsgs(true)
     const prevScrollHeight = chatBodyRef.current?.scrollHeight || 0
     const { data } = await supabase.from(CONV_TABLE)
-      .select('*')
+      .select(msgCols)
       .eq('instancia', instance)
       .eq('idgrupo', selected.idgrupo)
       .lt('id', oldestId)
@@ -1678,6 +1693,10 @@ export default function CompanyGroups() {
                 const isAtendente = type === 'atendente' || type === 'humano'
                 const ts = parseTs(msg)
                 const media = detectMedia(msg.base64)
+                // Mídia ainda não baixada: tem_midia (novas) ou rótulo emoji (antigas).
+                // O base64 é buscado sob demanda quando a bolha aparece na tela.
+                const mediaKind = announcesMediaKind(msg.mensagem)
+                const wantsMedia = !media && (msg.tem_midia === true || (msg.tem_midia == null && !!mediaKind))
                 // Legenda da mídia: tira o prefixo "🖼️ arquivo" / "🎤 Áudio" / etc.,
                 // deixando só o texto que a pessoa escreveu junto (a legenda). Em
                 // mensagem de texto normal, o replace não casa e mantém o texto todo.
@@ -1772,6 +1791,13 @@ export default function CompanyGroups() {
                             </div>
                           )
                         })()}
+                        {wantsMedia && (
+                          <LazyMedia
+                            id={msg.id}
+                            kind={mediaKind || 'image'}
+                            onLoaded={(b64) => setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, base64: b64 } : m))}
+                          />
+                        )}
                         {media?.type === 'audio' && (
                           <audio controls src={media.src} style={{ maxWidth: 240, height: 32 }} />
                         )}
