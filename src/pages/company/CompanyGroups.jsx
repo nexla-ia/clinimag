@@ -2177,7 +2177,7 @@ export default function CompanyGroups() {
               )}
 
               {/* Input row */}
-              <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+              <div className="chat-composer" style={{ display: 'flex', gap: 8, position: 'relative' }}>
                 {/* Emoji picker popup */}
                 {showEmoji && (
                   <div ref={emojiPickerRef} style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, zIndex: 9999 }}>

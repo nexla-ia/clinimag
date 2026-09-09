@@ -550,6 +550,16 @@
     padding: 8px 10px !important;
   }
   .chat-banner-long { display: none; }
+
+  /* Compositor no celular: o campo de texto ocupa a linha inteira (fácil de tocar)
+     e os botões (emoji, anexo, áudio, enviar…) descem pra linha de baixo. */
+  .chat-composer {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .chat-composer .chat-composer-input {
+    flex: 1 1 100% !important;
+  }
 }
 
 /* ═══ Administração (painel company) — layout ═════════════════════════════
