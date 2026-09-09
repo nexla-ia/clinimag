@@ -631,8 +631,8 @@ export default function CompanyConversations() {
     if (existing) {
       setSelected(existing)
       // Se está finalizada, força aba certa para visualizar
-      if (closedMap[existing.session_id]) setTab('finalizados')
-      else if (attendancesMap[existing.session_id]) setTab('meu-setor')
+      if (closedMap[canonSession(existing.session_id)]) setTab('finalizados')
+      else if (attendancesMap[canonSession(existing.session_id)]) setTab('meu-setor')
       else setTab('recepcao')
     } else {
       const synthetic = { session_id: sessionId, phone: cleanTarget, lastTs: null }
@@ -845,7 +845,7 @@ export default function CompanyConversations() {
   // ela não pode mais ler — sem precisar recarregar a página.
   useEffect(() => {
     if (!selected) return
-    if (!attVisible(attendancesMap[selected.session_id])) setSelected(null)
+    if (!attVisible(attendancesMap[canonSession(selected.session_id)])) setSelected(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.session_id, attendancesMap, userSector?.id, isAdmin, companyHasSectors])
 
@@ -1061,6 +1061,37 @@ export default function CompanyConversations() {
       })
   }, [instance])
 
+  // Re-sincroniza finalizadas + atendimentos quando a aba volta ao foco. O realtime
+  // só escuta INSERT e pode perder eventos (aba em segundo plano, reconexão), então
+  // uma conversa podia aparecer ABERTA mesmo já finalizada no banco ("reabre sozinho")
+  // — ou o contrário. Recarregar do banco ao focar reflete o estado real nos dois sentidos.
+  useEffect(() => {
+    if (!instance) return
+    const resync = () => {
+      if (document.visibilityState !== 'visible') return
+      supabase.from('conversations').select('session_id, reason').eq('instancia', instance)
+        .then(({ data }) => {
+          if (!data) return
+          const map = {}
+          data.forEach(r => { map[canonSession(r.session_id)] = r.reason || 'resolvido' })
+          setClosedMap(map)
+        })
+      supabase.from('attendances').select('*').eq('instancia', instance)
+        .then(({ data }) => {
+          if (!data) return
+          const map = {}
+          data.forEach(r => { map[canonSession(r.numero)] = r })
+          setAttendancesMap(map)
+        })
+    }
+    document.addEventListener('visibilitychange', resync)
+    window.addEventListener('focus', resync)
+    return () => {
+      document.removeEventListener('visibilitychange', resync)
+      window.removeEventListener('focus', resync)
+    }
+  }, [instance])
+
   // Auto-encerra tickets sem atividade após AUTO_CLOSE_HOURS horas.
   // Só espera os atendimentos carregarem pra NÃO encerrar (e tirar do setor)
   // uma conversa que alguém já assumiu.
@@ -1070,8 +1101,8 @@ export default function CompanyConversations() {
 
     const cutoff = Date.now() - AUTO_CLOSE_HOURS * 3600_000
     const toClose = contacts.filter(c =>
-      !closedMap[c.session_id] &&
-      !attendancesMap[c.session_id] &&   // já assumida por alguém → NÃO encerra
+      !closedMap[canonSession(c.session_id)] &&
+      !attendancesMap[canonSession(c.session_id)] &&   // já assumida por alguém → NÃO encerra
       c.lastTs &&
       new Date(c.lastTs).getTime() < cutoff &&
       !isWaitingPatient(c)   // esperando o paciente → não encerra
@@ -1458,7 +1489,7 @@ export default function CompanyConversations() {
 
   async function handleAssume(contact, e) {
     e?.stopPropagation()
-    if (attendancesMap[contact.session_id] || assuming === contact.session_id) return
+    if (attendancesMap[canonSession(contact.session_id)] || assuming === contact.session_id) return
     setAssuming(contact.session_id)
     const name = session?.user?.name || 'Atendente'
     const sectorLabel = userSector ? ` (${userSector.name})` : ''
@@ -1547,7 +1578,7 @@ export default function CompanyConversations() {
   }
 
   async function handlePullConversation(contact) {
-    const att = attendancesMap[contact.session_id]
+    const att = attendancesMap[canonSession(contact.session_id)]
     if (!att) return
     const meName = session?.user?.name || 'Atendente'
     const meEmail = session?.user?.email
@@ -1872,8 +1903,8 @@ export default function CompanyConversations() {
   // Regra: dono da conversa OU admin OU conversa ainda sem atendimento.
   function canRespond(contact) {
     if (!contact) return false
-    if (closedMap[contact.session_id]) return false
-    const att = attendancesMap[contact.session_id]
+    if (closedMap[canonSession(contact.session_id)]) return false
+    const att = attendancesMap[canonSession(contact.session_id)]
     if (!att) return true
     if (isAdmin) return true
     return att.attendant_email === session?.user?.email
@@ -1886,7 +1917,7 @@ export default function CompanyConversations() {
     const override = opts.file !== undefined
     if (sending && !override) return
     if (!canRespond(selected)) {
-      const att = attendancesMap[selected.session_id]
+      const att = attendancesMap[canonSession(selected.session_id)]
       setToast({
         message: `Conversa em atendimento por ${att?.attendant_name || 'outro atendente'}. Peça pra ele transferir ou finalize antes.`,
         color: '#DC2626',
@@ -2417,10 +2448,14 @@ export default function CompanyConversations() {
   }
 
   const closed = new Set(Object.keys(closedMap))
-  const recepcao    = contacts.filter(c => !closed.has(c.session_id) && !attendancesMap[c.session_id])
-  const meuSetor    = contacts.filter(c => !closed.has(c.session_id) && attendancesMap[c.session_id] &&
-    attVisible(attendancesMap[c.session_id]))
-  const finalizados = contacts.filter(c => closed.has(c.session_id))
+  // closedMap/attendancesMap são indexados por canonSession — SEMPRE consultar
+  // pela forma canônica (com/sem o 9, com/sem @s.whatsapp.net batem no mesmo).
+  // Sem isso, uma conversa finalizada com forma de número diferente da lista
+  // caía na Recepção como se tivesse "reaberto sozinha".
+  const recepcao    = contacts.filter(c => !closed.has(canonSession(c.session_id)) && !attendancesMap[canonSession(c.session_id)])
+  const meuSetor    = contacts.filter(c => !closed.has(canonSession(c.session_id)) && attendancesMap[canonSession(c.session_id)] &&
+    attVisible(attendancesMap[canonSession(c.session_id)]))
+  const finalizados = contacts.filter(c => closed.has(canonSession(c.session_id)))
 
   const tabList = [
     { id: 'recepcao',    label: 'Recepção',              icon: Inbox,      count: recepcao.length },
@@ -2442,7 +2477,7 @@ export default function CompanyConversations() {
     })
     .filter(c => tagMatch(c.phone))
     .filter(c => !onlyUnread || unreadCounts[c.session_id] > 0)
-  const isClosed = selected ? closed.has(selected.session_id) : false
+  const isClosed = selected ? closed.has(canonSession(selected.session_id)) : false
 
   // Seleção múltipla (só nas abas não-finalizadas)
   const selectableIds = filtered.map(c => c.session_id)
@@ -2540,9 +2575,9 @@ export default function CompanyConversations() {
             </div>
           )}
           {filtered.map(c => {
-            const att = attendancesMap[c.session_id]
+            const att = attendancesMap[canonSession(c.session_id)]
             const isAssuming = assuming === c.session_id
-            const closedReason = closedMap[c.session_id]
+            const closedReason = closedMap[canonSession(c.session_id)]
             const rs = closedReason ? findReason(closedReason) : null
             const cleanNum = c.phone.replace(/\D/g, '')
             const saved = savedContacts[cleanNum]
@@ -2748,7 +2783,7 @@ export default function CompanyConversations() {
                 const saved = savedContacts[cleanNum]
                 const nome = saved?.nome || ''
                 const hasContact = !!saved
-                const att = attendancesMap[selected.session_id]
+                const att = attendancesMap[canonSession(selected.session_id)]
                 const myEmail = session?.user?.email
                 const isOwner = att?.attendant_email === myEmail
                 const isElse  = att && !isOwner
@@ -2920,7 +2955,7 @@ export default function CompanyConversations() {
                     )
                   })()}
                   {(() => {
-                    const rs = findReason(closedMap[selected.session_id])
+                    const rs = findReason(closedMap[canonSession(selected.session_id)])
                     return rs ? (
                       <span style={{
                         fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20,
@@ -2982,7 +3017,7 @@ export default function CompanyConversations() {
             {/* Banner: conversa assumida por outro atendente (não-dono e não-admin) */}
             {(() => {
               if (isClosed) return null
-              const att = attendancesMap[selected.session_id]
+              const att = attendancesMap[canonSession(selected.session_id)]
               if (!att) return null
               const isOwner = att.attendant_email === session?.user?.email
               if (isOwner || isAdmin) return null
@@ -3009,7 +3044,7 @@ export default function CompanyConversations() {
                 significa que alguém respondeu por fora (direto no WhatsApp) — mostra
                 aviso laranja em vez do banner azul "sob IA". */}
             {(() => {
-              if (isClosed || attendancesMap[selected.session_id]) return null
+              if (isClosed || attendancesMap[canonSession(selected.session_id)]) return null
               const respondidaPorFora = messages.some(m => {
                 const t = (m.type || '').toLowerCase()
                 return t === 'atendente' || t === 'humano'
