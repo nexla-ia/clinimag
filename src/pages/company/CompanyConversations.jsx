@@ -2710,7 +2710,7 @@ export default function CompanyConversations() {
                         </div>
                       )
                     })()}
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="chat-id" style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <div
                           style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', cursor: saved ? 'pointer' : 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}

@@ -478,11 +478,18 @@
   .chat-header {
     padding: 10px 12px;
     gap: 8px;
+    row-gap: 10px;
     flex-wrap: wrap;
   }
   .chat-header .nx-btn-ghost {
     padding: 7px 10px !important;
     font-size: 11.5px !important;
+  }
+  /* O bloco do nome/telefone segura a 1ª linha (não encolhe abaixo de ~62%),
+     empurrando os botões de ação (busca, etiquetas, CRM, etc.) pra 2ª linha —
+     em vez de espremer/sobrepor o nome. */
+  .chat-header .chat-id {
+    flex: 1 0 62% !important;
   }
 
   /* Banner WhatsApp: empilha texto e botão */

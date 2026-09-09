@@ -1478,13 +1478,14 @@ export default function CompanyGroups() {
           <>
             <div className="chat-header">
               <button
-                className="chat-back-mobile nx-btn-ghost"
+                type="button"
+                className="chat-back-mobile"
                 onClick={() => setSelected(null)}
-                style={{ display: 'none' }}
+                aria-label="Voltar para a lista de grupos"
               >
-                <ChevronLeft size={16} />
+                <ChevronLeft size={20} />
               </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+              <div className="chat-id" style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
                 <div style={{
                   width: 36, height: 36, borderRadius: '50%',
                   background: '#E0E7FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
