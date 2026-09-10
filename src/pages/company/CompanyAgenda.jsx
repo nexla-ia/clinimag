@@ -178,6 +178,9 @@ export default function CompanyAgenda() {
   const [procedurePrices, setProcedurePrices] = useState([])
   const [selectedAgendaId, setSelectedAgendaId] = useState(null)
   const [weekStart, setWeekStart]     = useState(getMonday(new Date()))
+  const [viewMode, setViewMode]       = useState('semana') // 'dia' | 'semana' | 'mes'
+  const [dayAnchor, setDayAnchor]     = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
+  const [monthAnchor, setMonthAnchor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1) })
   const [loading, setLoading]         = useState(true)
 
   const [agendaModal, setAgendaModal] = useState(null)
@@ -288,23 +291,37 @@ export default function CompanyAgenda() {
       .then(({ data, error }) => { if (!error && data) setReminderPresets(data) })
   }, [instance])
 
-  // Carrega agendamentos da semana
+  // Período visível conforme a visão (dia / semana / mês)
+  const { rangeFrom, rangeTo } = useMemo(() => {
+    let from, to
+    if (viewMode === 'dia') {
+      from = new Date(dayAnchor); from.setHours(0, 0, 0, 0)
+      to = addDays(from, 1)
+    } else if (viewMode === 'mes') {
+      from = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1)
+      to = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() + 1, 1)
+    } else {
+      from = new Date(weekStart); from.setHours(0, 0, 0, 0)
+      to = addDays(from, 7)
+    }
+    return { rangeFrom: from.toISOString(), rangeTo: to.toISOString() }
+  }, [viewMode, dayAnchor, monthAnchor, weekStart])
+
+  // Carrega agendamentos do período visível
   useEffect(() => {
     if (!instance) return
-    const from = new Date(weekStart); from.setHours(0, 0, 0, 0)
-    const to = addDays(weekStart, 7); to.setHours(0, 0, 0, 0)
     supabase.from('appointments').select('*')
       .eq('instancia', instance)
-      .gte('starts_at', from.toISOString())
-      .lt('starts_at', to.toISOString())
+      .gte('starts_at', rangeFrom)
+      .lt('starts_at', rangeTo)
       .then(({ data }) => { if (data) setAppointments(data) })
-    // Bloqueios da semana (graceful: tabela pode não existir ainda)
+    // Bloqueios do período (graceful: tabela pode não existir ainda)
     supabase.from('agenda_blocks').select('*')
       .eq('instancia', instance)
-      .lt('starts_at', to.toISOString())
-      .gt('ends_at', from.toISOString())
+      .lt('starts_at', rangeTo)
+      .gt('ends_at', rangeFrom)
       .then(({ data, error }) => { if (!error) setBlocks(data || []) })
-  }, [instance, weekStart])
+  }, [instance, rangeFrom, rangeTo])
 
   // Fecha context menu ao clicar fora ou pressionar Escape
   useEffect(() => {
@@ -795,6 +812,28 @@ export default function CompanyAgenda() {
 
   const selectedAgenda = agendas.find(a => a.id === selectedAgendaId)
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  // Dias exibidos no grid de horários: 1 (dia) ou 7 (semana). O mês tem grid próprio.
+  const viewDays = viewMode === 'dia' ? [(() => { const d = new Date(dayAnchor); d.setHours(0, 0, 0, 0); return d })()] : weekDays
+
+  // Navegação genérica: anda 1 dia / 1 semana / 1 mês conforme a visão.
+  function navPeriod(dir) {
+    if (viewMode === 'dia') setDayAnchor(d => addDays(d, dir))
+    else if (viewMode === 'mes') setMonthAnchor(m => new Date(m.getFullYear(), m.getMonth() + dir, 1))
+    else setWeekStart(w => addDays(w, dir * 7))
+  }
+  function goToday() {
+    const now = new Date()
+    const d0 = new Date(now); d0.setHours(0, 0, 0, 0)
+    setDayAnchor(d0)
+    setMonthAnchor(new Date(now.getFullYear(), now.getMonth(), 1))
+    setWeekStart(getMonday(now))
+  }
+  // Abre um dia específico na visão "dia" (usado ao clicar num dia do mês).
+  function openDay(day) {
+    const d = new Date(day); d.setHours(0, 0, 0, 0)
+    setDayAnchor(d)
+    setViewMode('dia')
+  }
 
   // Slots de horário com base na agenda selecionada
   const slots = useMemo(() => {
@@ -825,6 +864,20 @@ export default function CompanyAgenda() {
       .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
   }
   function apptAt(day, hhmm) { return apptsAt(day, hhmm)[0] || null }
+
+  // Todos os agendamentos de um DIA inteiro (usado na visão de mês).
+  function apptsOfDay(day) {
+    const tz = session?.company?.timezone || '-03:00'
+    const start = new Date(`${fmtDateInput(day)}T00:00:00${tz}`).getTime()
+    const end = start + 86_400_000
+    return appointments
+      .filter(a => {
+        if (a.agenda_id && selectedAgenda && a.agenda_id !== selectedAgenda.id) return false
+        const t = new Date(a.starts_at).getTime()
+        return t >= start && t < end
+      })
+      .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
+  }
 
   // Bloqueio que cobre este slot (ausência/almoço). null se livre.
   function blockAt(day, hhmm) {
@@ -1015,17 +1068,33 @@ export default function CompanyAgenda() {
                   value={selectedAgendaId || ''} onChange={e => setSelectedAgendaId(e.target.value)}>
                   {agendas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
+                {/* Seletor de visão: Dia / Semana / Mês */}
+                <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  {[{ v: 'dia', l: 'Dia' }, { v: 'semana', l: 'Semana' }, { v: 'mes', l: 'Mês' }].map(o => (
+                    <button key={o.v} onClick={() => setViewMode(o.v)}
+                      style={{
+                        fontSize: 12, fontWeight: 700, padding: '6px 13px', border: 'none', cursor: 'pointer',
+                        background: viewMode === o.v ? '#2563EB' : '#fff',
+                        color: viewMode === o.v ? '#fff' : 'var(--text-secondary)',
+                        transition: 'background 0.12s',
+                      }}>{o.l}</button>
+                  ))}
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                  <button className="nx-btn-ghost" style={{ padding: '6px 10px' }} onClick={() => setWeekStart(addDays(weekStart, -7))}>
+                  <button className="nx-btn-ghost" style={{ padding: '6px 10px' }} onClick={() => navPeriod(-1)}>
                     <ChevronLeft size={14} />
                   </button>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 140, textAlign: 'center' }}>
-                    {fmtDate(weekStart)} – {fmtDate(addDays(weekStart, 6))}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 160, textAlign: 'center', textTransform: 'capitalize' }}>
+                    {viewMode === 'dia'
+                      ? dayAnchor.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })
+                      : viewMode === 'mes'
+                        ? monthAnchor.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+                        : `${fmtDate(weekStart)} – ${fmtDate(addDays(weekStart, 6))}`}
                   </div>
-                  <button className="nx-btn-ghost" style={{ padding: '6px 10px' }} onClick={() => setWeekStart(addDays(weekStart, 7))}>
+                  <button className="nx-btn-ghost" style={{ padding: '6px 10px' }} onClick={() => navPeriod(1)}>
                     <ChevronRight size={14} />
                   </button>
-                  <button className="nx-btn-ghost" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => setWeekStart(getMonday(new Date()))}>
+                  <button className="nx-btn-ghost" style={{ fontSize: 12, padding: '6px 12px' }} onClick={goToday}>
                     Hoje
                   </button>
                   <button className="nx-btn-ghost" style={{ fontSize: 12, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
@@ -1036,12 +1105,66 @@ export default function CompanyAgenda() {
               </div>
 
               {/* Grid */}
+              {viewMode === 'mes' ? (
+                <div style={{ padding: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                    {DAYS_OF_WEEK.map(d => (
+                      <div key={d.num} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '2px 0' }}>{d.label}</div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                    {(() => {
+                      const first = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1)
+                      const gridStart = addDays(first, -first.getDay())
+                      return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i)).map((d, i) => {
+                        const inMonth = d.getMonth() === monthAnchor.getMonth()
+                        const isToday = d.toDateString() === new Date().toDateString()
+                        const dayAppts = apptsOfDay(d)
+                        return (
+                          <div key={i}
+                            onClick={() => openDay(d)}
+                            title="Ver este dia"
+                            style={{
+                              minHeight: 92, borderRadius: 8, padding: '5px 6px', cursor: 'pointer',
+                              border: isToday ? '2px solid #2563EB' : '1px solid var(--border)',
+                              background: !inMonth ? '#F8FAFC' : isToday ? '#EFF6FF' : '#fff',
+                              opacity: inMonth ? 1 : 0.5,
+                              display: 'flex', flexDirection: 'column', gap: 3, overflow: 'hidden',
+                            }}
+                            onMouseEnter={e => { if (inMonth && !isToday) e.currentTarget.style.background = '#F1F5F9' }}
+                            onMouseLeave={e => { if (inMonth && !isToday) e.currentTarget.style.background = '#fff' }}
+                          >
+                            <div style={{ fontSize: 12, fontWeight: 700, color: isToday ? '#1D4ED8' : 'var(--text-secondary)', textAlign: 'right' }}>
+                              {String(d.getDate()).padStart(2, '0')}
+                            </div>
+                            {dayAppts.slice(0, 3).map(a => {
+                              const st = STATUS_OPTIONS.find(s => s.value === a.status) || STATUS_OPTIONS[0]
+                              return (
+                                <div key={a.id} style={{
+                                  fontSize: 10.5, fontWeight: 600, lineHeight: 1.2,
+                                  background: st.bg, color: st.color, border: `1px solid ${st.border}`,
+                                  borderRadius: 4, padding: '1px 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }}>
+                                  {toClinicTz(a.starts_at, session?.company?.timezone).timeStr} {a.contact_nome || a.contact_numero || ''}
+                                </div>
+                              )
+                            })}
+                            {dayAppts.length > 3 && (
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)' }}>+{dayAppts.length - 3} mais</div>
+                            )}
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+                </div>
+              ) : (
               <div style={{ overflowX: 'auto' }}>
-                <div style={{ minWidth: 880 }}>
+                <div style={{ minWidth: viewMode === 'dia' ? 360 : 880 }}>
                   {/* Header dias */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '64px repeat(7, 1fr)', borderBottom: '1px solid var(--border)', background: '#F8FAFC' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: `64px repeat(${viewDays.length}, 1fr)`, borderBottom: '1px solid var(--border)', background: '#F8FAFC' }}>
                     <div />
-                    {weekDays.map((d, i) => {
+                    {viewDays.map((d, i) => {
                       const isToday = d.toDateString() === new Date().toDateString()
                       const isWeekend = d.getDay() === 0 || d.getDay() === 6
                       return (
@@ -1065,11 +1188,11 @@ export default function CompanyAgenda() {
                       Configure horários nesta agenda.
                     </div>
                   ) : slots.map((hhmm, idx) => (
-                    <div key={hhmm} style={{ display: 'grid', gridTemplateColumns: '64px repeat(7, 1fr)', borderBottom: idx === slots.length - 1 ? 'none' : '1px solid #E2E8F0', background: idx % 2 === 1 ? '#F1F5F9' : '#fff' }}>
+                    <div key={hhmm} style={{ display: 'grid', gridTemplateColumns: `64px repeat(${viewDays.length}, 1fr)`, borderBottom: idx === slots.length - 1 ? 'none' : '1px solid #E2E8F0', background: idx % 2 === 1 ? '#F1F5F9' : '#fff' }}>
                       <div style={{ padding: '6px 8px', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textAlign: 'right', borderRight: '1px solid var(--border)' }}>
                         {hhmm}
                       </div>
-                      {weekDays.map((d, i) => {
+                      {viewDays.map((d, i) => {
                         const working = isWorkingDay(d)
                         const appts = working ? apptsAt(d, hhmm) : []
                         const block = working ? blockAt(d, hhmm) : null
@@ -1210,6 +1333,7 @@ export default function CompanyAgenda() {
                   ))}
                 </div>
               </div>
+              )}
             </div>
           )}
         </>
