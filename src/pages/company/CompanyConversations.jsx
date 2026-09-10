@@ -1747,11 +1747,12 @@ export default function CompanyConversations() {
 
   async function attachFile(file) {
     if (!file) return
-    // O arquivo viaja como base64 (~1,33x o tamanho) num JSON até o Supabase e
-    // o n8n — que corta em 16 MB. Acima de ~10 MB o envio quebra nos dois.
-    const MAX = 10 * 1024 * 1024
+    // O arquivo viaja como base64 (~1,33x o tamanho) num JSON até o Supabase e o
+    // n8n. Com N8N_PAYLOAD_SIZE_MAX=64 MB no n8n, 25 MB de arquivo (~33 MB em
+    // base64) passa com folga.
+    const MAX = 25 * 1024 * 1024
     if (file.size > MAX) {
-      setToast({ message: `Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB) — o limite é 10 MB.`, color: '#DC2626' })
+      setToast({ message: `Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB) — o limite é 25 MB.`, color: '#DC2626' })
       setTimeout(() => setToast(null), 5000)
       return
     }
