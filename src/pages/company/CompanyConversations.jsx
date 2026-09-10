@@ -2068,6 +2068,10 @@ export default function CompanyConversations() {
             headers: { 'Content-Type': 'application/json' },
             signal: ctrl.signal,
             body: buildBody(sidJid),
+            // Texto (sem mídia): o envio sobrevive se a aba for fechada/trocada no
+            // meio — o navegador termina o POST em segundo plano. keepalive tem
+            // teto de 64KB, então NÃO usa quando tem base64 (áudio/imagem/vídeo).
+            keepalive: !mediaBase64,
           })
           const text = await r.text().catch(() => '')
           // Ruído de infra do n8n (ex.: lock do SQLite no "Respond to Webhook")
