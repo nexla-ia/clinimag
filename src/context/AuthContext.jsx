@@ -206,7 +206,7 @@ export function AuthProvider({ children }) {
     })
 
     if (error) {
-      return { ok: false, error: 'Erro ao conectar com o servidor. Tente novamente.' }
+      return { ok: false, error: 'Não conseguimos conectar agora — provavelmente estamos subindo uma atualização de melhoria. Aguarde só um instante e tente novamente. 🙂' }
     }
 
     if (!data?.length) {
