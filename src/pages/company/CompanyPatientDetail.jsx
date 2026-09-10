@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
 import ImageLightbox from '../../components/ImageLightbox'
+import PatientImpressos from '../../components/PatientImpressos'
 import {
   ArrowLeft, Pencil, Camera, Phone, Mail, MapPin, Calendar, ShieldCheck,
   AlertTriangle, Pill, Heart, Cake, MessageSquare, X, Trash2, CreditCard,
@@ -598,6 +599,7 @@ export default function CompanyPatientDetail() {
           })` },
           { key: 'anamneses',   label: `Anamneses (${anamneses.length})` },
           { key: 'orcamentos',  label: `Orçamentos (${orcamentos.length})` },
+          { key: 'impressos',   label: 'Impressos' },
           { key: 'historico',   label: `Histórico (${appointments.length})` },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} className={`pat-tab ${tab === t.key ? 'active' : ''}`}>
@@ -1097,6 +1099,16 @@ export default function CompanyPatientDetail() {
 
       {/* Lightbox */}
       {lightbox && <ImageLightbox src={lightbox} alt="mídia" onClose={() => setLightbox(null)} />}
+
+      {tab === 'impressos' && (
+        <PatientImpressos
+          patient={patient}
+          instance={instance}
+          company={session?.company}
+          professionals={professionals}
+          user={session?.user}
+        />
+      )}
 
       {tab === 'historico' && (
         <div className="pat-timeline">
