@@ -149,7 +149,8 @@ function stripMediaLabel(text) {
 function parseSelfIntro(text) {
   const m = (text || '').match(/^\*[ \t]*([^*\n]{1,40}?)[ \t]*\*[:：]?[ \t]*\n?([\s\S]*)$/)
   if (!m) return null
-  const nome = m[1].trim()
+  // tira ":" que às vezes vem dentro dos asteriscos ("*Andrielly:*")
+  const nome = m[1].trim().replace(/[:：]\s*$/, '').trim()
   if (!nome) return null
   return { nome, text: (m[2] || '').trim() }
 }
@@ -163,9 +164,11 @@ function previewText(row) {
 }
 
 function senderLabel(row) {
-  if (row.nome) return row.nome
+  // Auto-identificação "*Nome*" vence o nome do banco (que, quando a clínica
+  // responde pelo celular, é o nome de perfil da clínica, não o do colaborador).
   const intro = parseSelfIntro(stripMediaLabel(row.mensagem))
   if (intro) return intro.nome
+  if (row.nome) return row.nome
   return (row.numero || '').replace(/@.*$/, '')
 }
 
@@ -572,8 +575,8 @@ export default function CompanyGroups() {
   }
   function searchWho(row) {
     const ty = (row.type || '').toLowerCase()
-    const intro = !row.nome ? parseSelfIntro(stripMediaLabel(row.mensagem)) : null
-    const name = row.nome || (intro && intro.nome)
+    const intro = parseSelfIntro(stripMediaLabel(row.mensagem))
+    const name = (intro && intro.nome) || row.nome
     if (ty === 'atendente' || ty === 'humano') return name || 'Você'
     return name || (row.numero || '').replace(/@.*$/, '') || 'Membro'
   }
@@ -1749,9 +1752,15 @@ export default function CompanyGroups() {
                 const ownerDigits = String(instanceOwner || '').replace(/@.*$/, '')
                 const msgDigits = (msg.numero || '').replace(/@.*$/, '')
                 const fromClinic = !!ownerDigits && msgDigits === ownerDigits
-                const selfIntro = (!msg.nome && (isAtendente || fromClinic)) ? parseSelfIntro(caption) : null
+                // Mensagem enviada pela clínica PELO WHATSAPP (fora da plataforma) chega
+                // como type 'Cliente', nome = perfil da clínica e numero nulo (ou o número
+                // da própria clínica) — e a pessoa se identifica com *Nome* no começo. Antes
+                // o nome preenchido bloqueava; agora reconhecemos e jogamos pro lado direito
+                // (verde) com o nome dela, igual à mensagem enviada pela plataforma.
+                const fromMeLike = isAtendente || !msg.numero || fromClinic
+                const selfIntro = fromMeLike ? parseSelfIntro(caption) : null
                 const showAsAtendente = isAtendente || !!selfIntro
-                const displayName = msg.nome || (selfIntro ? selfIntro.nome : null)
+                const displayName = selfIntro ? selfIntro.nome : (msg.nome || null)
                 const bodyText = selfIntro ? selfIntro.text : caption
                 const cards = contactCardsOf(msg.contact_card)
                 const loc = locationOf(msg.location)
@@ -1795,7 +1804,7 @@ export default function CompanyGroups() {
                         {/* Bloco de citação (respondendo outra mensagem do grupo) */}
                         {(msg.quoted_id_mensagem || msg.quoted_text) && (() => {
                           const orig = msg.quoted_id_mensagem ? messages.find(m => m.id_mensagem === msg.quoted_id_mensagem) : null
-                          let author = !orig ? '' : (orig.nome || senderLabel(orig) || 'Alguém')
+                          let author = !orig ? '' : (senderLabel(orig) || 'Alguém')
                           // Sem a original carregada, usa o quoted_text ("*Nome:*\ntexto") separando autor + texto.
                           let origText
                           if (orig) {
