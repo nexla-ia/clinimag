@@ -1104,8 +1104,9 @@ export default function CompanyConversations() {
       !closedMap[canonSession(c.session_id)] &&
       !attendancesMap[canonSession(c.session_id)] &&   // já assumida por alguém → NÃO encerra
       c.lastTs &&
-      new Date(c.lastTs).getTime() < cutoff &&
-      !isWaitingPatient(c)   // esperando o paciente → não encerra
+      new Date(c.lastTs).getTime() < cutoff
+      // "Esperando o cliente responder" também encerra 2h após a última mensagem
+      // (a tag continua aparecendo; só volta a fechar automático).
     )
     if (!toClose.length) return
 
