@@ -115,21 +115,50 @@ export function AuthProvider({ children }) {
     if (session?.role === 'adm') loadDB()
   }, [session?.role, loadDB])
 
-  // Verifica a cada 5 min se o usuário/empresa ainda está ativo no banco.
-  // Protege contra o caso de um admin desativar um usuário logado.
+  // Verifica se o usuário/empresa ainda está ativo E mantém a CONFIG da empresa
+  // em dia (api_instancia, instância, fuso, etc.). Sem isso, uma troca feita no
+  // ADM Global (ex.: nova API instância) só valia depois de deslogar/logar — e a
+  // plataforma continuava mandando o valor antigo pro n8n. Roda ao abrir, ao
+  // voltar pra aba e a cada 5 min.
   useEffect(() => {
     if (!session || session.role === 'adm') return
+    let alive = true
+    // Campos de config que, se mudarem no banco, precisam refletir na sessão.
+    const CFG = ['api_instancia', 'instance', 'timezone', 'numero_base', 'name',
+      'ai_enabled', 'plan', 'contacts_table', 'history_table', 'active']
     async function checkActive() {
       const [{ data: userData }, { data: companyData }] = await Promise.all([
         supabase.from('users').select('active').eq('id', session.user.id).single(),
-        supabase.from('companies').select('active').eq('id', session.company.id).single(),
+        supabase.from('companies').select('*').eq('id', session.company.id).single(),
       ])
+      if (!alive) return
       if ((userData && !userData.active) || (companyData && !companyData.active)) {
         logout()
+        return
       }
+      if (!companyData) return
+      // Atualiza a sessão só se algo relevante mudou (evita re-render à toa).
+      setSession(prev => {
+        if (!prev?.company) return prev
+        const c = prev.company
+        if (CFG.every(k => c[k] === companyData[k])) return prev
+        const merged = { ...c, ...companyData }
+        // o select('*') não traz o join de users — preserva o que veio no login
+        if (c.users && !companyData.users) merged.users = c.users
+        return { ...prev, company: merged }
+      })
     }
+    checkActive() // roda já ao montar / trocar de empresa
+    const onVisible = () => { if (document.visibilityState === 'visible') checkActive() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
     const id = setInterval(checkActive, 5 * 60 * 1000)
-    return () => clearInterval(id)
+    return () => {
+      alive = false
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
   }, [session?.user?.id, session?.company?.id])
 
   // Heartbeat da sessão única: mantém a conta "viva" neste dispositivo e
