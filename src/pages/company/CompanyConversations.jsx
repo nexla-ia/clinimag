@@ -20,6 +20,24 @@ const CONV_TABLE = 'mensagens_geral'
 // Colunas do thread SEM o base64 (mídia baixada sob demanda, on-view) — corta egress.
 const MSG_COLS = 'id, nome, instancia, numero, mensagem, "horaLastMessage", type, created_at, id_mensagem, aplicativo, recipient_id, idgrupo, nomegrupo, apagada, quoted_id_mensagem, quoted_text, contact_card, location, reaction, tem_midia'
 
+// Busca TODAS as linhas de uma tabela por instância, paginando. O Supabase corta
+// em 1000 linhas por padrão — clínicas grandes passam disso (ex.: conversas
+// finalizadas). Sem paginar, a finalizada recente ficava fora da janela e a
+// conversa "voltava pra recepção" (parecia não-finalizada).
+async function fetchAllByInstance(table, columns, orderCol, inst) {
+  const all = []
+  const PAGE = 1000
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.from(table).select(columns)
+      .eq('instancia', inst).order(orderCol, { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error || !data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE) break
+  }
+  return all
+}
+
 function formatPhone(val) {
   return (val || '').replace(/@.*$/, '')
 }
@@ -852,13 +870,11 @@ export default function CompanyConversations() {
   // Carrega atendimentos ativos (quem está em qual setor + atendente)
   useEffect(() => {
     if (!instance) return
-    supabase.from('attendances').select('*').eq('instancia', instance)
-      .then(({ data }) => {
-        if (data) {
-          const map = {}
-          data.forEach(r => { map[canonSession(r.numero)] = r })
-          setAttendancesMap(map)
-        }
+    fetchAllByInstance('attendances', '*', 'numero', instance)
+      .then((data) => {
+        const map = {}
+        data.forEach(r => { map[canonSession(r.numero)] = r })
+        setAttendancesMap(map)
         setAttendancesLoaded(true)
       })
   }, [instance])
@@ -1050,13 +1066,11 @@ export default function CompanyConversations() {
   // Carrega sessões encerradas com motivo
   useEffect(() => {
     if (!instance) return
-    supabase.from('conversations').select('session_id, reason').eq('instancia', instance)
-      .then(({ data }) => {
-        if (data) {
-          const map = {}
-          data.forEach(r => { map[canonSession(r.session_id)] = r.reason || 'resolvido' })
-          setClosedMap(map)
-        }
+    fetchAllByInstance('conversations', 'session_id, reason', 'session_id', instance)
+      .then((data) => {
+        const map = {}
+        data.forEach(r => { map[canonSession(r.session_id)] = r.reason || 'resolvido' })
+        setClosedMap(map)
         setClosedLoaded(true)
       })
   }, [instance])
@@ -1069,16 +1083,14 @@ export default function CompanyConversations() {
     if (!instance) return
     const resync = () => {
       if (document.visibilityState !== 'visible') return
-      supabase.from('conversations').select('session_id, reason').eq('instancia', instance)
-        .then(({ data }) => {
-          if (!data) return
+      fetchAllByInstance('conversations', 'session_id, reason', 'session_id', instance)
+        .then((data) => {
           const map = {}
           data.forEach(r => { map[canonSession(r.session_id)] = r.reason || 'resolvido' })
           setClosedMap(map)
         })
-      supabase.from('attendances').select('*').eq('instancia', instance)
-        .then(({ data }) => {
-          if (!data) return
+      fetchAllByInstance('attendances', '*', 'numero', instance)
+        .then((data) => {
           const map = {}
           data.forEach(r => { map[canonSession(r.numero)] = r })
           setAttendancesMap(map)

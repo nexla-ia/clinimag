@@ -36,8 +36,22 @@ export async function fetchDistinctGrupos(instancia) {
 // Shape: [{ numero, created_at, horaLastMessage, outside_assumed }] ordenado
 // pela mensagem mais recente. O componente mapeia para o formato de contato.
 export async function fetchConversaContatos(instancia) {
-  const { data, error } = await supabase.rpc('api_conversas_contatos', { p_instancia: instancia })
-  if (!error && data) return data
+  // RPC paginada: clínicas grandes passam de 1000 contatos e o Supabase corta em
+  // 1000 por padrão — sem paginar, os contatos mais antigos sumiam da lista.
+  {
+    const PAGE = 1000
+    const all = []
+    let rpcOk = true
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .rpc('api_conversas_contatos', { p_instancia: instancia })
+        .range(from, from + PAGE - 1)
+      if (error) { rpcOk = false; break }
+      all.push(...(data || []))
+      if (!data || data.length < PAGE) break
+    }
+    if (rpcOk) return all
+  }
   // Fallback: baixa as mensagens e deduplica client-side (comportamento antigo)
   const { data: rows } = await supabase
     .from('mensagens_geral')
