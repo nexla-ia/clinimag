@@ -10,12 +10,25 @@ export function useContactTags(instancia) {
 
   async function load() {
     if (!instancia) return
-    const [tRes, aRes] = await Promise.all([
-      supabase.from('contact_tags').select('*').eq('instancia', instancia).order('name'),
-      supabase.from('contact_tag_assignments').select('*').eq('instancia', instancia),
-    ])
+    const tRes = await supabase.from('contact_tags').select('*').eq('instancia', instancia).order('name')
+    // As atribuições podem passar de 1000 (teto padrão do Supabase). Sem paginar,
+    // as etiquetas mais novas ficavam de fora do resultado e "não aplicavam"
+    // (o check não aparecia). Pagina em blocos até trazer tudo.
+    const all = []
+    const PAGE = 1000
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('contact_tag_assignments')
+        .select('*')
+        .eq('instancia', instancia)
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1)
+      if (error || !data || data.length === 0) break
+      all.push(...data)
+      if (data.length < PAGE) break
+    }
     setTags(tRes.data || [])
-    setAssignments(aRes.data || [])
+    setAssignments(all)
   }
 
   useEffect(() => { load() }, [instancia])
