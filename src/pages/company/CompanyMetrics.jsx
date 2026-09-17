@@ -245,6 +245,10 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   const [loading, setLoading] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(null)
   const [limitModal, setLimitModal] = useState(null)
+  // Exportar relatório: escolher quais seções (telas) entram no PDF.
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportSel, setExportSel]   = useState(null)   // Set de keys de aba
+  const [printKeys, setPrintKeys]   = useState([])     // seções sendo impressas
 
   const [msgs, setMsgs]                 = useState([])
   const [convs, setConvs]               = useState([])
@@ -463,6 +467,50 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     setPickerOpen(false)
   }
 
+  // ── Exportar relatório: escolher quais seções (telas) entram no PDF ────────
+  const exportTabs = TABS.filter(t =>
+    (aiEnabled || t.key !== 'leads' || contactsTable) &&
+    !(!advancedAllowed && ADVANCED_TABS.includes(t.key))
+  )
+  const allExportSelected = !!exportSel && exportTabs.every(t => exportSel.has(t.key))
+  function openExport() {
+    setExportSel(new Set(exportTabs.map(t => t.key)))
+    setExportOpen(true)
+  }
+  function toggleExport(key) {
+    setExportSel(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+  }
+  function toggleAllExport() {
+    setExportSel(allExportSelected ? new Set() : new Set(exportTabs.map(t => t.key)))
+  }
+  function generateReport() {
+    const keys = exportTabs.map(t => t.key).filter(k => exportSel?.has(k))
+    if (!keys.length) return
+    setExportOpen(false)
+    setPrintKeys(keys)   // renderiza as seções escolhidas na tela; o efeito abaixo imprime
+  }
+  // Quando as seções escolhidas montam, espera pintar (gráficos medem a largura) e imprime.
+  useEffect(() => {
+    if (!printKeys.length) return
+    const id = setTimeout(() => { window.print(); setPrintKeys([]) }, 300)
+    return () => clearTimeout(id)
+  }, [printKeys])
+
+  // Renderiza o conteúdo de uma aba pela key (reuso na tela e no relatório).
+  function renderTab(key) {
+    switch (key) {
+      case 'overview':    return <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, range, period, loading }} />
+      case 'atendimento': return <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />
+      case 'equipe':      return <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />
+      case 'agenda':      return <AgendaTab      {...{ appts, professionals, procedures, range, period, loading }} />
+      case 'financeiro':  return <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />
+      case 'leads':       return <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />
+      case 'crm':         return <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading }} />
+      case 'atividades':  return <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />
+      default: return null
+    }
+  }
+
   return (
     <div id="metrics-print" className="page-enter" style={{ padding: hideHeader ? 0 : '1.5rem' }}>
       <style>{`
@@ -476,12 +524,15 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
           .metrics-print-only { display: block !important; }
           .nx-card { break-inside: avoid; page-break-inside: avoid; box-shadow: none !important; border: 1px solid #E2E8F0 !important; }
           tr { page-break-inside: avoid; }
+          .metrics-report-section { page-break-after: always; break-after: page; }
+          .metrics-report-section:last-child { page-break-after: auto; break-after: auto; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
       `}</style>
 
-      {/* Cabeçalho do relatório — aparece só na impressão / PDF */}
-      {!hideHeader && (
+      {/* Cabeçalho do relatório — aparece só na impressão / PDF (aba única).
+          No relatório multi-seção usamos um cabeçalho por seção. */}
+      {!hideHeader && !printKeys.length && (
         <div className="metrics-print-only" style={{ marginBottom: 18, borderBottom: '2px solid #0F172A', paddingBottom: 10 }}>
           <div style={{ fontSize: 19, fontWeight: 800, color: '#0F172A' }}>
             Relatório de Métricas — {TABS.find(t => t.key === tab)?.label || ''}
@@ -502,7 +553,11 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="nx-btn-ghost" style={{ fontSize: 12 }} onClick={() => window.print()} title="Gerar PDF / imprimir este relatório">
+            <button className="nx-btn-ghost" style={{ fontSize: 12 }} onClick={openExport} title="Escolher seções (telas) e gerar um relatório">
+              <Layers size={13} />
+              Exportar
+            </button>
+            <button className="nx-btn-ghost" style={{ fontSize: 12 }} onClick={() => window.print()} title="Gerar PDF só desta aba">
               <Download size={13} />
               Baixar PDF
             </button>
@@ -609,14 +664,61 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
         })}
       </div>
 
-      {tab === 'overview'    && <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, range, period, loading }} />}
-      {tab === 'atendimento' && <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />}
-      {tab === 'equipe'      && <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />}
-      {tab === 'agenda'      && <AgendaTab      {...{ appts, professionals, procedures, range, period, loading }} />}
-      {tab === 'financeiro'  && <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />}
-      {tab === 'leads'       && <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />}
-      {tab === 'crm'         && <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading }} />}
-      {tab === 'atividades'  && <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />}
+      {printKeys.length > 0 ? (
+        printKeys.map(key => {
+          const t = TABS.find(x => x.key === key)
+          return (
+            <div key={key} className="metrics-report-section" style={{ marginBottom: 26 }}>
+              <div style={{ marginBottom: 14, borderBottom: '2px solid #0F172A', paddingBottom: 8 }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: '#0F172A' }}>{t?.label}</div>
+                <div style={{ fontSize: 11, color: '#475569', marginTop: 3 }}>
+                  {company?.name ? `${company.name} · ` : ''}Período: {periodLabel(period)} · Gerado em {new Date().toLocaleDateString('pt-BR')}
+                </div>
+              </div>
+              {renderTab(key)}
+            </div>
+          )
+        })
+      ) : (
+        renderTab(tab)
+      )}
+
+      {exportOpen && exportSel && (
+        <div className="metrics-no-print" onClick={() => setExportOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 420, padding: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Exportar relatório</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 14 }}>
+              Escolha quais seções entram no PDF. Período: <strong>{periodLabel(period)}</strong>.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14, maxHeight: '50vh', overflowY: 'auto' }}>
+              {exportTabs.map(t => {
+                const on = exportSel.has(t.key)
+                return (
+                  <label key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 8, cursor: 'pointer', background: on ? '#EFF6FF' : 'transparent' }}>
+                    <input type="checkbox" checked={on} onChange={() => toggleExport(t.key)} style={{ width: 16, height: 16, accentColor: '#2563EB' }} />
+                    <t.icon size={15} color={on ? '#2563EB' : 'var(--text-muted)'} />
+                    <span style={{ fontSize: 13.5, fontWeight: on ? 700 : 500, color: on ? '#2563EB' : 'var(--text-primary)' }}>{t.label}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button onClick={toggleAllExport} style={{ fontSize: 12, fontWeight: 600, background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer' }}>
+                {allExportSelected ? 'Limpar' : 'Selecionar todas'}
+              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setExportOpen(false)} className="nx-btn-ghost" style={{ fontSize: 12.5 }}>Cancelar</button>
+                <button onClick={generateReport} disabled={exportSel.size === 0} className="nx-btn-primary"
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: exportSel.size ? 1 : 0.5 }}>
+                  <Download size={13} /> Gerar PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <LimitReachedModal
         open={!!limitModal}
