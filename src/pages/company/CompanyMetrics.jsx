@@ -233,6 +233,16 @@ const TAB_SECTIONS = {
     { id: 'status',  label: 'Status do lead / sem resposta' },
     { id: 'metaads', label: 'Meta Ads (pago × orgânico)' },
   ],
+  crm: [
+    { id: 'resumo',       label: 'Resumo (indicadores)' },
+    { id: 'funil',        label: 'Funil de conversão' },
+    { id: 'temp_origem',  label: 'Temperatura / origem' },
+    { id: 'etiquetas',    label: 'Leads por etiqueta' },
+    { id: 'resp_parados', label: 'Responsável / parados' },
+    { id: 'novos_dia',    label: 'Novos leads por dia' },
+    { id: 'atividade',    label: 'Atividade / motivos de perda' },
+    { id: 'porfunil',     label: 'Leads por funil' },
+  ],
 }
 
 // ─── Metadados do CRM (métricas) ─────────────────────────────────────────────
@@ -2792,8 +2802,9 @@ function AtividadesTab({ kanbanCards, kanbanColumns, users, range, period, loadi
 }
 
 // ─── Tab: CRM ────────────────────────────────────────────────────────────────
-function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading }) {
+function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading, only }) {
   const { from, to } = range
+  const show = (id) => !only || only.has(id)
   const [funnelSel, setFunnelSel] = useState('todos')
 
   const daysInStage = ds => ds ? Math.floor((Date.now() - new Date(ds).getTime()) / 86400000) : 0
@@ -2938,6 +2949,7 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
       )}
 
       {/* KPIs */}
+      {show('resumo') && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>
         <KpiCard icon={<Users size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Leads no período" sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<TrendingUp size={18} color="#7C3AED" />} bg="#F5F3FF" value={emAndamento} label="Em andamento" sub="ativos no funil" loading={loading} />
@@ -2946,9 +2958,10 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
         <KpiCard icon={<AlertCircle size={18} color="#D97706" />} bg="#FFFBEB" value={parados} label="Leads parados" sub="além do prazo da etapa" loading={loading} alert={parados > 0} />
         <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={perdidos} label="Leads perdidos" sub={`${total ? Math.round(perdidos / total * 100) : 0}% do total`} loading={loading} />
       </div>
+      )}
 
       {/* Funil(s) de conversão */}
-      {funnelViz.map(fv => (
+      {show('funil') && funnelViz.map(fv => (
         <div key={fv.funnel.id} className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
           <SectionTitle icon={GitMerge} text={funnelSel === 'todos' ? `Funil — ${fv.funnel.nome}` : 'Funil de conversão'} right={`${fv.totalF} leads · ${fv.lost} perdidos`} />
           {fv.stages.length === 0 ? <Empty /> : (
@@ -2979,6 +2992,7 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
       ))}
 
       {/* Temperatura + Origem */}
+      {show('temp_origem') && (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, marginBottom: 14 }}>
         <div className="nx-card" style={{ padding: '1.25rem' }}>
           <SectionTitle icon={Thermometer} text="Temperatura dos leads" right={`${total} leads`} />
@@ -3023,8 +3037,10 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
         </div>
       </div>
 
+      )}
+
       {/* Leads por etiqueta (as coloridas das Conversas) */}
-      {porEtiqueta.length > 0 && (
+      {show('etiquetas') && porEtiqueta.length > 0 && (
         <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
           <SectionTitle icon={Tag} text="Leads por etiqueta" right={`${porEtiqueta.length} etiquetas`} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -3050,6 +3066,7 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
       )}
 
       {/* Responsáveis + Parados */}
+      {show('resp_parados') && (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, marginBottom: 14 }}>
         <div className="nx-card" style={{ padding: '1.25rem' }}>
           <SectionTitle icon={UserCheck} text="Leads por responsável" right={`${responsaveis.length}`} />
@@ -3094,14 +3111,19 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
           )}
         </div>
       </div>
+      )}
 
       {/* Volume diário de novos leads */}
+      {show('novos_dia') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={Clock} text="Novos leads por dia" right={periodLabel(period)} />
         <BarTimeline data={dailyNew} />
       </div>
 
+      )}
+
       {/* Atividade + Motivos de perda */}
+      {show('atividade') && (
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14 }}>
         <div className="nx-card" style={{ padding: '1.25rem' }}>
           <SectionTitle icon={ListChecks} text="Atividade no CRM" right={`${atividadeTotal} · ${periodLabel(period)}`} />
@@ -3142,9 +3164,10 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
           )}
         </div>
       </div>
+      )}
 
       {/* Leads por funil */}
-      {crmFunnels.length > 1 && (
+      {show('porfunil') && crmFunnels.length > 1 && (
         <div className="nx-card" style={{ padding: '1.25rem', marginTop: 14 }}>
           <SectionTitle icon={Layers} text="Leads por funil" right={`${crmFunnels.length} funis`} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
