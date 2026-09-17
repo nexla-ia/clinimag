@@ -200,6 +200,18 @@ const TABS = [
   { key: 'atividades',  label: 'Kanban',       icon: Kanban },
 ]
 
+// Seções lógicas por aba, pro export granular. Abas sem entrada aqui entram
+// inteiras (sem sub-seleção). Cada aba usa `only` (Set de ids) pra renderizar só
+// as seções escolhidas. Vou preenchendo aba por aba conforme guardo as seções.
+const TAB_SECTIONS = {
+  overview: [
+    { id: 'resumo',    label: 'Resumo (indicadores)' },
+    { id: 'pacientes', label: 'Pacientes que entraram em contato' },
+    { id: 'mensagens', label: 'Mensagens por dia' },
+    { id: 'iahumano',  label: 'Atendimento IA vs Humano' },
+  ],
+}
+
 // ─── Metadados do CRM (métricas) ─────────────────────────────────────────────
 const CRM_TEMP = {
   quente: { label: 'Quente', color: '#DC2626', icon: '🔥' },
@@ -245,10 +257,11 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   const [loading, setLoading] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(null)
   const [limitModal, setLimitModal] = useState(null)
-  // Exportar relatório: escolher quais seções (telas) entram no PDF.
+  // Exportar relatório: escolher quais telas e seções entram no PDF.
   const [exportOpen, setExportOpen] = useState(false)
-  const [exportSel, setExportSel]   = useState(null)   // Set de keys de aba
-  const [printKeys, setPrintKeys]   = useState([])     // seções sendo impressas
+  const [exportSel, setExportSel]   = useState(null)   // Map: aba → Set de ids de seção
+  const [expandedTabs, setExpandedTabs] = useState(() => new Set()) // abas expandidas no picker
+  const [printKeys, setPrintKeys]   = useState([])     // [{ tab, only }] sendo impressos
 
   const [msgs, setMsgs]                 = useState([])
   const [convs, setConvs]               = useState([])
@@ -467,27 +480,57 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     setPickerOpen(false)
   }
 
-  // ── Exportar relatório: escolher quais seções (telas) entram no PDF ────────
+  // ── Exportar relatório: escolher quais telas E seções entram no PDF ────────
   const exportTabs = TABS.filter(t =>
     (aiEnabled || t.key !== 'leads' || contactsTable) &&
     !(!advancedAllowed && ADVANCED_TABS.includes(t.key))
   )
-  const allExportSelected = !!exportSel && exportTabs.every(t => exportSel.has(t.key))
+  // Ids "elegíveis" de uma aba: as seções lógicas (se houver) ou o sentinela '__all__'.
+  const secIds = (key) => { const s = TAB_SECTIONS[key]; return s && s.length ? s.map(x => x.id) : ['__all__'] }
+  // exportSel é um Map: key da aba → Set de ids de seção marcados.
   function openExport() {
-    setExportSel(new Set(exportTabs.map(t => t.key)))
+    const map = new Map()
+    for (const t of exportTabs) map.set(t.key, new Set(secIds(t.key)))
+    setExportSel(map)
+    setExpandedTabs(new Set())
     setExportOpen(true)
   }
-  function toggleExport(key) {
-    setExportSel(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+  function toggleSection(tabKey, id) {
+    setExportSel(prev => {
+      const n = new Map(prev); const s = new Set(n.get(tabKey) || [])
+      s.has(id) ? s.delete(id) : s.add(id); n.set(tabKey, s); return n
+    })
   }
+  // Estado do checkbox da aba: 'all' | 'some' | 'none'
+  function tabState(tabKey) {
+    const ids = secIds(tabKey); const sel = exportSel?.get(tabKey) || new Set()
+    const on = ids.filter(id => sel.has(id)).length
+    return on === 0 ? 'none' : on === ids.length ? 'all' : 'some'
+  }
+  function toggleTabAll(tabKey) {
+    setExportSel(prev => {
+      const n = new Map(prev); const ids = secIds(tabKey)
+      n.set(tabKey, tabState(tabKey) === 'all' ? new Set() : new Set(ids)); return n
+    })
+  }
+  const anySelected = !!exportSel && exportTabs.some(t => (exportSel.get(t.key)?.size || 0) > 0)
+  const allSelected = !!exportSel && exportTabs.every(t => tabState(t.key) === 'all')
   function toggleAllExport() {
-    setExportSel(allExportSelected ? new Set() : new Set(exportTabs.map(t => t.key)))
+    const map = new Map()
+    for (const t of exportTabs) map.set(t.key, allSelected ? new Set() : new Set(secIds(t.key)))
+    setExportSel(map)
   }
   function generateReport() {
-    const keys = exportTabs.map(t => t.key).filter(k => exportSel?.has(k))
-    if (!keys.length) return
+    const items = exportTabs.map(t => t.key).filter(k => (exportSel.get(k)?.size || 0) > 0).map(key => {
+      const ids = TAB_SECTIONS[key]?.map(x => x.id) || []
+      const sel = exportSel.get(key)
+      // Todas as seções marcadas (ou aba sem seções) → only=null (renderiza tudo).
+      const only = (ids.length && !ids.every(id => sel.has(id))) ? new Set(ids.filter(id => sel.has(id))) : null
+      return { tab: key, only }
+    })
+    if (!items.length) return
     setExportOpen(false)
-    setPrintKeys(keys)   // renderiza as seções escolhidas na tela; o efeito abaixo imprime
+    setPrintKeys(items)   // renderiza na tela; o efeito abaixo imprime
   }
   // Quando as seções escolhidas montam, espera pintar (gráficos medem a largura) e imprime.
   useEffect(() => {
@@ -496,16 +539,16 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
     return () => clearTimeout(id)
   }, [printKeys])
 
-  // Renderiza o conteúdo de uma aba pela key (reuso na tela e no relatório).
-  function renderTab(key) {
+  // Renderiza uma aba pela key, opcionalmente só com algumas seções (only = Set de ids).
+  function renderTab(key, only = null) {
     switch (key) {
-      case 'overview':    return <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading }} />
+      case 'overview':    return <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading, only }} />
       case 'atendimento': return <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />
       case 'equipe':      return <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />
-      case 'agenda':      return <AgendaTab      {...{ appts, professionals, procedures, range, period, loading }} />
-      case 'financeiro':  return <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }} />
-      case 'leads':       return <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable }} />
-      case 'crm':         return <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading }} />
+      case 'agenda':      return <AgendaTab      {...{ appts, professionals, procedures, range, period, loading, only }} />
+      case 'financeiro':  return <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading, only }} />
+      case 'leads':       return <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable, only }} />
+      case 'crm':         return <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading, only }} />
       case 'atividades':  return <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />
       default: return null
     }
@@ -665,17 +708,17 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       </div>
 
       {printKeys.length > 0 ? (
-        printKeys.map(key => {
-          const t = TABS.find(x => x.key === key)
+        printKeys.map(item => {
+          const t = TABS.find(x => x.key === item.tab)
           return (
-            <div key={key} className="metrics-report-section" style={{ marginBottom: 26 }}>
+            <div key={item.tab} className="metrics-report-section" style={{ marginBottom: 26 }}>
               <div style={{ marginBottom: 14, borderBottom: '2px solid #0F172A', paddingBottom: 8 }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: '#0F172A' }}>{t?.label}</div>
                 <div style={{ fontSize: 11, color: '#475569', marginTop: 3 }}>
                   {company?.name ? `${company.name} · ` : ''}Período: {periodLabel(period)} · Gerado em {new Date().toLocaleDateString('pt-BR')}
                 </div>
               </div>
-              {renderTab(key)}
+              {renderTab(item.tab, item.only)}
             </div>
           )
         })
@@ -687,31 +730,59 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
         <div className="metrics-no-print" onClick={() => setExportOpen(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 420, padding: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Exportar relatório</div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 14 }}>
-              Escolha quais seções entram no PDF. Período: <strong>{periodLabel(period)}</strong>.
+            style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 460, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ padding: '18px 20px 12px' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Exportar relatório</div>
+              <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                Marque as telas e, se quiser, abra pra escolher as seções. Período: <strong>{periodLabel(period)}</strong>.
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14, maxHeight: '50vh', overflowY: 'auto' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px' }}>
               {exportTabs.map(t => {
-                const on = exportSel.has(t.key)
+                const secs = TAB_SECTIONS[t.key] || []
+                const st = tabState(t.key)
+                const expanded = expandedTabs.has(t.key)
                 return (
-                  <label key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 8, cursor: 'pointer', background: on ? '#EFF6FF' : 'transparent' }}>
-                    <input type="checkbox" checked={on} onChange={() => toggleExport(t.key)} style={{ width: 16, height: 16, accentColor: '#2563EB' }} />
-                    <t.icon size={15} color={on ? '#2563EB' : 'var(--text-muted)'} />
-                    <span style={{ fontSize: 13.5, fontWeight: on ? 700 : 500, color: on ? '#2563EB' : 'var(--text-primary)' }}>{t.label}</span>
-                  </label>
+                  <div key={t.key} style={{ marginBottom: 2 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px', borderRadius: 8, background: st !== 'none' ? '#EFF6FF' : 'transparent' }}>
+                      <input type="checkbox" checked={st === 'all'} ref={el => { if (el) el.indeterminate = st === 'some' }}
+                        onChange={() => toggleTabAll(t.key)} style={{ width: 16, height: 16, accentColor: '#2563EB', cursor: 'pointer' }} />
+                      <t.icon size={15} color={st !== 'none' ? '#2563EB' : 'var(--text-muted)'} />
+                      <span onClick={() => toggleTabAll(t.key)} style={{ fontSize: 13.5, fontWeight: st !== 'none' ? 700 : 500, color: st !== 'none' ? '#2563EB' : 'var(--text-primary)', cursor: 'pointer', flex: 1 }}>{t.label}</span>
+                      {secs.length > 0
+                        ? (
+                          <button onClick={() => setExpandedTabs(prev => { const n = new Set(prev); n.has(t.key) ? n.delete(t.key) : n.add(t.key); return n })}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }} title="Ver seções">
+                            <ChevronRight size={16} style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                          </button>
+                        )
+                        : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>tela inteira</span>}
+                    </div>
+                    {secs.length > 0 && expanded && (
+                      <div style={{ marginLeft: 30, borderLeft: '1.5px solid var(--border)', paddingLeft: 8, marginTop: 2, marginBottom: 4 }}>
+                        {secs.map(s => {
+                          const on = exportSel.get(t.key)?.has(s.id)
+                          return (
+                            <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={!!on} onChange={() => toggleSection(t.key, s.id)} style={{ width: 15, height: 15, accentColor: '#2563EB' }} />
+                              <span style={{ fontSize: 12.5, color: on ? '#2563EB' : 'var(--text-secondary)', fontWeight: on ? 600 : 400 }}>{s.label}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button onClick={toggleAllExport} style={{ fontSize: 12, fontWeight: 600, background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer' }}>
-                {allExportSelected ? 'Limpar' : 'Selecionar todas'}
+                {allSelected ? 'Limpar' : 'Selecionar tudo'}
               </button>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => setExportOpen(false)} className="nx-btn-ghost" style={{ fontSize: 12.5 }}>Cancelar</button>
-                <button onClick={generateReport} disabled={exportSel.size === 0} className="nx-btn-primary"
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: exportSel.size ? 1 : 0.5 }}>
+                <button onClick={generateReport} disabled={!anySelected} className="nx-btn-primary"
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: anySelected ? 1 : 0.5 }}>
                   <Download size={13} /> Gerar PDF
                 </button>
               </div>
@@ -733,8 +804,9 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
 }
 
 // ─── Tab: Visão Geral ───────────────────────────────────────────────────────
-function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading }) {
+function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading, only }) {
   const { from, to } = range
+  const show = (id) => !only || only.has(id) // export por seção
   const m = msgs.filter(x => inPeriod(x.created_at, from, to))
   const c = convs.filter(x => inPeriod(x.closed_at, from, to))
   const [detail, setDetail] = useState(null) // drill-down: { title, kind, rows }
@@ -878,6 +950,7 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
 
   return (
     <div>
+      {show('resumo') && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14, marginBottom: 18 }}>
         <KpiCard icon={<Inbox size={18} color="#2563EB" />} bg="#EFF6FF" value={ticketsNovos} label="Tickets novos" sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<MessageSquare size={18} color="#7C3AED" />} bg="#F5F3FF" value={ticketsAtivos} label="Tickets ativos" sub="aguardando atendimento" loading={loading} />
@@ -886,8 +959,10 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
         <KpiCard icon={<BellRing size={18} color="#D97706" />} bg="#FFFBEB" value={alertasPend} label="Alertas pendentes" sub="aguardando resolução" loading={loading} alert={alertasPend > 0} />
         <KpiCard icon={<AlertCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={cardsAtrasados} label="Atividades atrasadas" sub="data vencida" loading={loading} alert={cardsAtrasados > 0} />
       </div>
+      )}
 
       {/* Pacientes que entraram em contato — novos × recorrentes + conversão + origem */}
+      {show('pacientes') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <Users size={15} color="#2563EB" />
@@ -937,7 +1012,9 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
           </>
         )}
       </div>
+      )}
 
+      {show('mensagens') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
           <Clock size={15} color="#2563EB" />
@@ -946,8 +1023,9 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
         </div>
         <BarTimeline data={dayVolume} />
       </div>
+      )}
 
-      {(iaHumano.soIa + iaHumano.comHumano + iaHumano.semAtend) > 0 && (
+      {show('iahumano') && (iaHumano.soIa + iaHumano.comHumano + iaHumano.semAtend) > 0 && (
         <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <Bot size={15} color="#7C3AED" />
