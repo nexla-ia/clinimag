@@ -210,6 +210,14 @@ const TAB_SECTIONS = {
     { id: 'mensagens', label: 'Mensagens por dia' },
     { id: 'iahumano',  label: 'Atendimento IA vs Humano' },
   ],
+  agenda: [
+    { id: 'resumo',       label: 'Resumo (indicadores)' },
+    { id: 'profissional', label: 'Por profissional' },
+    { id: 'procedimento', label: 'Por procedimento' },
+    { id: 'status',       label: 'Distribuição por status' },
+    { id: 'distribuicao', label: 'Por agenda / dia da semana' },
+    { id: 'detalhe',      label: 'Detalhamento dos agendamentos' },
+  ],
 }
 
 // ─── Metadados do CRM (métricas) ─────────────────────────────────────────────
@@ -1426,8 +1434,9 @@ function EquipeTab({ msgs, convs, atts, users, sectors, sectorMembers, range, pe
 }
 
 // ─── Tab: Agenda ────────────────────────────────────────────────────────────
-function AgendaTab({ appts, professionals, procedures, range, period, loading }) {
+function AgendaTab({ appts, professionals, procedures, range, period, loading, only }) {
   const { from, to } = range
+  const show = (id) => !only || only.has(id)
   const [proFilter, setProFilter] = useState('todos')
   const proNameOf  = id => (professionals || []).find(p => p.id === id)?.name || (id ? 'Removido' : '—')
   const procNameOf = id => (procedures || []).find(p => p.id === id)?.name || (id ? 'Removido' : '—')
@@ -1541,14 +1550,17 @@ function AgendaTab({ appts, professionals, procedures, range, period, loading })
         </div>
       )}
 
+      {show('resumo') && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
         <KpiCard icon={<Calendar size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Total" sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<CheckCircle2 size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConfirm}%`} label="Confirmação" sub="confirmado + concluído" loading={loading} />
         <KpiCard icon={<AlertCircle size={18} color="#D97706" />} bg="#FFFBEB" value={`${taxaNoShow}%`} label="No-show" sub="pacientes que faltaram" loading={loading} alert={taxaNoShow > 15} />
         <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={`${taxaCancel}%`} label="Cancelamento" sub="taxa de cancelamento" loading={loading} alert={taxaCancel > 20} />
       </div>
+      )}
 
       {/* Por profissional — atendimentos e valores (pra comissão) */}
+      {show('profissional') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={Stethoscope} text="Por profissional — atendimentos e valores" right={periodLabel(period)} />
         {byProfessional.length === 0 ? <Empty /> : (
@@ -1601,8 +1613,10 @@ function AgendaTab({ appts, professionals, procedures, range, period, loading })
           </div>
         )}
       </div>
+      )}
 
       {/* Por procedimento — mais agendados */}
+      {show('procedimento') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={ListChecks} text="Por procedimento — mais agendados" right={periodLabel(period)} />
         {byProcedure.length === 0 ? <Empty /> : (
@@ -1638,7 +1652,9 @@ function AgendaTab({ appts, professionals, procedures, range, period, loading })
           </div>
         )}
       </div>
+      )}
 
+      {show('status') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={Flag} text="Distribuição por status" right={periodLabel(period)} />
         {total === 0 ? <Empty /> : (
@@ -1656,7 +1672,9 @@ function AgendaTab({ appts, professionals, procedures, range, period, loading })
           </div>
         )}
       </div>
+      )}
 
+      {show('distribuicao') && (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div className="nx-card" style={{ padding: '1.25rem' }}>
           <SectionTitle icon={Calendar} text="Por agenda" right={periodLabel(period)} />
@@ -1701,7 +1719,10 @@ function AgendaTab({ appts, professionals, procedures, range, period, loading })
         </div>
       </div>
 
+      )}
+
       {/* Detalhamento — cada agendamento do período */}
+      {show('detalhe') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginTop: 14 }}>
         <SectionTitle icon={ListChecks} text="Detalhamento dos agendamentos" right={`${detalhe.length} no período`} />
         {detalhe.length === 0 ? <Empty /> : (
@@ -1741,6 +1762,7 @@ function AgendaTab({ appts, professionals, procedures, range, period, loading })
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
