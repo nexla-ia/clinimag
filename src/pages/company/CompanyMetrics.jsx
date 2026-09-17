@@ -218,6 +218,13 @@ const TAB_SECTIONS = {
     { id: 'distribuicao', label: 'Por agenda / dia da semana' },
     { id: 'detalhe',      label: 'Detalhamento dos agendamentos' },
   ],
+  financeiro: [
+    { id: 'resumo',        label: 'Resumo (indicadores)' },
+    { id: 'faturamento',   label: 'Faturamento diário' },
+    { id: 'distribuicao',  label: 'Por profissional / convênio' },
+    { id: 'procedimentos', label: 'Top procedimentos' },
+    { id: 'fluxo',         label: 'Fluxo de caixa (lançamentos)' },
+  ],
 }
 
 // ─── Metadados do CRM (métricas) ─────────────────────────────────────────────
@@ -1795,8 +1802,9 @@ const MON_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov
 function monthLblFin(s) { return MON_PT[+s.split('-')[1]-1] }
 function cmStrFin() { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
 
-function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading }) {
+function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading, only }) {
   const { from, to } = range
+  const show = (id) => !only || only.has(id)
   const inRange = appts.filter(a => inPeriod(a.starts_at, from, to))
 
   const faturado      = inRange.filter(a => a.payment_status === 'pago').reduce((s, a) => s + Number(a.price || 0), 0)
@@ -1876,6 +1884,7 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx
   return (
     <div>
       {/* KPI strip */}
+      {show('resumo') && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>
         <KpiCard icon={<DollarSign size={18} color="#059669" />} bg="#ECFDF5"  value={fmtMoney(faturado)}      label="Faturado"          sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<Clock      size={18} color="#D97706" />} bg="#FFFBEB"  value={fmtMoney(aReceber)}      label="A receber"         sub="agend. pendentes"    loading={loading} alert={aReceber > 0} />
@@ -1884,8 +1893,10 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx
         <KpiCard icon={<CheckCircle2 size={18} color="#0891B2" />} bg="#ECFEFF" value={`${taxaConv.toFixed(0)}%`} label="Taxa de pagamento" sub="consultas pagas"   loading={loading} />
         <KpiCard icon={<BarChart2 size={18} color="#7C3AED" />} bg="#F5F3FF"  value={inRange.length}          label="Total consultas"   sub={periodLabel(period)} loading={loading} />
       </div>
+      )}
 
       {/* Tendência diária */}
+      {show('faturamento') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={TrendingUp} text="Faturamento diário" right={`${dailyRevenue.length} dias`} />
         {!hasDailyData ? <Empty /> : (
@@ -1907,8 +1918,10 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx
           </ResponsiveContainer>
         )}
       </div>
+      )}
 
       {/* Por profissional (BarChart) + Por convênio (Pie) */}
+      {show('distribuicao') && (
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 14, marginBottom: 14 }}>
         <div className="nx-card" style={{ padding: '1.25rem' }}>
           <SectionTitle icon={Stethoscope} text="Por profissional" right={periodLabel(period)} />
@@ -1960,8 +1973,10 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx
           )}
         </div>
       </div>
+      )}
 
       {/* Top procedimentos */}
+      {show('procedimentos') && (
       <div className="nx-card" style={{ padding: '1.25rem' }}>
         <SectionTitle icon={ListChecks} text="Top procedimentos" right={`${byProcedure.length} tipos`} />
         {byProcedure.length === 0 ? <Empty /> : (
@@ -1986,9 +2001,10 @@ function FinanceiroTab({ appts, professionals, procedures, insurancePlans, finTx
           </div>
         )}
       </div>
+      )}
 
       {/* ── Módulo Financeiro (financial_transactions) ── */}
-      {finTx.length > 0 && (() => {
+      {show('fluxo') && finTx.length > 0 && (() => {
         const todayStr = ymdLocal(new Date())
         const cm = cmStrFin()
         const catMap = {}; finCats.forEach(c => { catMap[c.id] = c })
