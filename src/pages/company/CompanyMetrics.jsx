@@ -774,8 +774,14 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, ran
     for (const l of (leads || [])) { const p = normPhone(l.numero); if (p) byPhone[p] = l }
     const counts = {}
     for (const p of activePhones) {
-      const l = byPhone[p]
-      const o = (l && l.origem && String(l.origem).trim()) ? normalizeOrigem(l.origem) : 'Não identificada'
+      const raw = (byPhone[p]?.origem || '').trim()
+      const low = raw.toLowerCase()
+      // Sem origem, "desconhecido" ou WhatsApp puro = chegou direto pelo WhatsApp,
+      // sem canal de marketing identificado — vira um bucket só. (WhatsApp Business,
+      // que é um canal de verdade, NÃO cai aqui.)
+      const direto = !raw || /desconhecid/.test(low) ||
+        (/whats/.test(low) && !/business|perfil|status|cat[aá]logo/.test(low))
+      const o = direto ? 'WhatsApp (direto)' : normalizeOrigem(raw)
       counts[o] = (counts[o] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => b[1] - a[1])
