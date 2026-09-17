@@ -499,7 +499,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   // Renderiza o conteúdo de uma aba pela key (reuso na tela e no relatório).
   function renderTab(key) {
     switch (key) {
-      case 'overview':    return <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, range, period, loading }} />
+      case 'overview':    return <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading }} />
       case 'atendimento': return <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />
       case 'equipe':      return <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />
       case 'agenda':      return <AgendaTab      {...{ appts, professionals, procedures, range, period, loading }} />
@@ -733,10 +733,11 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
 }
 
 // ─── Tab: Visão Geral ───────────────────────────────────────────────────────
-function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, range, period, loading }) {
+function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading }) {
   const { from, to } = range
   const m = msgs.filter(x => inPeriod(x.created_at, from, to))
   const c = convs.filter(x => inPeriod(x.closed_at, from, to))
+  const [detail, setDetail] = useState(null) // drill-down: { title, kind, rows }
 
   // ── Pacientes que entraram em contato no período ──────────────────────────
   // Cliente = mensagem enviada PELO paciente (type cliente/human). Novo = a 1ª
@@ -747,6 +748,11 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, ran
     let d = (v || '').replace(/@.*$/, '').replace(/\D/g, '')
     if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
     return d
+  }
+  const fmtPh = (v) => {
+    const d = (v || '').replace(/\D/g, '')
+    if (d.startsWith('55') && d.length >= 12) { const ddd = d.slice(2, 4), n = d.slice(4); return `(${ddd}) ${n.slice(0, -4)}-${n.slice(-4)}` }
+    return v || '—'
   }
   const firstClientTs = useMemo(() => {
     const seen = {}
@@ -759,20 +765,30 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, ran
     for (const x of m) { if (x.numero && !x.idgrupo && isClientMsg(x.type)) s.add(normPhone(x.numero)) }
     return s
   }, [m])
-  const pacientesNovos = [...activePhones].filter(p => inPeriod(firstClientTs[p], from, to)).length
-  const pacientesRecorrentes = [...activePhones].filter(p => { const f = firstClientTs[p]; return f && !inPeriod(f, from, to) }).length
+  const nameByPhone = useMemo(() => {
+    const map = {}
+    for (const l of (leads || [])) { const p = normPhone(l.numero); if (p && l.nome) map[p] = l.nome }
+    return map
+  }, [leads])
+  const procName = (id) => (procedures || []).find(p => p.id === id)?.name || 'Procedimento'
+  const novosPhones = [...activePhones].filter(p => inPeriod(firstClientTs[p], from, to))
+  const recorrentesPhones = [...activePhones].filter(p => { const f = firstClientTs[p]; return f && !inPeriod(f, from, to) })
+  const pacientesNovos = novosPhones.length
+  const pacientesRecorrentes = recorrentesPhones.length
   // Agendamentos/procedimentos desses contatos, no período (por starts_at).
   const apptsDosContatos = appts.filter(a =>
     a.status !== 'cancelado' && activePhones.has(normPhone(a.contact_numero)) && inPeriod(a.starts_at, from, to)
   )
+  const apptsComProc = apptsDosContatos.filter(a => a.procedure_id)
+  const apptsRealizados = apptsDosContatos.filter(a => a.procedure_id && a.status === 'concluido')
   const agendamentos = apptsDosContatos.length
-  const procAgendados = apptsDosContatos.filter(a => a.procedure_id).length
-  const procRealizados = apptsDosContatos.filter(a => a.procedure_id && a.status === 'concluido').length
+  const procAgendados = apptsComProc.length
+  const procRealizados = apptsRealizados.length
   // Origem de TODOS que falaram no período (usa o cadastro do lead; senão "Não identificada").
-  const origemList = useMemo(() => {
+  const { origemList, origemPhones } = useMemo(() => {
     const byPhone = {}
     for (const l of (leads || [])) { const p = normPhone(l.numero); if (p) byPhone[p] = l }
-    const counts = {}
+    const counts = {}, phones = {}
     for (const p of activePhones) {
       const raw = (byPhone[p]?.origem || '').trim()
       const low = raw.toLowerCase()
@@ -783,10 +799,20 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, ran
         (/whats/.test(low) && !/business|perfil|status|cat[aá]logo/.test(low))
       const o = direto ? 'WhatsApp (direto)' : normalizeOrigem(raw)
       counts[o] = (counts[o] || 0) + 1
+      ;(phones[o] || (phones[o] = [])).push(p)
     }
-    return Object.entries(counts).sort((a, b) => b[1] - a[1])
+    return { origemList: Object.entries(counts).sort((a, b) => b[1] - a[1]), origemPhones: phones }
   }, [leads, activePhones])
   const maxOrigem = Math.max(1, ...origemList.map(x => x[1]))
+
+  // ── Detalhamento (drill-down): linhas p/ o modal ──────────────────────────
+  const pacienteRow = (p) => ({ nome: nameByPhone[p] || '—', phone: fmtPh(p), quando: firstClientTs[p] })
+  const apptRow = (a) => ({
+    nome: a.contact_nome || nameByPhone[normPhone(a.contact_numero)] || '—',
+    phone: fmtPh(a.contact_numero), quando: a.starts_at,
+    proc: a.procedure_id ? procName(a.procedure_id) : '—', status: a.status || '—',
+  })
+  const openDetail = (title, kind, rows) => setDetail({ title, kind, rows })
 
   // Tickets novos: primeiro registro de cada numero dentro do período
   const firstByNumero = useMemo(() => {
@@ -870,19 +896,22 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, ran
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: origemList.length ? 18 : 0 }}>
           {[
-            { label: 'Novos', value: pacientesNovos, color: '#16A34A', bg: '#F0FDF4', icon: UserCheck, sub: '1º contato no período' },
-            { label: 'Recorrentes', value: pacientesRecorrentes, color: '#2563EB', bg: '#EFF6FF', icon: Users, sub: 'já falaram antes' },
-            { label: 'Agendamentos', value: agendamentos, color: '#0891B2', bg: '#ECFEFF', icon: Calendar, sub: 'desses contatos' },
-            { label: 'Proc. agendados', value: procAgendados, color: '#7C3AED', bg: '#F5F3FF', icon: Stethoscope, sub: 'c/ procedimento' },
-            { label: 'Proc. realizados', value: procRealizados, color: '#D97706', bg: '#FFFBEB', icon: CheckCircle2, sub: 'concluídos' },
+            { label: 'Novos', value: pacientesNovos, color: '#16A34A', bg: '#F0FDF4', icon: UserCheck, sub: '1º contato no período', onClick: () => openDetail('Pacientes novos', 'pacientes', novosPhones.map(pacienteRow)) },
+            { label: 'Recorrentes', value: pacientesRecorrentes, color: '#2563EB', bg: '#EFF6FF', icon: Users, sub: 'já falaram antes', onClick: () => openDetail('Pacientes recorrentes', 'pacientes', recorrentesPhones.map(pacienteRow)) },
+            { label: 'Agendamentos', value: agendamentos, color: '#0891B2', bg: '#ECFEFF', icon: Calendar, sub: 'desses contatos', onClick: () => openDetail('Agendamentos', 'agenda', apptsDosContatos.map(apptRow)) },
+            { label: 'Proc. agendados', value: procAgendados, color: '#7C3AED', bg: '#F5F3FF', icon: Stethoscope, sub: 'c/ procedimento', onClick: () => openDetail('Procedimentos agendados', 'agenda', apptsComProc.map(apptRow)) },
+            { label: 'Proc. realizados', value: procRealizados, color: '#D97706', bg: '#FFFBEB', icon: CheckCircle2, sub: 'concluídos', onClick: () => openDetail('Procedimentos realizados', 'agenda', apptsRealizados.map(apptRow)) },
           ].map(s => (
-            <div key={s.label} style={{ background: s.bg, borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div key={s.label} onClick={s.value ? s.onClick : undefined} title={s.value ? 'Ver detalhes' : undefined}
+              style={{ background: s.bg, borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4, cursor: s.value ? 'pointer' : 'default', transition: 'transform 0.1s, box-shadow 0.1s' }}
+              onMouseEnter={e => { if (s.value) { e.currentTarget.style.boxShadow = '0 4px 14px rgba(15,23,42,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)' } }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: s.color }}>
                 <s.icon size={14} />
                 <span style={{ fontSize: 11, fontWeight: 700 }}>{s.label}</span>
               </div>
               <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{loading ? '—' : s.value}</div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.sub}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.sub}{s.value ? ' · ver' : ''}</div>
             </div>
           ))}
         </div>
@@ -893,7 +922,10 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, ran
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {origemList.map(([name, count]) => (
-                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div key={name} onClick={() => openDetail(`Origem · ${name}`, 'pacientes', (origemPhones[name] || []).map(pacienteRow))} title="Ver pacientes"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '2px 4px', borderRadius: 6, transition: 'background 0.1s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#F1F5F9'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 130, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
                   <div style={{ flex: 1, background: '#EEF2F7', borderRadius: 6, height: 14, overflow: 'hidden' }}>
                     <div style={{ width: `${(count / maxOrigem) * 100}%`, height: '100%', background: '#2563EB', borderRadius: 6 }} />
@@ -940,6 +972,52 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, ran
           </div>
         </div>
       )}
+
+      {/* Detalhamento (drill-down) — lista completa por trás de cada número */}
+      {detail && (() => {
+        const thS = { padding: '8px 16px', fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap' }
+        const tdS = { padding: '9px 16px', color: 'var(--text-primary)', verticalAlign: 'top' }
+        const fmtDate = (ts) => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—'
+        const fmtDT = (ts) => ts ? new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+        const stLabel = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', faltou: 'Faltou', cancelado: 'Cancelado' }
+        return (
+          <div className="metrics-no-print" onClick={() => setDetail(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 660, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div style={{ padding: '15px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ fontSize: 15, fontWeight: 800 }}>{detail.title}</div>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{detail.rows.length} {detail.rows.length === 1 ? 'registro' : 'registros'} · {periodLabel(period)}</span>
+                <button onClick={() => setDetail(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex' }}><XCircle size={19} /></button>
+              </div>
+              <div style={{ overflowY: 'auto' }}>
+                {detail.rows.length === 0 ? (
+                  <div style={{ padding: 26, fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>Nenhum registro no período.</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: 10.5, textTransform: 'uppercase', background: '#F8FAFC' }}>
+                        {detail.kind === 'agenda'
+                          ? <><th style={thS}>Paciente</th><th style={thS}>Data</th><th style={thS}>Procedimento</th><th style={thS}>Status</th></>
+                          : <><th style={thS}>Paciente</th><th style={thS}>Telefone</th><th style={thS}>1º contato</th></>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.rows.map((r, i) => (
+                        <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                          {detail.kind === 'agenda'
+                            ? <><td style={{ ...tdS, fontWeight: 600 }}>{r.nome}</td><td style={tdS}>{fmtDT(r.quando)}</td><td style={tdS}>{r.proc}</td><td style={tdS}>{stLabel[r.status] || r.status}</td></>
+                            : <><td style={{ ...tdS, fontWeight: 600 }}>{r.nome}</td><td style={{ ...tdS, fontVariantNumeric: 'tabular-nums' }}>{r.phone}</td><td style={tdS}>{fmtDate(r.quando)}</td></>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
