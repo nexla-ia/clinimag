@@ -225,6 +225,14 @@ const TAB_SECTIONS = {
     { id: 'procedimentos', label: 'Top procedimentos' },
     { id: 'fluxo',         label: 'Fluxo de caixa (lançamentos)' },
   ],
+  leads: [
+    { id: 'resumo',  label: 'Resumo (indicadores)' },
+    { id: 'funil',   label: 'Funil de conversão' },
+    { id: 'volume',  label: 'Volume diário de novos leads' },
+    { id: 'origens', label: 'Origens' },
+    { id: 'status',  label: 'Status do lead / sem resposta' },
+    { id: 'metaads', label: 'Meta Ads (pago × orgânico)' },
+  ],
 }
 
 // ─── Metadados do CRM (métricas) ─────────────────────────────────────────────
@@ -2151,8 +2159,9 @@ function cleanPhone(p) {
   return (p || '').replace(/@.*$/, '').replace(/\D/g, '')
 }
 
-function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable }) {
+function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable, only }) {
   const { from, to } = range
+  const show = (id) => !only || only.has(id)
   const navigate = useNavigate()
   const [drillOrigin, setDrillOrigin] = useState(null)
   if (!contactsTable) {
@@ -2348,6 +2357,7 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
   return (
     <div>
       {/* KPIs — 6 cards */}
+      {show('resumo') && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 14, marginBottom: 18 }}>
         <KpiCard icon={<Users size={18} color="#2563EB" />} bg="#EFF6FF" value={totalLeads} label="Total de leads" sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<MessageSquare size={18} color="#16A34A" />} bg="#F0FDF4" value={comContato} label="Leads contactados" sub={`${totalLeads ? Math.round(comContato / totalLeads * 100) : 0}% do total`} loading={loading} />
@@ -2356,8 +2366,10 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
         <KpiCard icon={<Clock size={18} color="#0891B2" />} bg="#ECFEFF" value={fmtMsCurta(tempoMedioContato)} label="Tempo até 1º contato" sub="lead → 1ª mensagem" loading={loading} />
         <KpiCard icon={<Inbox size={18} color="#F59E0B" />} bg="#FFFBEB" value={semResposta} label="Sem resposta" sub="aguardando retorno" loading={loading} alert={semResposta > 0} />
       </div>
+      )}
 
       {/* Funil */}
+      {show('funil') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={TrendingUp} text="Funil de conversão" right={periodLabel(period)} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, alignItems: 'stretch', marginTop: 12 }}>
@@ -2396,8 +2408,10 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
           })}
         </div>
       </div>
+      )}
 
       {/* Volume diário (sparkline) */}
+      {show('volume') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={BarChart2} text="Volume diário de novos leads" right={`${dailyVolume.length} dias`} />
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 100, marginTop: 16, paddingBottom: 24, position: 'relative' }}>
@@ -2427,8 +2441,10 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
           </div>
         )}
       </div>
+      )}
 
       {/* Origem com conversão (tabela rica) */}
+      {show('origens') && (
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 14 }}>
         <SectionTitle icon={BarChart2} text="Origens — qual canal mais converte?" right={`${origens.length} canais`} />
         {origens.length === 0 ? <Empty /> : (
@@ -2496,8 +2512,10 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
           </div>
         )}
       </div>
+      )}
 
       {/* Classificação + Sem resposta — 2 colunas */}
+      {show('status') && (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 14 }}>
         <div className="nx-card" style={{ padding: '1.25rem' }}>
           <SectionTitle
@@ -2568,9 +2586,10 @@ function LeadsTab({ leads, appts, msgs, range, period, loading, contactsTable })
           )}
         </div>
       </div>
+      )}
 
       {/* ── Meta Ads ─────────────────────────────────────────────────────── */}
-      {(adPagos.length > 0 || adOrganicos.length > 0) && (
+      {show('metaads') && (adPagos.length > 0 || adOrganicos.length > 0) && (
         <div style={{ marginTop: 14 }}>
           {/* header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
