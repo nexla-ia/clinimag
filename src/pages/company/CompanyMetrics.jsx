@@ -609,7 +609,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
         })}
       </div>
 
-      {tab === 'overview'    && <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, range, period, loading }} />}
+      {tab === 'overview'    && <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, range, period, loading }} />}
       {tab === 'atendimento' && <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />}
       {tab === 'equipe'      && <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />}
       {tab === 'agenda'      && <AgendaTab      {...{ appts, professionals, procedures, range, period, loading }} />}
@@ -631,10 +631,54 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
 }
 
 // ─── Tab: Visão Geral ───────────────────────────────────────────────────────
-function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, range, period, loading }) {
+function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, range, period, loading }) {
   const { from, to } = range
   const m = msgs.filter(x => inPeriod(x.created_at, from, to))
   const c = convs.filter(x => inPeriod(x.closed_at, from, to))
+
+  // ── Pacientes que entraram em contato no período ──────────────────────────
+  // Cliente = mensagem enviada PELO paciente (type cliente/human). Novo = a 1ª
+  // mensagem dele (no histórico todo) cai dentro do período; recorrente = mandou
+  // no período mas já tinha mandado antes.
+  const isClientMsg = (t) => { const x = (t || '').toLowerCase(); return x === 'cliente' || x === 'human' }
+  const normPhone = (v) => {
+    let d = (v || '').replace(/@.*$/, '').replace(/\D/g, '')
+    if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
+    return d
+  }
+  const firstClientTs = useMemo(() => {
+    const seen = {}
+    const rows = msgs.filter(x => x.numero && !x.idgrupo && isClientMsg(x.type)).sort((a, b) => a.id - b.id)
+    for (const x of rows) { const p = normPhone(x.numero); if (p && !seen[p]) seen[p] = x.created_at }
+    return seen
+  }, [msgs])
+  const activePhones = useMemo(() => {
+    const s = new Set()
+    for (const x of m) { if (x.numero && !x.idgrupo && isClientMsg(x.type)) s.add(normPhone(x.numero)) }
+    return s
+  }, [m])
+  const pacientesNovos = [...activePhones].filter(p => inPeriod(firstClientTs[p], from, to)).length
+  const pacientesRecorrentes = [...activePhones].filter(p => { const f = firstClientTs[p]; return f && !inPeriod(f, from, to) }).length
+  // Agendamentos/procedimentos desses contatos, no período (por starts_at).
+  const apptsDosContatos = appts.filter(a =>
+    a.status !== 'cancelado' && activePhones.has(normPhone(a.contact_numero)) && inPeriod(a.starts_at, from, to)
+  )
+  const agendamentos = apptsDosContatos.length
+  const procAgendados = apptsDosContatos.filter(a => a.procedure_id).length
+  const procRealizados = apptsDosContatos.filter(a => a.procedure_id && a.status === 'concluido').length
+  // Origem de TODOS que falaram no período (usa o cadastro do lead; senão "Não identificada").
+  const origemList = useMemo(() => {
+    const byPhone = {}
+    for (const l of (leads || [])) { const p = normPhone(l.numero); if (p) byPhone[p] = l }
+    const counts = {}
+    for (const p of activePhones) {
+      const l = byPhone[p]
+      const o = (l && l.origem && String(l.origem).trim()) ? normalizeOrigem(l.origem) : 'Não identificada'
+      counts[o] = (counts[o] || 0) + 1
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])
+  }, [leads, activePhones])
+  const maxOrigem = Math.max(1, ...origemList.map(x => x[1]))
 
   // Tickets novos: primeiro registro de cada numero dentro do período
   const firstByNumero = useMemo(() => {
@@ -707,6 +751,51 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, range, per
         <KpiCard icon={<Calendar size={18} color="#0891B2" />} bg="#ECFEFF" value={apptsHoje} label="Agendamentos hoje" sub="exceto cancelados" loading={loading} />
         <KpiCard icon={<BellRing size={18} color="#D97706" />} bg="#FFFBEB" value={alertasPend} label="Alertas pendentes" sub="aguardando resolução" loading={loading} alert={alertasPend > 0} />
         <KpiCard icon={<AlertCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={cardsAtrasados} label="Atividades atrasadas" sub="data vencida" loading={loading} alert={cardsAtrasados > 0} />
+      </div>
+
+      {/* Pacientes que entraram em contato — novos × recorrentes + conversão + origem */}
+      <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <Users size={15} color="#2563EB" />
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Pacientes que entraram em contato</div>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel(period)}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: origemList.length ? 18 : 0 }}>
+          {[
+            { label: 'Novos', value: pacientesNovos, color: '#16A34A', bg: '#F0FDF4', icon: UserCheck, sub: '1º contato no período' },
+            { label: 'Recorrentes', value: pacientesRecorrentes, color: '#2563EB', bg: '#EFF6FF', icon: Users, sub: 'já falaram antes' },
+            { label: 'Agendamentos', value: agendamentos, color: '#0891B2', bg: '#ECFEFF', icon: Calendar, sub: 'desses contatos' },
+            { label: 'Proc. agendados', value: procAgendados, color: '#7C3AED', bg: '#F5F3FF', icon: Stethoscope, sub: 'c/ procedimento' },
+            { label: 'Proc. realizados', value: procRealizados, color: '#D97706', bg: '#FFFBEB', icon: CheckCircle2, sub: 'concluídos' },
+          ].map(s => (
+            <div key={s.label} style={{ background: s.bg, borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: s.color }}>
+                <s.icon size={14} />
+                <span style={{ fontSize: 11, fontWeight: 700 }}>{s.label}</span>
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{loading ? '—' : s.value}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+        {origemList.length > 0 && (
+          <>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Target size={13} color="#2563EB" /> Origem dos que falaram
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {origemList.map(([name, count]) => (
+                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 130, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                  <div style={{ flex: 1, background: '#EEF2F7', borderRadius: 6, height: 14, overflow: 'hidden' }}>
+                    <div style={{ width: `${(count / maxOrigem) * 100}%`, height: '100%', background: '#2563EB', borderRadius: 6 }} />
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, width: 30, textAlign: 'right', flexShrink: 0 }}>{count}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 16 }}>
