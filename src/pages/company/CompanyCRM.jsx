@@ -213,12 +213,12 @@ export default function CompanyCRM() {
     // contato: contatos salvos (Conversas) e a tabela de clientes (pushname).
     // Sem isso, um lead sem nome no CRM mostrava só o número, mesmo já tendo
     // sido salvo com nome nas Conversas.
-    loadNameMap()
+    loadNameMap(ct || [])
   }
 
   // Monta telefone-canônico → nome. clientes primeiro, saved_contacts por cima
   // (o nome salvo à mão pela clínica tem prioridade sobre o pushname).
-  async function loadNameMap() {
+  async function loadNameMap(crmContacts = []) {
     if (!instance) return
     const ownNumber = normPhone(session?.company?.numero_base)
     const raw = {}                 // telefone → nome bruto (clientes/pushname)
@@ -229,6 +229,18 @@ export default function CompanyCRM() {
       const nm = (c.nome || '').trim()
       if (!k || !nm) continue
       raw[k] = nm
+      const low = nm.toLowerCase()
+      ;(counts[low] || (counts[low] = new Set())).add(k)
+    }
+    // Também conta os nomes gravados nos PRÓPRIOS leads (crm_contacts). A poluição
+    // do n8n (nome do perfil da clínica, ex.: "Magnética | Soluções Digitais") fica
+    // SÓ aqui — não em `clientes` — então sem isso a regra dos "4+ telefones" abaixo
+    // nunca enxergava esse nome e ele vazava pra todos os cards. Não vai pro `raw`
+    // (não queremos usá-lo como fonte de nome), só alimenta a contagem de poluição.
+    for (const c of (crmContacts || [])) {
+      const k = normPhone(c.phone)
+      const nm = (c.nome || '').trim()
+      if (!k || !nm) continue
       const low = nm.toLowerCase()
       ;(counts[low] || (counts[low] = new Set())).add(k)
     }
