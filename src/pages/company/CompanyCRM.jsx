@@ -76,6 +76,18 @@ function normPhone(p) {
   if (d.length === 13 && d[4] === '9') d = d.slice(0, 4) + d.slice(5)
   return d
 }
+// Mesma normalização do gatilho crm_block_reinsert (função crm_norm_phone no
+// banco): garante o 55 e remove o 9º dígito -> forma canônica. Usada só p/
+// deduplicar lead ao adicionar — o normPhone acima NÃO prefixa 55, então não
+// bate com a regra do gatilho e deixava passar duplicados (o INSERT era
+// bloqueado pelo gatilho e o .single() estourava "Cannot coerce...").
+function crmNormPhone(p) {
+  let d = (p || '').replace(/@.*/, '').replace(/\D/g, '')
+  if (!d) return ''
+  if (d.length === 10 || d.length === 11) d = '55' + d
+  if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
+  return d
+}
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function CompanyCRM() {
@@ -600,7 +612,14 @@ export default function CompanyCRM() {
     }
     const resetForm = () => setNewForm({ nome:'', phone:'', email:'', origem:'', temperatura:'morno', stage_id:'', observacoes:'' })
     // Já existe lead com esse número (UNIQUE instancia+phone), inclusive removido?
-    const { data: existing } = await supabase.from('crm_contacts').select('*').eq('instancia', instance).eq('phone', phone).maybeSingle()
+    // Compara pela MESMA normalização do gatilho (crm_norm_phone): o telefone pode
+    // estar gravado noutra grafia (com/sem 9, com/sem 55). Se comparasse exato, o
+    // duplicado passava batido e o gatilho bloqueava o INSERT (0 linhas → erro).
+    const norm = crmNormPhone(phone)
+    const tail = norm.slice(-8)
+    const { data: cands } = await supabase.from('crm_contacts')
+      .select('*').eq('instancia', instance).ilike('phone', `%${tail}`)
+    const existing = (cands || []).find(c => crmNormPhone(c.phone) === norm)
     if (existing) {
       const isRemoved = supportsRemovido && existing.removido === true
       if (!isRemoved) {
@@ -621,9 +640,13 @@ export default function CompanyCRM() {
       setNewModal(false); resetForm()
       return
     }
-    const { data: nc, error } = await supabase.from('crm_contacts').insert({ instancia: instance, phone, ...payload }).select().single()
+    // maybeSingle (não single): se o gatilho crm_block_reinsert bloquear o INSERT
+    // (telefone equivalente já existe), volta 0 linhas SEM erro — trata como "já existe"
+    // em vez de estourar "Cannot coerce the result to a single JSON object".
+    const { data: nc, error } = await supabase.from('crm_contacts').insert({ instancia: instance, phone, ...payload }).select().maybeSingle()
     setSaving(false)
     if (error) { alert('Erro: '+error.message); return }
+    if (!nc) { alert('Já existe um lead com esse número no CRM.'); setNewModal(false); resetForm(); return }
     setContacts(p => [nc, ...p])
     setNewModal(false); resetForm()
   }
