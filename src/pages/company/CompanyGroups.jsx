@@ -172,6 +172,36 @@ function senderLabel(row) {
   return (row.numero || '').replace(/@.*$/, '')
 }
 
+const DOC_META = {
+  docx: { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', label: 'DOC', color: '#2563EB' },
+  xlsx: { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', label: 'XLS', color: '#16A34A' },
+  pptx: { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', label: 'PPT', color: '#EA580C' },
+  doc:  { mime: 'application/msword', label: 'DOC', color: '#2563EB' },
+  zip:  { mime: 'application/zip', label: 'ARQ', color: '#6B7280' },
+}
+// mime -> extensão conhecida (inclui os formatos Office legados)
+function docExtByMime(mime) {
+  for (const ext in DOC_META) if (DOC_META[ext].mime === mime) return ext
+  if (mime === 'application/vnd.ms-excel') return 'xlsx'
+  if (mime === 'application/vnd.ms-powerpoint') return 'pptx'
+  return null
+}
+// docx/xlsx/pptx são ZIP (header "PK"): descobre qual olhando os nomes de
+// arquivo dentro do ZIP (word/ , xl/ , ppt/) nos primeiros KB decodificados.
+function sniffDocExt(b64) {
+  try {
+    const bin = atob(b64.slice(0, 6000))
+    if (bin.includes('word/')) return 'docx'
+    if (bin.includes('ppt/'))  return 'pptx'
+    if (bin.includes('xl/'))   return 'xlsx'
+  } catch {}
+  return 'zip'
+}
+function mkDoc(ext, b64) {
+  const d = DOC_META[ext] || DOC_META.zip
+  return { type: 'doc', ext, mime: d.mime, label: d.label, color: d.color, src: `data:${d.mime};base64,${b64}`, raw: b64 }
+}
+
 function detectMedia(b64) {
   if (!b64 || b64.length < 10) return null
   // Data URI: extrai mime e retorna com raw = parte pura do base64
@@ -180,6 +210,8 @@ function detectMedia(b64) {
     if (!m) return null
     const mime = m[1]
     const raw = m[2]
+    const dext = docExtByMime(mime)
+    if (dext) { const d = DOC_META[dext]; return { type: 'doc', ext: dext, mime, label: d.label, color: d.color, src: b64, raw } }
     const kind = mime.startsWith('image/') ? 'image'
       : mime.startsWith('audio/') ? 'audio'
       : mime.startsWith('video/') ? 'video'
@@ -198,6 +230,10 @@ function detectMedia(b64) {
   if (b64.startsWith('UklGR')) return mk('image', 'image/webp')
   if (b64.startsWith('R0lGOD')) return mk('image', 'image/gif')
   if (b64.startsWith('JVBERi')) return mk('pdf', 'application/pdf')
+  // Office moderno (docx/xlsx/pptx) e ZIP: "PK" => base64 "UEsDB"
+  if (b64.startsWith('UEsDB')) return mkDoc(sniffDocExt(b64), b64)
+  // Office legado (.doc/.xls/.ppt) OLE2 "D0CF11E0" => base64 "0M8R4KG"
+  if (b64.startsWith('0M8R4KG')) return mkDoc('doc', b64)
   try {
     if (b64.length > 100 && atob(b64.slice(0, 16)).slice(4, 8) === 'ftyp') return mk('video', 'video/mp4')
   } catch {}
@@ -1878,6 +1914,21 @@ export default function CompanyGroups() {
                             <div style={{ width: 34, height: 34, borderRadius: 6, background: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#DC2626', fontWeight: 700, fontSize: 10, flexShrink: 0 }}>PDF</div>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>Documento PDF</div>
+                              <div style={{ fontSize: 11, color: '#6B7280' }}>Clique para abrir/baixar</div>
+                            </div>
+                          </a>
+                        )}
+                        {media?.type === 'doc' && (
+                          <a href={media.src} download={`documento.${media.ext || 'docx'}`} target="_blank" rel="noreferrer"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 10,
+                              background: '#EFF6FF', border: '1px solid #BFDBFE',
+                              borderRadius: 8, padding: '10px 14px', textDecoration: 'none',
+                              minWidth: 200, marginBottom: msg.mensagem ? 6 : 0,
+                            }}>
+                            <div style={{ width: 34, height: 34, borderRadius: 6, background: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center', color: media.color || '#2563EB', fontWeight: 700, fontSize: 10, flexShrink: 0 }}>{media.label || 'DOC'}</div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>Documento</div>
                               <div style={{ fontSize: 11, color: '#6B7280' }}>Clique para abrir/baixar</div>
                             </div>
                           </a>

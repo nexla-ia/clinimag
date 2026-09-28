@@ -197,6 +197,19 @@ function renderTextWithLinks(text, linkStyle) {
   })
 }
 
+// Documentos Office modernos (docx/xlsx/pptx) são ZIP (header "PK") — só pelo
+// header não dá pra saber qual é, então olhamos os nomes de arquivo dentro do
+// ZIP (word/ , xl/ , ppt/) nos primeiros KB decodificados.
+function sniffDoc(b64) {
+  try {
+    const bin = atob(b64.slice(0, 6000))
+    if (bin.includes('word/')) return { type: 'doc', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx', label: 'DOC', color: '#2563EB' }
+    if (bin.includes('ppt/'))  return { type: 'doc', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', ext: 'pptx', label: 'PPT', color: '#EA580C' }
+    if (bin.includes('xl/'))   return { type: 'doc', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ext: 'xlsx', label: 'XLS', color: '#16A34A' }
+  } catch {}
+  return { type: 'doc', mime: 'application/zip', ext: 'zip', label: 'ARQ', color: '#6B7280' }
+}
+
 function detectMedia(b64) {
   if (!b64 || b64.length < 10) return null
   if (b64.startsWith('T2dn')) return { type: 'audio', mime: 'audio/ogg' }
@@ -207,6 +220,10 @@ function detectMedia(b64) {
   if (b64.startsWith('UklGR')) return { type: 'image', mime: 'image/webp' }
   if (b64.startsWith('R0lGOD')) return { type: 'image', mime: 'image/gif' }
   if (b64.startsWith('JVBERi')) return { type: 'pdf', mime: 'application/pdf' }
+  // Office moderno (docx/xlsx/pptx) e ZIP: "PK" => base64 "UEsDB"
+  if (b64.startsWith('UEsDB')) return sniffDoc(b64)
+  // Office legado (.doc/.xls/.ppt) OLE2 "D0CF11E0" => base64 "0M8R4KG"
+  if (b64.startsWith('0M8R4KG')) return { type: 'doc', mime: 'application/msword', ext: 'doc', label: 'DOC', color: '#2563EB' }
   // MP4/MOV/3GP: verifica marcador 'ftyp' no offset 4
   try {
     if (b64.length > 100 && atob(b64.slice(0, 16)).slice(4, 8) === 'ftyp') {
@@ -3304,6 +3321,33 @@ export default function CompanyConversations() {
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                                       color: '#DC2626', fontWeight: 700, fontSize: 11, flexShrink: 0,
                                     }}>PDF</div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {fileName}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#6B7280' }}>Clique para baixar/abrir</div>
+                                    </div>
+                                  </a>
+                                )
+                              }
+                              if (media.type === 'doc') {
+                                const ext = media.ext || 'docx'
+                                const fileName = (fileLine || '').replace(/^(📄|📎)\s*/, '').trim() || `documento.${ext}`
+                                const label = media.label || 'DOC'
+                                const color = media.color || '#2563EB'
+                                return (
+                                  <a href={src} download={fileName} target="_blank" rel="noreferrer"
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 10,
+                                      background: '#EFF6FF', border: '1px solid #BFDBFE',
+                                      borderRadius: 8, padding: '10px 14px', textDecoration: 'none',
+                                      minWidth: 220, marginBottom: hasOnlyMedia ? 0 : 6,
+                                    }}>
+                                    <div style={{
+                                      width: 36, height: 36, borderRadius: 6, background: '#DBEAFE',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      color, fontWeight: 700, fontSize: 11, flexShrink: 0,
+                                    }}>{label}</div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {fileName}
