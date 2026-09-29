@@ -240,6 +240,43 @@ function detectMedia(b64) {
   return null
 }
 
+// ── Citação de mídia: rótulo limpo (em vez do nome do arquivo) + miniatura ────
+const MEDIA_LABEL = { image: 'Foto', video: 'Vídeo', audio: 'Áudio', doc: 'Documento', file: 'Arquivo' }
+const MEDIA_EMOJI = { image: '🖼️', video: '🎬', audio: '🎤', doc: '📄', file: '📎' }
+// Tipo de mídia de uma mensagem: pelo rótulo emoji do texto (🖼️/📷/🎬/🎤/📄/📎)
+// ou pelo base64, se carregado. null = não é mídia.
+function msgMediaKind(msg) {
+  if (!msg) return null
+  const t = (msg.mensagem || '').trim()
+  if (/^(🖼️|📷)/.test(t)) return 'image'
+  if (/^🎬/.test(t)) return 'video'
+  if (/^🎤/.test(t)) return 'audio'
+  if (/^📄/.test(t)) return 'doc'
+  if (/^📎/.test(t)) return 'file'
+  if (msg.base64) { const d = detectMedia(msg.base64); if (d) return (d.type === 'pdf' || d.type === 'doc') ? 'doc' : d.type }
+  if (msg.tem_midia) return 'file'
+  return null
+}
+// Rótulo curto pra citação: "🖼️ Foto" em vez de "🖼️ Captura de Tela ....png".
+function quotePreviewOf(msg) {
+  const k = msgMediaKind(msg)
+  return k ? `${MEDIA_EMOJI[k]} ${MEDIA_LABEL[k]}` : (msg?.mensagem || '').trim()
+}
+// Miniatura da imagem citada. Usa o base64 se já veio; senão busca sob demanda
+// (mensagens de grupo carregam sem base64). Só renderiza pra imagem.
+function QuoteThumb({ id, b64, size = 34 }) {
+  const [src, setSrc] = useState(() => { const m = b64 ? detectMedia(b64) : null; return m?.type === 'image' ? m.src : null })
+  useEffect(() => {
+    if (src || !id) return
+    let cancel = false
+    supabase.from(CONV_TABLE).select('base64').eq('id', id).single()
+      .then(({ data }) => { if (cancel || !data?.base64) return; const m = detectMedia(data.base64); if (m?.type === 'image') setSrc(m.src) })
+    return () => { cancel = true }
+  }, [id, src])
+  if (!src) return null
+  return <img src={src} alt="" style={{ width: size, height: size, borderRadius: 5, objectFit: 'cover', flexShrink: 0 }} />
+}
+
 export default function CompanyGroups() {
   const { session } = useAuth()
   const navigate = useNavigate()
@@ -1250,11 +1287,17 @@ export default function CompanyGroups() {
 
   function startReply(msg) {
     if (!msg || msg.apagada) return
+    const kind = msgMediaKind(msg)
+    // Mídia → rótulo curto ("🖼️ Foto"), não o nome do arquivo. Sem mídia → o texto.
+    const content = kind ? `${MEDIA_EMOJI[kind]} ${MEDIA_LABEL[kind]}` : ((msg.mensagem || '').slice(0, 200) || '')
     setReplyingTo({
       // Pode ser null (mensagem antiga/menção sem id do WhatsApp) — nesse caso
       // a citação vai embutida no texto em vez de resposta nativa.
       id_mensagem: msg.id_mensagem || null,
-      content: (msg.mensagem || '').slice(0, 200) || (msg.base64 ? '📎 Mídia' : ''),
+      content,
+      mediaKind: kind,       // pra mostrar miniatura/label na faixa e no balão
+      srcId: msg.id,         // id no banco (busca o base64 da miniatura)
+      srcB64: msg.base64 || null,
       nome: msg.nome || null,
       type: msg.type || null,
       numero: (msg.numero || '').replace(/@.*$/, ''), // remetente original (participant do quote em grupo)
@@ -1843,9 +1886,13 @@ export default function CompanyGroups() {
                           const orig = msg.quoted_id_mensagem ? messages.find(m => m.id_mensagem === msg.quoted_id_mensagem) : null
                           let author = !orig ? '' : (senderLabel(orig) || 'Alguém')
                           // Sem a original carregada, usa o quoted_text ("*Nome:*\ntexto") separando autor + texto.
-                          let origText
+                          let origText, origKind = null, origB64 = null, origId = null
                           if (orig) {
-                            origText = (orig.mensagem || '').trim() || (orig.base64 ? '📎 Mídia' : '')
+                            origKind = msgMediaKind(orig)
+                            // Mídia → "🖼️ Foto" (não o nome do arquivo); imagem ganha miniatura.
+                            origText = origKind ? `${MEDIA_EMOJI[origKind]} ${MEDIA_LABEL[origKind]}` : ((orig.mensagem || '').trim() || (orig.base64 ? '📎 Mídia' : ''))
+                            origB64 = orig.base64 || null
+                            origId = orig.id
                           } else {
                             const raw = (msg.quoted_text || '').trim()
                             // quoted_text vem "*Andrielly:*\nteste" (: dentro) ou "*Andrielly*:\n..." (: fora)
@@ -1865,6 +1912,7 @@ export default function CompanyGroups() {
                                 borderRadius: 6, padding: '5px 9px', maxWidth: 260,
                               }}>
                               <div style={{ width: 3, borderRadius: 2, background: accent, flexShrink: 0 }} />
+                              {origKind === 'image' && <QuoteThumb id={origId} b64={origB64} size={30} />}
                               <div style={{ minWidth: 0 }}>
                                 {author && <div style={{ fontSize: 11, fontWeight: 700, color: accent, marginBottom: 1 }}>{author}</div>}
                                 <div style={{
@@ -2148,6 +2196,7 @@ export default function CompanyGroups() {
                   borderRadius: 6, padding: '7px 12px', marginBottom: 8,
                 }}>
                   <Reply size={14} style={{ color: '#4F46E5', flexShrink: 0 }} />
+                  {replyingTo.mediaKind === 'image' && <QuoteThumb id={replyingTo.srcId} b64={replyingTo.srcB64} size={36} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5' }}>
                       {['atendente', 'humano', 'ia', 'bot'].includes((replyingTo.type || '').toLowerCase())
