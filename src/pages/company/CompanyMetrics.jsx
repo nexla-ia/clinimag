@@ -1353,7 +1353,7 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
 
       {/* Detalhamento (drill-down) — lista completa por trás de cada número */}
       {detail && (() => {
-        const thS = { padding: '8px 16px', fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap' }
+        const thS = { padding: '8px 16px', fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: '#F8FAFC', zIndex: 1 }
         const tdS = { padding: '9px 16px', color: 'var(--text-primary)', verticalAlign: 'top' }
         const fmtDate = (ts) => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—'
         const fmtDT = (ts) => ts ? new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
@@ -1362,13 +1362,13 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
           <div className="metrics-no-print" onClick={() => setDetail(null)}
             style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 660, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 660, maxHeight: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
               <div style={{ padding: '15px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ fontSize: 15, fontWeight: 800 }}>{detail.title}</div>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{detail.rows.length} {detail.rows.length === 1 ? 'registro' : 'registros'} · {periodLabel(period)}</span>
                 <button onClick={() => setDetail(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex' }}><XCircle size={19} /></button>
               </div>
-              <div style={{ overflowY: 'auto' }}>
+              <div style={{ overflowY: 'auto', flex: '1 1 auto', minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
                 {detail.rows.length === 0 ? (
                   <div style={{ padding: 26, fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>Nenhum registro no período.</div>
                 ) : (
