@@ -206,6 +206,7 @@ const TABS = [
 const TAB_SECTIONS = {
   overview: [
     { id: 'resumo',    label: 'Resumo (indicadores)' },
+    { id: 'jornada',   label: 'Jornada & valor do paciente' },
     { id: 'pacientes', label: 'Pacientes que entraram em contato' },
     { id: 'mensagens', label: 'Mensagens por dia' },
     { id: 'iahumano',  label: 'Atendimento IA vs Humano' },
@@ -919,6 +920,66 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
   })
   const openDetail = (title, kind, rows) => setDetail({ title, kind, rows })
 
+  // ── Jornada & valor do paciente (LTV, tempo até agendar, consultas × exames) ─
+  const procTypeById = useMemo(() => {
+    const m = {}; (procedures || []).forEach(p => { m[p.id] = (p.type || '').toLowerCase() }); return m
+  }, [procedures])
+
+  // Consultas × Exames: agendamentos não-cancelados no período, pelo tipo do procedimento.
+  const tipoMix = useMemo(() => {
+    const acc = { consulta: 0, exame: 0, procedimento: 0, outro: 0 }
+    ;(appts || []).forEach(a => {
+      if (a.status === 'cancelado') return
+      if ((from || to) && !inPeriod(a.starts_at, from, to)) return
+      const t = a.procedure_id ? procTypeById[a.procedure_id] : null
+      if (t === 'consulta') acc.consulta++
+      else if (t === 'exame') acc.exame++
+      else if (t === 'procedimento') acc.procedimento++
+      else acc.outro++
+    })
+    return acc
+  }, [appts, procTypeById, from, to])
+
+  // LTV: faturamento (atendimentos com preço, não cancelados) por paciente distinto.
+  // Histórico (lifetime) — valor por paciente não faz sentido recortado por período.
+  const ltv = useMemo(() => {
+    const revByPhone = {}; let total = 0
+    ;(appts || []).forEach(a => {
+      const price = Number(a.price || 0)
+      if (!price || a.status === 'cancelado') return
+      const p = normPhone(a.contact_numero); if (!p) return
+      revByPhone[p] = (revByPhone[p] || 0) + price; total += price
+    })
+    const pacientes = Object.keys(revByPhone).length
+    return { total, pacientes, medio: pacientes ? total / pacientes : 0 }
+  }, [appts])
+
+  // Tempo 1ª mensagem → agendou: média/mediana (dias) entre a 1ª mensagem do
+  // paciente e a criação do agendamento. Só onde temos os dois e o delta é sadio.
+  const tempoAgendar = useMemo(() => {
+    const deltas = []
+    ;(appts || []).forEach(a => {
+      if (a.status === 'cancelado' || !a.created_at) return
+      if ((from || to) && !inPeriod(a.created_at, from, to)) return
+      const p = normPhone(a.contact_numero); if (!p) return
+      const first = firstClientTs[p]; if (!first) return
+      const d = (new Date(a.created_at) - new Date(first)) / 86400000
+      if (d >= 0 && d < 365) deltas.push(d)
+    })
+    if (!deltas.length) return null
+    deltas.sort((x, y) => x - y)
+    const media = deltas.reduce((s, x) => s + x, 0) / deltas.length
+    return { media, mediana: deltas[Math.floor(deltas.length / 2)], n: deltas.length }
+  }, [appts, firstClientTs, from, to])
+
+  const fmtBRL = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+  const fmtDur = d => {
+    if (d == null) return '—'
+    if (d < 1 / 24) return '< 1h'
+    if (d < 1) return `${Math.round(d * 24)}h`
+    return `${d < 10 ? d.toFixed(1) : Math.round(d)}d`
+  }
+
   // Tickets novos: primeiro registro de cada numero dentro do período
   const firstByNumero = useMemo(() => {
     const seen = {}
@@ -991,6 +1052,72 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
         <KpiCard icon={<Calendar size={18} color="#0891B2" />} bg="#ECFEFF" value={apptsHoje} label="Agendamentos hoje" sub="exceto cancelados" loading={loading} />
         <KpiCard icon={<BellRing size={18} color="#D97706" />} bg="#FFFBEB" value={alertasPend} label="Alertas pendentes" sub="aguardando resolução" loading={loading} alert={alertasPend > 0} />
         <KpiCard icon={<AlertCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={cardsAtrasados} label="Atividades atrasadas" sub="data vencida" loading={loading} alert={cardsAtrasados > 0} />
+      </div>
+      )}
+
+      {/* Jornada & valor do paciente — LTV, tempo até agendar, consultas × exames */}
+      {show('jornada') && (
+      <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <TrendingUp size={15} color="#2563EB" />
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Jornada & valor do paciente</div>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel(period)}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
+          {/* LTV */}
+          <div style={{ background: '#F0FDF4', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#16A34A' }}>
+              <DollarSign size={14} /><span style={{ fontSize: 11, fontWeight: 700 }}>LTV — valor por paciente</span>
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#16A34A' }}>{loading ? '—' : (ltv.total ? fmtBRL(ltv.medio) : '—')}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+              {ltv.total ? `${ltv.pacientes} pacientes · ${fmtBRL(ltv.total)} no total (histórico)` : 'sem preços cadastrados nos agendamentos'}
+            </div>
+          </div>
+          {/* Tempo até agendar */}
+          <div style={{ background: '#EFF6FF', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#2563EB' }}>
+              <Clock size={14} /><span style={{ fontSize: 11, fontWeight: 700 }}>Tempo até agendar</span>
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#2563EB' }}>{loading ? '—' : fmtDur(tempoAgendar?.media)}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+              {tempoAgendar ? `da 1ª mensagem ao agendamento · mediana ${fmtDur(tempoAgendar.mediana)} (${tempoAgendar.n})` : 'sem dados suficientes'}
+            </div>
+          </div>
+        </div>
+        {/* Consultas × Exames */}
+        {(() => {
+          const rows = [
+            { label: 'Consultas', v: tipoMix.consulta, color: '#2563EB' },
+            { label: 'Exames', v: tipoMix.exame, color: '#7C3AED' },
+            { label: 'Procedimentos', v: tipoMix.procedimento, color: '#0891B2' },
+            { label: 'Outros / sem tipo', v: tipoMix.outro, color: '#94A3B8' },
+          ].filter(r => r.v > 0)
+          const tot = rows.reduce((s, r) => s + r.v, 0)
+          const max = Math.max(1, ...rows.map(r => r.v))
+          return (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Stethoscope size={13} color="#2563EB" /> Consultas × Exames <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>· {tot} agendamentos</span>
+              </div>
+              {tot === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Sem agendamentos no período.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {rows.map(r => (
+                    <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 130, flexShrink: 0 }}>{r.label}</span>
+                      <div style={{ flex: 1, background: '#EEF2F7', borderRadius: 6, height: 14, overflow: 'hidden' }}>
+                        <div style={{ width: `${(r.v / max) * 100}%`, height: '100%', background: r.color, borderRadius: 6 }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, width: 66, textAlign: 'right', flexShrink: 0 }}>{r.v} · {Math.round(r.v / tot * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )
+        })()}
       </div>
       )}
 
