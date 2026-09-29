@@ -994,11 +994,20 @@ export default function CompanyGroups() {
     const file = override ? opts.file : (attachedFiles[0] || null)
     if (!override && !text && !audio && !file) return
     setSending(true)
-    const replySnap = override ? (opts.replySnap || null) : replyingTo
+    let replySnap = override ? (opts.replySnap || null) : replyingTo
     // Resposta nativa (balão de citação no WhatsApp) só é possível com o id do
     // WhatsApp. Sem ele (mensagem antiga ou enviada com menção), embute uma
     // citação curta no próprio texto pro cliente ver o que estamos reforçando.
-    const nativeQuote = !!replySnap?.id_mensagem
+    let nativeQuote = !!replySnap?.id_mensagem
+    // Corrida do "respondi logo após enviar": a mídia recém-enviada pode ter
+    // acabado de receber o id_mensagem (confirmação do envio) sem o estado da
+    // tela ter atualizado ainda — reconsulta o banco antes de decidir.
+    if (replySnap && !nativeQuote && replySnap.srcId) {
+      try {
+        const { data: fresh } = await supabase.from(CONV_TABLE).select('id_mensagem').eq('id', replySnap.srcId).single()
+        if (fresh?.id_mensagem) { replySnap = { ...replySnap, id_mensagem: fresh.id_mensagem }; nativeQuote = true }
+      } catch { /* segue com citação embutida */ }
+    }
     const citation = (replySnap && !nativeQuote)
       ? `↩️ _${(replySnap.content || 'mensagem').replace(/\s+/g, ' ').trim().slice(0, 120)}_\n\n`
       : ''
