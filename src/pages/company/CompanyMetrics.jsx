@@ -2812,7 +2812,6 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
   const isLost = s => !!s?.is_lost || /perdid|perda|desist|n[ãa]o\s*convert/i.test(s?.nome || '')
   // "Conversão" = etapa marcada como is_conversion no modal da etapa.
   const isConv = s => !!s?.is_conversion
-  const hasConvStage = useMemo(() => crmStages.some(isConv), [crmStages])
   const stageById = useMemo(() => { const m = {}; crmStages.forEach(s => m[s.id] = s); return m }, [crmStages])
   const stagesForFunnel = fid => crmStages.filter(s => s.funil_id === fid).sort((a, b) => (a.posicao ?? 0) - (b.posicao ?? 0))
 
@@ -2830,20 +2829,34 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
   const mornos   = scopeLeads.filter(c => c.temperatura === 'morno').length
   const frios    = scopeLeads.filter(c => c.temperatura === 'frio' || !c.temperatura).length
   const parados  = scopeLeads.filter(c => { const s = stageById[c.stage_id]; return s?.alerta_dias && daysInStage(c.data_entrada_etapa) > s.alerta_dias }).length
-  const perdidos = scopeLeads.filter(c => c.motivo_perda || isLost(stageById[c.stage_id])).length
 
-  const lastStageByFunnel = useMemo(() => {
-    const m = {}
-    crmFunnels.forEach(f => { const fw = stagesForFunnel(f.id).filter(s => !isLost(s)); m[f.id] = fw[fw.length - 1]?.id })
-    return m
-  }, [crmFunnels, crmStages])
-  // Convertidos: se ALGUMA etapa foi marcada como "Conversão", usa isso; senão cai
-  // no heurístico (leads na última etapa não-perdida do funil).
-  const convertidos = hasConvStage
-    ? scopeLeads.filter(c => isConv(stageById[c.stage_id])).length
-    : scopeLeads.filter(c => c.stage_id && c.stage_id === lastStageByFunnel[c.funil_id]).length
-  const taxaConv = total ? (convertidos / total * 100) : 0
-  const emAndamento = Math.max(0, total - convertidos - perdidos)
+  // Conversão / Não convertido contam quem foi MOVIDO pras etapas com essas funções
+  // ativas (is_conversion / is_lost), pelo momento em que caiu na etapa
+  // (data_entrada_etapa) — não pela data de criação. Assim mover um lead antigo pra
+  // uma etapa de conversão nesta semana conta nesta semana.
+  const hasDecisionStage = useMemo(() => crmStages.some(s => isConv(s) || isLost(s)), [crmStages])
+  const funnelBase = useMemo(
+    () => (funnelSel === 'todos' ? crmContacts : crmContacts.filter(c => c.funil_id === funnelSel)),
+    [crmContacts, funnelSel]
+  )
+  const movedInPeriod = c => (!from && !to) || inPeriod(c.data_entrada_etapa || c.created_at, from, to)
+  const decision = useMemo(() => {
+    let conv = 0, lost = 0
+    funnelBase.forEach(c => {
+      const s = stageById[c.stage_id]
+      if (!s || !movedInPeriod(c)) return
+      if (isConv(s)) conv++
+      else if (isLost(s)) lost++
+    })
+    return { conv, lost }
+  }, [funnelBase, stageById, from, to])
+  const convertidos = decision.conv
+  const perdidos = decision.lost          // "Não convertidos"
+  const decididos = convertidos + perdidos
+  // Taxa = dos leads que chegaram a uma decisão (convertido/não), quantos converteram.
+  const taxaConv = decididos ? (convertidos / decididos * 100) : 0
+  // Em andamento: leads do período que ainda não caíram numa etapa de decisão.
+  const emAndamento = scopeLeads.filter(c => { const s = stageById[c.stage_id]; return !isConv(s) && !isLost(s) }).length
 
   // Conversão pra AGENDA: leads (do escopo) cujo telefone casa com algum
   // agendamento (appointments.contact_numero), normalizando (55 + sem o 9).
@@ -2978,10 +2991,10 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
         <KpiCard icon={<Users size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Leads no período" sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<TrendingUp size={18} color="#7C3AED" />} bg="#F5F3FF" value={emAndamento} label="Em andamento" sub="ativos no funil" loading={loading} />
         <KpiCard icon={<span style={{ fontSize: 16 }}>🔥</span>} bg="#FEF2F2" value={quentes} label="Leads quentes" sub={`${total ? Math.round(quentes / total * 100) : 0}% do total`} loading={loading} alert={quentes > 0} />
-        <KpiCard icon={<Target size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConv.toFixed(0)}%`} label="Taxa de conversão" sub={hasConvStage ? `${convertidos} na etapa de conversão` : `${convertidos} chegaram ao fim`} loading={loading} />
+        <KpiCard icon={<Target size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConv.toFixed(0)}%`} label="Taxa de conversão" sub={hasDecisionStage ? `${convertidos} de ${decididos} decididos convertidos` : 'marque a etapa de conversão'} loading={loading} />
         <KpiCard icon={<span style={{ fontSize: 16 }}>📅</span>} bg="#EFF6FF" value={agendaram} label="Agendaram" sub={`${taxaAgenda.toFixed(0)}% dos leads marcaram na agenda`} loading={loading} />
         <KpiCard icon={<AlertCircle size={18} color="#D97706" />} bg="#FFFBEB" value={parados} label="Leads parados" sub="além do prazo da etapa" loading={loading} alert={parados > 0} />
-        <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={perdidos} label="Leads perdidos" sub={`${total ? Math.round(perdidos / total * 100) : 0}% do total`} loading={loading} />
+        <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={perdidos} label="Não convertidos" sub={hasDecisionStage ? `movidos p/ etapa de não-convertido` : 'marque a etapa de não convertido'} loading={loading} />
       </div>
       )}
 
