@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
@@ -1358,7 +1359,7 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
         const fmtDate = (ts) => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—'
         const fmtDT = (ts) => ts ? new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
         const stLabel = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', faltou: 'Faltou', cancelado: 'Cancelado' }
-        return (
+        return createPortal(
           <div className="metrics-no-print" onClick={() => setDetail(null)}
             style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div onClick={e => e.stopPropagation()}
@@ -1393,7 +1394,8 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
                 )}
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )
       })()}
     </div>

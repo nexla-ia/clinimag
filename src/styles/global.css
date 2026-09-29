@@ -151,7 +151,11 @@ input, textarea, select { font-family: var(--font-body); }
 .nx-badge-violet { background: #F5F3FF; color: #7C3AED; border: 1px solid #DDD6FE; }
 .nx-badge-gray   { background: #F8FAFC; color: var(--text-secondary); border: 1px solid var(--border); }
 
-.page-enter { animation: fadeSlide 0.25s ease both; }
+/* Sem `both`: o fill-mode retinha `transform: translateY(0)` depois da animação,
+   e um transform != none faz TODO position:fixed descendente (modais) se ancorar
+   neste elemento em vez do viewport — abrindo "lá em cima". Sem o fill, o
+   transform some ao terminar e os modais voltam a centralizar na janela. */
+.page-enter { animation: fadeSlide 0.25s ease; }
 @keyframes fadeSlide {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
