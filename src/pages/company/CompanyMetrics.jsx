@@ -207,6 +207,7 @@ const TAB_SECTIONS = {
   overview: [
     { id: 'resumo',    label: 'Resumo (indicadores)' },
     { id: 'jornada',   label: 'Jornada & valor do paciente' },
+    { id: 'atendidos', label: 'Pacientes atendidos & procedimentos' },
     { id: 'pacientes', label: 'Pacientes que entraram em contato' },
     { id: 'mensagens', label: 'Mensagens por dia' },
     { id: 'iahumano',  label: 'Atendimento IA vs Humano' },
@@ -576,7 +577,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
   // Renderiza uma aba pela key, opcionalmente só com algumas seções (only = Set de ids).
   function renderTab(key, only = null) {
     switch (key) {
-      case 'overview':    return <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading, only }} />
+      case 'overview':    return <OverviewTab    {...{ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, insurancePlans, range, period, loading, only }} />
       case 'atendimento': return <AtendimentoTab {...{ msgs, convs, atts, range, period, loading }} />
       case 'equipe':      return <EquipeTab      {...{ msgs, convs, atts, users, sectors, sectorMembers, range, period, loading }} />
       case 'agenda':      return <AgendaTab      {...{ appts, professionals, procedures, range, period, loading, only }} />
@@ -838,7 +839,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
 }
 
 // ─── Tab: Visão Geral ───────────────────────────────────────────────────────
-function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, range, period, loading, only }) {
+function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, procedures, insurancePlans, range, period, loading, only }) {
   const { from, to } = range
   const show = (id) => !only || only.has(id) // export por seção
   const m = msgs.filter(x => inPeriod(x.created_at, from, to))
@@ -980,6 +981,48 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
     return `${d < 10 ? d.toFixed(1) : Math.round(d)}d`
   }
 
+  // ── Pacientes ATENDIDOS (com agendamento no período) + procedimentos ────────
+  const planName = id => (insurancePlans || []).find(p => p.id === id)?.name || 'Convênio'
+  const apptsPeriodo = useMemo(
+    () => (appts || []).filter(a => a.status !== 'cancelado' && ((!from && !to) || inPeriod(a.starts_at, from, to))),
+    [appts, from, to]
+  )
+  // Novos × Recorrentes ATENDIDOS + valor gerado por cada grupo. Novo = 1º contato
+  // (1ª mensagem) caiu no período; recorrente = já falava antes (ou sem histórico).
+  const atendidos = useMemo(() => {
+    const byPhone = {}
+    apptsPeriodo.forEach(a => {
+      const p = normPhone(a.contact_numero); if (!p) return
+      ;(byPhone[p] || (byPhone[p] = { rev: 0 })).rev += Number(a.price || 0)
+    })
+    let novos = 0, rec = 0, novosRev = 0, recRev = 0
+    for (const p of Object.keys(byPhone)) {
+      const novo = firstClientTs[p] ? inPeriod(firstClientTs[p], from, to) : false
+      if (novo) { novos++; novosRev += byPhone[p].rev } else { rec++; recRev += byPhone[p].rev }
+    }
+    return { total: Object.keys(byPhone).length, novos, rec, novosRev, recRev }
+  }, [apptsPeriodo, firstClientTs, from, to])
+
+  const realizadosPeriodo = useMemo(() => apptsPeriodo.filter(a => a.status === 'concluido'), [apptsPeriodo])
+
+  // Particular × Convênio/Unimed (por agendamento) + valor e quebra por plano.
+  const pagamentoMix = useMemo(() => {
+    let partN = 0, convN = 0, partRev = 0, convRev = 0; const porPlano = {}
+    apptsPeriodo.forEach(a => {
+      const price = Number(a.price || 0)
+      if (a.insurance_plan_id) { convN++; convRev += price; const nm = planName(a.insurance_plan_id); porPlano[nm] = (porPlano[nm] || 0) + 1 }
+      else { partN++; partRev += price }
+    })
+    return { partN, convN, partRev, convRev, porPlano: Object.entries(porPlano).sort((a, b) => b[1] - a[1]) }
+  }, [apptsPeriodo, insurancePlans])
+
+  // Procedimentos REALIZADOS (concluídos) por nome, com a quantidade de cada um.
+  const procPorNome = useMemo(() => {
+    const m = {}
+    realizadosPeriodo.forEach(a => { const nm = a.procedure_id ? procName(a.procedure_id) : 'Sem procedimento'; m[nm] = (m[nm] || 0) + 1 })
+    return Object.entries(m).sort((a, b) => b[1] - a[1])
+  }, [realizadosPeriodo])
+
   // Tickets novos: primeiro registro de cada numero dentro do período
   const firstByNumero = useMemo(() => {
     const seen = {}
@@ -1118,6 +1161,102 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
             </>
           )
         })()}
+      </div>
+      )}
+
+      {/* Pacientes atendidos (agenda) — novos × recorrentes + valor, particular × convênio, procedimentos por nome */}
+      {show('atendidos') && (
+      <div className="nx-card" style={{ padding: '1.25rem', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <UserCheck size={15} color="#2563EB" />
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Pacientes atendidos & procedimentos</div>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{periodLabel(period)}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 18 }}>
+          {[
+            { label: 'Novos atendidos', value: atendidos.novos, color: '#16A34A', bg: '#F0FDF4', icon: UserCheck, sub: atendidos.novosRev ? `gerou ${fmtBRL(atendidos.novosRev)}` : '1º contato no período' },
+            { label: 'Recorrentes atendidos', value: atendidos.rec, color: '#2563EB', bg: '#EFF6FF', icon: Users, sub: atendidos.recRev ? `gerou ${fmtBRL(atendidos.recRev)}` : 'já eram pacientes' },
+            { label: 'Total atendidos', value: atendidos.total, color: '#0891B2', bg: '#ECFEFF', icon: Calendar, sub: 'com agendamento no período' },
+            { label: 'Proc. realizados', value: realizadosPeriodo.length, color: '#D97706', bg: '#FFFBEB', icon: CheckCircle2, sub: 'concluídos no período' },
+          ].map(s => (
+            <div key={s.label} style={{ background: s.bg, borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: s.color }}>
+                <s.icon size={14} /><span style={{ fontSize: 11, fontWeight: 700 }}>{s.label}</span>
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{loading ? '—' : s.value}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Particular × Convênio/Unimed */}
+        {(() => {
+          const tot = pagamentoMix.partN + pagamentoMix.convN
+          const rows = [
+            { label: 'Particular', v: pagamentoMix.partN, rev: pagamentoMix.partRev, color: '#16A34A' },
+            { label: 'Convênio', v: pagamentoMix.convN, rev: pagamentoMix.convRev, color: '#7C3AED' },
+          ].filter(r => r.v > 0)
+          const max = Math.max(1, ...rows.map(r => r.v))
+          return (
+            <div style={{ marginBottom: procPorNome.length ? 18 : 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <DollarSign size={13} color="#2563EB" /> Particular × Convênio
+              </div>
+              {tot === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Sem agendamentos no período.</div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {rows.map(r => (
+                      <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 90, flexShrink: 0 }}>{r.label}</span>
+                        <div style={{ flex: 1, background: '#EEF2F7', borderRadius: 6, height: 14, overflow: 'hidden' }}>
+                          <div style={{ width: `${(r.v / max) * 100}%`, height: '100%', background: r.color, borderRadius: 6 }} />
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, width: 108, textAlign: 'right', flexShrink: 0 }}>
+                          {r.v} · {Math.round(r.v / tot * 100)}%{r.rev ? ` · ${fmtBRL(r.rev)}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {pagamentoMix.porPlano.length > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                      Convênios: {pagamentoMix.porPlano.slice(0, 6).map(([nm, n]) => `${nm} (${n})`).join(' · ')}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })()}
+
+        {/* Procedimentos realizados por nome */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Stethoscope size={13} color="#2563EB" /> Procedimentos realizados por nome
+          </div>
+          {procPorNome.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Nenhum procedimento concluído no período.</div>
+          ) : (() => {
+            const max = procPorNome[0][1]
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {procPorNome.slice(0, 15).map(([nome, n]) => (
+                  <div key={nome} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span title={nome} style={{ fontSize: 12, color: 'var(--text-secondary)', width: 180, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
+                    <div style={{ flex: 1, background: '#EEF2F7', borderRadius: 6, height: 14, overflow: 'hidden' }}>
+                      <div style={{ width: `${(n / max) * 100}%`, height: '100%', background: '#2563EB', borderRadius: 6 }} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, width: 34, textAlign: 'right', flexShrink: 0 }}>{n}</span>
+                  </div>
+                ))}
+                {procPorNome.length > 15 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>+ {procPorNome.length - 15} outros procedimentos</div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
       </div>
       )}
 
