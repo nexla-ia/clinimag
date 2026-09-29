@@ -101,8 +101,16 @@ export default function CompanyCRM() {
   const [contacts, setContacts]       = useState([])
   const [memberships, setMemberships] = useState([]) // vínculos extras lead↔funil (crm_contact_funnels)
   const [supportsRemovido, setSupportsRemovido] = useState(false) // coluna removido existe? (migração rodou)
+  const [supportsStageFlags, setSupportsStageFlags] = useState(false) // is_conversion/is_lost em crm_stages?
+  const [lossReasons, setLossReasons] = useState([]) // motivos de não-conversão (crm_loss_reasons)
+  const [lossModal, setLossModal]     = useState(null) // { contact, stageId, funnelId } — escolher motivo ao arrastar p/ etapa "não convertido"
+  const [manageLoss, setManageLoss]   = useState(false) // CRUD dos motivos de não-conversão
+  const [savingLoss, setSavingLoss]   = useState(false)
+  const [lossForm, setLossForm]       = useState({ label:'', color:'#94A3B8' }) // form "novo motivo"
   const [nameMap, setNameMap]         = useState({}) // telefone canônico → nome (contatos salvos + clientes)
   const [ownNames, setOwnNames]       = useState(() => new Set()) // nomes da PRÓPRIA clínica (p/ ignorar poluição)
+  const [patientPhones, setPatientPhones] = useState(() => new Set()) // telefones (crmNorm) já salvos como paciente (saved_contacts)
+  const [savingPatient, setSavingPatient] = useState(false)
   const [panelTimeline, setPanelTimeline] = useState([])
   const [panelLoading, setPanelLoading]  = useState(false)
   const [users, setUsers]               = useState([])
@@ -174,6 +182,12 @@ export default function CompanyCRM() {
     const { error: remProbe } = await supabase.from('crm_contacts').select('removido').limit(1)
     const hasRemovido = !remProbe
     setSupportsRemovido(hasRemovido)
+    // Flags de etapa (is_conversion/is_lost) — sonda pra não quebrar antes da migração.
+    const { error: flagProbe } = await supabase.from('crm_stages').select('is_conversion').limit(1)
+    setSupportsStageFlags(!flagProbe)
+    // Motivos de não-conversão (resiliente: sem a tabela, fica vazio).
+    supabase.from('crm_loss_reasons').select('*').eq('instancia', instance).order('created_at')
+      .then(({ data }) => setLossReasons(data || []))
     // crm_contacts pode passar de 1000 → pagina (senão leads antigos somem do board e das stats)
     const ct = await fetchAll('crm_contacts', '*', q => {
       let qq = q.eq('instancia', instance)
@@ -258,10 +272,14 @@ export default function CompanyCRM() {
     for (const [k, nm] of Object.entries(raw)) if (!own.has(nm.toLowerCase())) map[k] = nm
     // saved_contacts por cima (nome salvo à mão sempre vence).
     const salvos = await fetchAll('saved_contacts', 'numero,nome', q => q.eq('instancia', instance))
+    const pacientes = new Set()
     for (const s of salvos) {
       const k = normPhone(s.numero)
       if (k && s.nome && s.nome.trim()) map[k] = s.nome.trim()
+      const pk = crmNormPhone(s.numero)  // telefone já é paciente (pra guard de exclusão)
+      if (pk) pacientes.add(pk)
     }
+    setPatientPhones(pacientes)
     setOwnNames(own)
     setNameMap(map)
   }
@@ -569,6 +587,51 @@ export default function CompanyCRM() {
       metadata: { from: drag.fromStage, to: toStageId, funil: activeFunnel },
       autor_nome: session?.user?.name || session?.user?.email,
     })
+    // Etapa marcada como "não convertido" → pergunta o motivo (pra contabilizar nas métricas).
+    if (toStage?.is_lost) setLossModal({ contact, stageId: toStageId, funnelId: activeFunnel })
+  }
+
+  // Grava o motivo de não-conversão escolhido no modal (crm_contacts.motivo_perda).
+  async function saveLossReason(value, label) {
+    const lm = lossModal
+    if (!lm) return
+    setLossModal(null)
+    await patchContact(lm.contact.id, { motivo_perda: value })
+    await supabase.from('crm_interactions').insert({
+      instancia: instance, phone: lm.contact.phone || '',
+      tipo: 'perda', conteudo: `Não convertido: ${label || value}`,
+      metadata: { motivo: value }, autor_nome: session?.user?.name || session?.user?.email,
+    })
+  }
+
+  // ── Motivos de não-conversão (crm_loss_reasons) — criar/editar/remover ──────
+  function slugifyReason(label) {
+    return (label || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'motivo'
+  }
+  async function addLossReason(label, cor) {
+    const nome = (label || '').trim()
+    if (!nome) return
+    setSavingLoss(true)
+    let value = slugifyReason(nome)
+    if (lossReasons.some(r => r.value === value)) value = `${value}_${Date.now().toString(36).slice(-4)}`
+    const { data, error } = await supabase.from('crm_loss_reasons')
+      .insert({ instancia: instance, value, label: nome, color: cor || '#94A3B8' }).select().single()
+    setSavingLoss(false)
+    if (error) { alert('Erro ao criar motivo: ' + error.message + '\n(A migração crm_loss_reasons já rodou?)'); return }
+    if (data) setLossReasons(prev => [...prev, data])
+  }
+  async function updateLossReason(id, label, color) {
+    const nome = (label || '').trim(); if (!nome) return
+    const { error } = await supabase.from('crm_loss_reasons').update({ label: nome, color }).eq('id', id)
+    if (error) { alert('Erro: ' + error.message); return }
+    setLossReasons(prev => prev.map(r => r.id === id ? { ...r, label: nome, color } : r))
+  }
+  async function deleteLossReason(id) {
+    const snap = lossReasons
+    setLossReasons(prev => prev.filter(r => r.id !== id))
+    const { error } = await supabase.from('crm_loss_reasons').delete().eq('id', id)
+    if (error) { setLossReasons(snap); alert('Erro ao remover: ' + error.message) }
   }
 
   // Grava a etapa do lead NAQUELE funil: principal → crm_contacts; adicional → a
@@ -675,8 +738,8 @@ export default function CompanyCRM() {
   // deve ir pra nova etapa assim que ela for criada (quando vem do painel).
   function openStageModal(stage, opts = {}) {
     setStageModal(stage
-      ? { id: stage.id, nome: stage.nome, cor: stage.cor || STAGE_COLORS[0], alerta_dias: stage.alerta_dias ?? '' }
-      : { id: null, nome: '', cor: STAGE_COLORS[0], alerta_dias: '', funil_id: opts.funilId || activeFunnel, assignTo: opts.assignTo || null })
+      ? { id: stage.id, nome: stage.nome, cor: stage.cor || STAGE_COLORS[0], alerta_dias: stage.alerta_dias ?? '', is_conversion: !!stage.is_conversion, is_lost: !!stage.is_lost }
+      : { id: null, nome: '', cor: STAGE_COLORS[0], alerta_dias: '', is_conversion: false, is_lost: false, funil_id: opts.funilId || activeFunnel, assignTo: opts.assignTo || null })
   }
 
   async function handleSaveStage() {
@@ -685,17 +748,21 @@ export default function CompanyCRM() {
     if (!nome) return
     const alerta = stageModal.alerta_dias === '' || stageModal.alerta_dias == null
       ? null : (parseInt(stageModal.alerta_dias) || null)
+    // Tipo da etapa é excludente: conversão OU não-convertido OU normal.
+    const flags = supportsStageFlags
+      ? { is_conversion: !!stageModal.is_conversion && !stageModal.is_lost, is_lost: !!stageModal.is_lost }
+      : {}
     setSavingStage(true)
     if (stageModal.id) {
       const { error } = await supabase.from('crm_stages')
-        .update({ nome, cor: stageModal.cor, alerta_dias: alerta }).eq('id', stageModal.id)
-      if (!error) setStages(prev => prev.map(s => s.id === stageModal.id ? { ...s, nome, cor: stageModal.cor, alerta_dias: alerta } : s))
+        .update({ nome, cor: stageModal.cor, alerta_dias: alerta, ...flags }).eq('id', stageModal.id)
+      if (!error) setStages(prev => prev.map(s => s.id === stageModal.id ? { ...s, nome, cor: stageModal.cor, alerta_dias: alerta, ...flags } : s))
       else { alert('Erro: ' + error.message); setSavingStage(false); return }
     } else {
       const targetFunnel = stageModal.funil_id || activeFunnel
       const maxPos = Math.max(-1, ...stages.filter(s => s.funil_id === targetFunnel).map(s => s.posicao ?? 0))
       const { data, error } = await supabase.from('crm_stages')
-        .insert({ instancia: instance, funil_id: targetFunnel, nome, cor: stageModal.cor, alerta_dias: alerta, posicao: maxPos + 1 })
+        .insert({ instancia: instance, funil_id: targetFunnel, nome, cor: stageModal.cor, alerta_dias: alerta, posicao: maxPos + 1, ...flags })
         .select().single()
       if (!error && data) {
         setStages(prev => [...prev, data])
@@ -866,6 +933,30 @@ export default function CompanyCRM() {
     setMemberships(p => p.filter(m => m.contact_id !== id))
     setConfirmDel(null)
     if (panel?.id === id) setPanel(null)
+  }
+
+  // Esse lead já está salvo como PACIENTE (saved_contacts)? — pra guard de exclusão.
+  function isPatient(contact) {
+    const k = crmNormPhone(contact?.phone)
+    return !!k && patientPhones.has(k)
+  }
+  // Salva o lead como paciente (saved_contacts). Não exclui — só registra o cadastro.
+  async function saveAsPatient(contact) {
+    if (!contact) return
+    const phone = (contact.phone || '').replace(/\D/g, '')
+    if (!phone) { alert('Lead sem telefone — não dá pra salvar como paciente.'); return }
+    setSavingPatient(true)
+    // Não duplica: se já existe saved_contacts com telefone equivalente, só marca como paciente.
+    const tail = crmNormPhone(phone).slice(-8)
+    const { data: cands } = await supabase.from('saved_contacts').select('id,numero').eq('instancia', instance).ilike('numero', `%${tail}`)
+    const existing = (cands || []).find(c => crmNormPhone(c.numero) === crmNormPhone(phone))
+    if (!existing) {
+      const nome = (bestName(contact) || contact.nome || '').trim() || null
+      const { error } = await supabase.from('saved_contacts').insert({ instancia: instance, numero: phone, nome })
+      if (error) { setSavingPatient(false); alert('Não consegui salvar o paciente: ' + error.message); return }
+    }
+    setPatientPhones(prev => new Set(prev).add(crmNormPhone(phone)))
+    setSavingPatient(false)
   }
 
   async function addNote() {
@@ -2021,6 +2112,36 @@ export default function CompanyCRM() {
                   <div style={{ fontSize:10.5,color:C.muted,marginTop:5 }}>O lead vira "parado" se ficar mais que isso na etapa. Vazio = sem alerta (ex: Perdido/Fidelizado).</div>
                 </div>
 
+                {supportsStageFlags && (() => {
+                  const tipo = stageModal.is_conversion ? 'conversao' : stageModal.is_lost ? 'lost' : 'normal'
+                  const setTipo = t => setStageModal(p => ({ ...p, is_conversion: t==='conversao', is_lost: t==='lost' }))
+                  const OPTS = [
+                    { key:'normal',    label:'Normal',         desc:'etapa comum do funil',                       color:C.slate },
+                    { key:'conversao', label:'Conversão',      desc:'leads aqui contam como convertidos',         color:'#16A34A' },
+                    { key:'lost',      label:'Não convertido', desc:'ao arrastar pra cá, pergunta o motivo',      color:'#DC2626' },
+                  ]
+                  return (
+                    <div>
+                      <label style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:6 }}>Tipo da etapa (métricas)</label>
+                      <div style={{ display:'flex',flexDirection:'column',gap:6 }}>
+                        {OPTS.map(o => (
+                          <button key={o.key} onClick={()=>setTipo(o.key)} type="button"
+                            style={{ display:'flex',alignItems:'center',gap:10,textAlign:'left',padding:'9px 11px',borderRadius:8,cursor:'pointer',
+                              border:`1px solid ${tipo===o.key?o.color:C.border}`, background: tipo===o.key ? o.color+'12' : C.card }}>
+                            <span style={{ width:16,height:16,borderRadius:'50%',flexShrink:0,border:`2px solid ${tipo===o.key?o.color:C.border}`,display:'flex',alignItems:'center',justifyContent:'center' }}>
+                              {tipo===o.key && <span style={{ width:8,height:8,borderRadius:'50%',background:o.color }}/>}
+                            </span>
+                            <span style={{ minWidth:0 }}>
+                              <span style={{ fontSize:12.5,fontWeight:700,color: tipo===o.key?o.color:C.navy }}>{o.label}</span>
+                              <span style={{ fontSize:10.5,color:C.muted,marginLeft:6 }}>{o.desc}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 {editing && funStages.length > 1 && (
                   <div style={{ display:'flex',alignItems:'center',gap:8,borderTop:`1px solid ${C.border}`,paddingTop:12 }}>
                     <span style={{ fontSize:11,fontWeight:600,color:C.muted,flex:1 }}>Posição no funil</span>
@@ -2282,16 +2403,98 @@ export default function CompanyCRM() {
         </div>
       )}
 
-      {confirmDel && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center' }}>
-          <div style={{ background:C.card,borderRadius:14,padding:'24px',width:360,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+      {confirmDel && (() => {
+        const jaPaciente = isPatient(confirmDel)
+        return (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
+          <div style={{ background:C.card,borderRadius:14,padding:'24px',width:400,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ fontWeight:800,fontSize:15,color:C.navy,marginBottom:8 }}>Remover lead?</div>
-            <div style={{ fontSize:13,color:C.muted,marginBottom:20 }}>
-              Isso remove <strong>{resolveName(confirmDel)}</strong> do CRM. Não pode ser desfeito.
+            {jaPaciente ? (
+              <div style={{ fontSize:13,color:C.muted,marginBottom:20 }}>
+                <strong>{resolveName(confirmDel)}</strong> já está salvo como paciente. Isso remove só o lead do CRM. Não pode ser desfeito.
+              </div>
+            ) : (
+              <div style={{ fontSize:13,marginBottom:20 }}>
+                <div style={{ display:'flex',gap:8,background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'11px 13px',color:'#92400E' }}>
+                  <span style={{ fontSize:16,lineHeight:1 }}>⚠️</span>
+                  <span><strong>{resolveName(confirmDel)}</strong> ainda <strong>não foi salvo como paciente</strong>. Salve antes de excluir pra não perder o contato.</span>
+                </div>
+              </div>
+            )}
+            <div style={{ display:'flex',gap:8,justifyContent:'flex-end',alignItems:'center',flexWrap:'wrap' }}>
+              <button onClick={()=>setConfirmDel(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13,color:C.slate }}>Cancelar</button>
+              {!jaPaciente && (
+                <button onClick={()=>saveAsPatient(confirmDel)} disabled={savingPatient}
+                  style={{ display:'inline-flex',alignItems:'center',gap:6,padding:'8px 16px',borderRadius:8,background:'#16A34A',color:'#fff',border:'none',cursor:'pointer',fontSize:13,fontWeight:700,opacity:savingPatient?0.6:1 }}>
+                  {savingPatient ? <Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/> : <Check size={13}/>} Salvar como paciente
+                </button>
+              )}
+              <button onClick={()=>deleteContact(confirmDel.id)} disabled={!jaPaciente}
+                title={jaPaciente ? '' : 'Salve como paciente primeiro'}
+                style={{ padding:'8px 16px',borderRadius:8,background: jaPaciente ? '#DC2626' : '#E5E7EB', color: jaPaciente ? '#fff' : '#9CA3AF', border:'none', cursor: jaPaciente ? 'pointer' : 'not-allowed', fontSize:13, fontWeight:700 }}>Remover</button>
             </div>
-            <div style={{ display:'flex',gap:8,justifyContent:'flex-end' }}>
-              <button onClick={()=>setConfirmDel(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13 }}>Cancelar</button>
-              <button onClick={()=>deleteContact(confirmDel.id)} style={{ padding:'8px 16px',borderRadius:8,background:'#DC2626',color:'#fff',border:'none',cursor:'pointer',fontSize:13,fontWeight:700 }}>Remover</button>
+          </div>
+        </div>
+        )
+      })()}
+
+      {/* Modal: escolher motivo de NÃO-CONVERSÃO (ao arrastar pra etapa marcada) */}
+      {lossModal && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
+          <div style={{ background:C.card,borderRadius:14,padding:'22px',width:400,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontWeight:800,fontSize:15,color:C.navy,marginBottom:4 }}>Por que não converteu?</div>
+            <div style={{ fontSize:12.5,color:C.muted,marginBottom:16 }}>Lead: <strong>{resolveName(lossModal.contact)}</strong></div>
+            {lossReasons.length === 0 ? (
+              <div style={{ fontSize:12.5,color:C.muted,marginBottom:14 }}>Nenhum motivo cadastrado ainda.</div>
+            ) : (
+              <div style={{ display:'flex',flexWrap:'wrap',gap:8,marginBottom:16 }}>
+                {lossReasons.map(r => (
+                  <button key={r.id} onClick={()=>saveLossReason(r.value, r.label)}
+                    style={{ display:'inline-flex',alignItems:'center',gap:7,padding:'8px 12px',borderRadius:8,border:`1px solid ${(r.color||'#94A3B8')}55`,background:(r.color||'#94A3B8')+'12',cursor:'pointer',fontSize:12.5,fontWeight:600,color:C.navy }}>
+                    <span style={{ width:9,height:9,borderRadius:'50%',background:r.color||'#94A3B8' }}/>{r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+              <button onClick={()=>{ setManageLoss(true) }} style={{ fontSize:12,color:C.blue,background:'none',border:'none',cursor:'pointer',padding:0,fontWeight:600 }}>+ Gerenciar motivos</button>
+              <div style={{ flex:1 }}/>
+              <button onClick={()=>setLossModal(null)} style={{ padding:'8px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'none',cursor:'pointer',fontSize:13,color:C.slate }}>Pular</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: gerenciar motivos de não-conversão (criar/editar/remover) */}
+      {manageLoss && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',zIndex:210,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
+          <div style={{ background:C.card,borderRadius:14,padding:'22px',width:440,maxWidth:'100%',maxHeight:'85vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontWeight:800,fontSize:15,color:C.navy,marginBottom:14 }}>Motivos de não-conversão</div>
+            <div style={{ display:'flex',flexDirection:'column',gap:8,marginBottom:16 }}>
+              {lossReasons.map(r => (
+                <div key={r.id} style={{ display:'flex',alignItems:'center',gap:8 }}>
+                  <input type="color" value={r.color || '#94A3B8'} onChange={e=>updateLossReason(r.id, r.label, e.target.value)}
+                    style={{ width:28,height:28,border:'none',background:'none',cursor:'pointer',padding:0 }}/>
+                  <input defaultValue={r.label} onBlur={e=>{ const v=e.target.value.trim(); if(v && v!==r.label) updateLossReason(r.id, v, r.color) }}
+                    style={{ flex:1,border:`1px solid ${C.border}`,borderRadius:8,padding:'7px 10px',fontSize:13,color:C.navy,background:C.card,outline:'none' }}/>
+                  <button onClick={()=>deleteLossReason(r.id)} title="Remover" style={{ width:30,height:30,borderRadius:8,border:`1px solid #FECACA`,background:'#FEF2F2',color:'#DC2626',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}><Trash2 size={13}/></button>
+                </div>
+              ))}
+              {lossReasons.length === 0 && <div style={{ fontSize:12.5,color:C.muted }}>Nenhum motivo ainda. Crie o primeiro abaixo.</div>}
+            </div>
+            <div style={{ display:'flex',alignItems:'center',gap:8,borderTop:`1px solid ${C.border}`,paddingTop:14 }}>
+              <input type="color" value={lossForm.color} onChange={e=>setLossForm(f=>({...f,color:e.target.value}))}
+                style={{ width:28,height:28,border:'none',background:'none',cursor:'pointer',padding:0 }}/>
+              <input value={lossForm.label} onChange={e=>setLossForm(f=>({...f,label:e.target.value}))}
+                onKeyDown={e=>{ if(e.key==='Enter' && lossForm.label.trim()){ addLossReason(lossForm.label, lossForm.color); setLossForm({label:'',color:'#94A3B8'}) } }}
+                placeholder="Novo motivo (ex: Sem dinheiro)"
+                style={{ flex:1,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 11px',fontSize:13,color:C.navy,background:C.card,outline:'none' }}/>
+              <button onClick={()=>{ if(lossForm.label.trim()){ addLossReason(lossForm.label, lossForm.color); setLossForm({label:'',color:'#94A3B8'}) } }}
+                disabled={!lossForm.label.trim()||savingLoss}
+                style={{ padding:'8px 14px',borderRadius:8,background:C.blue,color:'#fff',border:'none',cursor:lossForm.label.trim()?'pointer':'not-allowed',fontSize:13,fontWeight:700,opacity:lossForm.label.trim()?1:0.5 }}>Adicionar</button>
+            </div>
+            <div style={{ display:'flex',justifyContent:'flex-end',marginTop:18 }}>
+              <button onClick={()=>setManageLoss(false)} style={{ padding:'8px 18px',borderRadius:8,background:C.navy,color:'#fff',border:'none',cursor:'pointer',fontSize:13,fontWeight:700 }}>Pronto</button>
             </div>
           </div>
         </div>
