@@ -983,8 +983,9 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
 
   // ── Pacientes ATENDIDOS (com agendamento no período) + procedimentos ────────
   const planName = id => (insurancePlans || []).find(p => p.id === id)?.name || 'Convênio'
+  // "Atendido" = atendimento CONCLUÍDO (realizado) no período — não só agendado.
   const apptsPeriodo = useMemo(
-    () => (appts || []).filter(a => a.status !== 'cancelado' && ((!from && !to) || inPeriod(a.starts_at, from, to))),
+    () => (appts || []).filter(a => a.status === 'concluido' && ((!from && !to) || inPeriod(a.starts_at, from, to))),
     [appts, from, to]
   )
   // Novos × Recorrentes ATENDIDOS + valor gerado por cada grupo. Novo = 1º contato
@@ -1176,7 +1177,7 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
           {[
             { label: 'Novos atendidos', value: atendidos.novos, color: '#16A34A', bg: '#F0FDF4', icon: UserCheck, sub: atendidos.novosRev ? `gerou ${fmtBRL(atendidos.novosRev)}` : '1º contato no período' },
             { label: 'Recorrentes atendidos', value: atendidos.rec, color: '#2563EB', bg: '#EFF6FF', icon: Users, sub: atendidos.recRev ? `gerou ${fmtBRL(atendidos.recRev)}` : 'já eram pacientes' },
-            { label: 'Total atendidos', value: atendidos.total, color: '#0891B2', bg: '#ECFEFF', icon: Calendar, sub: 'com agendamento no período' },
+            { label: 'Total atendidos', value: atendidos.total, color: '#0891B2', bg: '#ECFEFF', icon: Calendar, sub: 'atendimentos concluídos' },
             { label: 'Proc. realizados', value: realizadosPeriodo.length, color: '#D97706', bg: '#FFFBEB', icon: CheckCircle2, sub: 'concluídos no período' },
           ].map(s => (
             <div key={s.label} style={{ background: s.bg, borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1203,7 +1204,7 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
                 <DollarSign size={13} color="#2563EB" /> Particular × Convênio
               </div>
               {tot === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Sem agendamentos no período.</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Sem atendimentos concluídos no período.</div>
               ) : (
                 <>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
