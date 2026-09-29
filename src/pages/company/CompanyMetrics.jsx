@@ -581,7 +581,7 @@ export default function CompanyMetrics({ companyOverride = null, hideHeader = fa
       case 'agenda':      return <AgendaTab      {...{ appts, professionals, procedures, range, period, loading, only }} />
       case 'financeiro':  return <FinanceiroTab  {...{ appts, professionals, procedures, insurancePlans, finTx, finCats, range, period, loading, only }} />
       case 'leads':       return <LeadsTab       {...{ leads, appts, msgs, range, period, loading, contactsTable, only }} />
-      case 'crm':         return <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading, only }} />
+      case 'crm':         return <CRMTab         {...{ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, appts, range, period, loading, only }} />
       case 'atividades':  return <AtividadesTab  {...{ kanbanCards, kanbanColumns, users, range, period, loading }} />
       default: return null
     }
@@ -2802,13 +2802,17 @@ function AtividadesTab({ kanbanCards, kanbanColumns, users, range, period, loadi
 }
 
 // ─── Tab: CRM ────────────────────────────────────────────────────────────────
-function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, range, period, loading, only }) {
+function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, crmTagAssignments, crmTemperatures, appts, range, period, loading, only }) {
   const { from, to } = range
   const show = (id) => !only || only.has(id)
   const [funnelSel, setFunnelSel] = useState('todos')
 
   const daysInStage = ds => ds ? Math.floor((Date.now() - new Date(ds).getTime()) / 86400000) : 0
-  const isLost = s => /perdid|perda|desist/i.test(s?.nome || '')
+  // "Não convertido" = etapa marcada como is_lost (novo) OU nome sugestivo (legado).
+  const isLost = s => !!s?.is_lost || /perdid|perda|desist|n[ãa]o\s*convert/i.test(s?.nome || '')
+  // "Conversão" = etapa marcada como is_conversion no modal da etapa.
+  const isConv = s => !!s?.is_conversion
+  const hasConvStage = useMemo(() => crmStages.some(isConv), [crmStages])
   const stageById = useMemo(() => { const m = {}; crmStages.forEach(s => m[s.id] = s); return m }, [crmStages])
   const stagesForFunnel = fid => crmStages.filter(s => s.funil_id === fid).sort((a, b) => (a.posicao ?? 0) - (b.posicao ?? 0))
 
@@ -2833,9 +2837,27 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
     crmFunnels.forEach(f => { const fw = stagesForFunnel(f.id).filter(s => !isLost(s)); m[f.id] = fw[fw.length - 1]?.id })
     return m
   }, [crmFunnels, crmStages])
-  const convertidos = scopeLeads.filter(c => c.stage_id && c.stage_id === lastStageByFunnel[c.funil_id]).length
+  // Convertidos: se ALGUMA etapa foi marcada como "Conversão", usa isso; senão cai
+  // no heurístico (leads na última etapa não-perdida do funil).
+  const convertidos = hasConvStage
+    ? scopeLeads.filter(c => isConv(stageById[c.stage_id])).length
+    : scopeLeads.filter(c => c.stage_id && c.stage_id === lastStageByFunnel[c.funil_id]).length
   const taxaConv = total ? (convertidos / total * 100) : 0
   const emAndamento = Math.max(0, total - convertidos - perdidos)
+
+  // Conversão pra AGENDA: leads (do escopo) cujo telefone casa com algum
+  // agendamento (appointments.contact_numero), normalizando (55 + sem o 9).
+  const agendaram = useMemo(() => {
+    const norm = p => {
+      let d = (p || '').replace(/@.*/, '').replace(/\D/g, '')
+      if (d.length === 10 || d.length === 11) d = '55' + d
+      if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
+      return d
+    }
+    const apptPhones = new Set((appts || []).filter(a => a.status !== 'cancelado').map(a => norm(a.contact_numero)).filter(Boolean))
+    return scopeLeads.filter(c => { const k = norm(c.phone); return k && apptPhones.has(k) }).length
+  }, [appts, scopeLeads])
+  const taxaAgenda = total ? (agendaram / total * 100) : 0
 
   const funnelsToShow = funnelSel === 'todos' ? crmFunnels : crmFunnels.filter(f => f.id === funnelSel)
   const funnelViz = useMemo(() => funnelsToShow.map(f => {
@@ -2892,8 +2914,10 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
   , [scopeLeads, stageById])
 
   const motivos = useMemo(() => {
+    // Prettifica slug novo ("sem_interesse" → "Sem interesse"); mantém rótulo antigo.
+    const pretty = v => /\s/.test(v) ? v : v.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
     const m = {}
-    scopeLeads.filter(c => c.motivo_perda && c.motivo_perda.trim()).forEach(c => { const k = c.motivo_perda.trim(); m[k] = (m[k] || 0) + 1 })
+    scopeLeads.filter(c => c.motivo_perda && c.motivo_perda.trim()).forEach(c => { const k = pretty(c.motivo_perda.trim()); m[k] = (m[k] || 0) + 1 })
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 6)
   }, [scopeLeads])
 
@@ -2954,7 +2978,8 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
         <KpiCard icon={<Users size={18} color="#2563EB" />} bg="#EFF6FF" value={total} label="Leads no período" sub={periodLabel(period)} loading={loading} />
         <KpiCard icon={<TrendingUp size={18} color="#7C3AED" />} bg="#F5F3FF" value={emAndamento} label="Em andamento" sub="ativos no funil" loading={loading} />
         <KpiCard icon={<span style={{ fontSize: 16 }}>🔥</span>} bg="#FEF2F2" value={quentes} label="Leads quentes" sub={`${total ? Math.round(quentes / total * 100) : 0}% do total`} loading={loading} alert={quentes > 0} />
-        <KpiCard icon={<Target size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConv.toFixed(0)}%`} label="Taxa de conversão" sub={`${convertidos} chegaram ao fim`} loading={loading} />
+        <KpiCard icon={<Target size={18} color="#16A34A" />} bg="#F0FDF4" value={`${taxaConv.toFixed(0)}%`} label="Taxa de conversão" sub={hasConvStage ? `${convertidos} na etapa de conversão` : `${convertidos} chegaram ao fim`} loading={loading} />
+        <KpiCard icon={<span style={{ fontSize: 16 }}>📅</span>} bg="#EFF6FF" value={agendaram} label="Agendaram" sub={`${taxaAgenda.toFixed(0)}% dos leads marcaram na agenda`} loading={loading} />
         <KpiCard icon={<AlertCircle size={18} color="#D97706" />} bg="#FFFBEB" value={parados} label="Leads parados" sub="além do prazo da etapa" loading={loading} alert={parados > 0} />
         <KpiCard icon={<XCircle size={18} color="#DC2626" />} bg="#FEF2F2" value={perdidos} label="Leads perdidos" sub={`${total ? Math.round(perdidos / total * 100) : 0}% do total`} loading={loading} />
       </div>
