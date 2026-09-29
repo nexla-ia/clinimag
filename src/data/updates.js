@@ -4,6 +4,28 @@
 
 export const UPDATES = [
   {
+    date: '2026-09-29',
+    title: 'CRM mais esperto: conversão, motivo de perda e avanço automático',
+    type: 'feature',
+    tags: ['CRM', 'Métricas'],
+    popup: true,
+    intro: 'Deixamos o funil de vocês mais inteligente: pra saber quem fechou, quem não fechou (e por quê) e pra nunca deixar um lead esquecido pra trás.',
+    highlights: [
+      { icon: '🎯', title: 'Etapa de conversão', text: 'No lápis de cada etapa, marquem qual significa "fechou". Ela vira a base da sua taxa de conversão nas Métricas.' },
+      { icon: '🚫', title: 'Não convertido com motivo', text: 'Marquem uma etapa como "Não convertido": ao arrastar um lead pra lá, a plataforma pergunta o motivo — e vocês criam os motivos que quiserem.' },
+      { icon: '⚡', title: 'Avanço automático', text: 'Respondeu um lead novo? Ele já pula sozinho pra próxima etapa (Conversa iniciada). Um passo a menos na mão.' },
+      { icon: '🩺', title: 'Não perca contato', text: 'Ao excluir um lead, a plataforma confere se ele já é paciente. Se não for, salva na hora — pra vocês não perderem o número.' },
+      { icon: '📅', title: 'Quantos agendaram', text: 'Novo indicador nas Métricas do CRM: quantos dos seus leads viraram agendamento na agenda.' },
+    ],
+    items: [
+      'Etapa de conversão: no lápis de qualquer etapa vocês escolhem o Tipo — Normal, Conversão ou Não convertido. Os leads que estiverem na etapa de "Conversão" passam a contar na Taxa de conversão das Métricas.',
+      'Não convertido com motivo: marcaram uma etapa como "Não convertido"? Quando vocês arrastam um lead pra ela, abre uma janelinha perguntando o porquê. Os motivos são de vocês — criam, editam e removem no "Gerenciar motivos". Tudo isso vira gráfico nas Métricas → CRM.',
+      'Avanço automático: quando um número novo cai no "Novo Lead" e vocês respondem (pela plataforma ou pela IA), ele já avança sozinho pra próxima etapa. Só um passo — o resto do funil continua no controle de vocês.',
+      'Excluir com segurança: na hora de remover um lead, a plataforma verifica se aquele contato já está salvo como paciente. Se não estiver, ela avisa e oferece "Salvar como paciente" na hora, pra vocês não perderem o contato sem querer.',
+      'Métricas do CRM: novo indicador "Agendaram" mostrando quantos leads do funil marcaram consulta na agenda — o vínculo direto entre o CRM e a Agenda.',
+    ],
+  },
+  {
     date: '2026-06-30',
     title: 'Apagar mensagem no chat — e vocês veem quando o paciente apaga também',
     type: 'feature',

@@ -5,6 +5,7 @@ import Sidebar from '../../components/Sidebar'
 import BillingBanner from '../../components/BillingBanner'
 import BlockedScreen from '../../components/BlockedScreen'
 import SupportWidget from '../../components/SupportWidget'
+import UpdatePopup from '../../components/UpdatePopup'
 import { shouldBlockAccess } from '../../lib/billing'
 import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban, Stethoscope, GraduationCap, Instagram, ShieldCheck, Headset, MessageSquareHeart, Menu, X, Users, DollarSign, GitMerge } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -257,6 +258,7 @@ export default function CompanyLayout() {
         onClose={() => setSupportOpen(false)}
         onUnreadChange={setSupportUnread}
       />
+      <UpdatePopup userKey={session?.user?.email} />
     </div>
   )
 }
