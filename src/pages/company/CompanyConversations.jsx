@@ -723,6 +723,25 @@ export default function CompanyConversations() {
     return () => { cancelled = true }
   }, [instance])
 
+  // Re-busca funis + etapas sempre que o menu do CRM abre, pra pegar funis/etapas
+  // criados DEPOIS que a aba carregou (senão o seletor fica com a carga velha e
+  // parece que "só tem o primeiro funil").
+  useEffect(() => {
+    const open = crmSubOpen || crmMenuOpen
+    if (!open || !instance) return
+    let cancel = false
+    ;(async () => {
+      const [{ data: fn }, { data: st }] = await Promise.all([
+        supabase.from('crm_funnels').select('id,nome').eq('instancia', instance).order('posicao'),
+        supabase.from('crm_stages').select('id,nome,cor,posicao,funil_id').eq('instancia', instance).order('posicao'),
+      ])
+      if (cancel) return
+      if (fn) setCrmFunnels(fn)
+      if (st) setCrmStages(st)
+    })()
+    return () => { cancel = true }
+  }, [crmSubOpen, crmMenuOpen, instance])
+
   // Fecha o menu do CRM ao trocar de conversa
   useEffect(() => { setCrmMenuOpen(false); setMoreMenuOpen(false); setCrmSubOpen(false); setCrmMenuFunnel(null) }, [selected?.session_id])
   // Recolhe o submenu do CRM quando o menu ⋯ fecha
