@@ -1957,8 +1957,17 @@ export default function CompanyGroups() {
                           </div>
                         )}
                         {media?.type === 'video' && (
-                          <video controls src={media.src} onLoadedData={stickIfAtBottom}
-                            style={{ maxWidth: 240, borderRadius: 8, display: 'block' }} />
+                          <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <video controls playsInline preload="metadata" src={media.src} onLoadedData={stickIfAtBottom}
+                              style={{ maxWidth: 240, borderRadius: 8, display: 'block', background: '#000' }} />
+                            {/* Baixar: se o navegador não tocar o codec (ex.: HEVC/H.265 de iPhone),
+                                o vídeo fica preto — o botão garante baixar/abrir fora. */}
+                            <a href={media.src} download="video.mp4" onClick={e => e.stopPropagation()}
+                              title="Baixar vídeo"
+                              style={{ position: 'absolute', top: 6, right: 6, width: 28, height: 28, borderRadius: 8, background: 'rgba(15,23,42,0.6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+                              <Download size={14} />
+                            </a>
+                          </div>
                         )}
                         {media?.type === 'pdf' && (
                           <a href={media.src} download="documento.pdf" target="_blank" rel="noreferrer"
