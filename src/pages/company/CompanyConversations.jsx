@@ -1309,12 +1309,15 @@ export default function CompanyConversations() {
   const MSG_PAGE = 50
 
   // Ao trocar de conversa, cancela qualquer resposta/edição/busca em andamento
+  // e LIMPA o campo de digitar (o rascunho é estado único — sem isso o mesmo
+  // texto/anexo "vazava" pra todas as conversas).
   useEffect(() => {
     setReplyingTo(null)
     setEditingMsgId(null)
     setSearchOpen(false)
     setSearchTerm('')
     setSearchResults([])
+    setMsgText(''); setAttachedFiles([]); setRecordedAudio(null); setRecordTime(0)
   }, [selected?.session_id])
 
   // Carrega mensagens da conversa selecionada (apenas as 50 mais recentes)

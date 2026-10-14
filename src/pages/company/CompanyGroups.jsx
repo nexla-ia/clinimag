@@ -572,6 +572,9 @@ export default function CompanyGroups() {
   useEffect(() => {
     setReplyingTo(null); setEditingMsgId(null)
     setSearchOpen(false); setSearchTerm(''); setSearchResults([])
+    // Limpa o campo de digitar ao trocar de grupo — o rascunho é estado único,
+    // então sem isso o mesmo texto/anexo "vazava" pra todos os grupos.
+    setMsgText(''); setAttachedFiles([]); setRecordedAudio(null); setRecordTime(0)
   }, [selected?.idgrupo])
 
   // Busca dentro do grupo (histórico inteiro, não só o que está carregado)
