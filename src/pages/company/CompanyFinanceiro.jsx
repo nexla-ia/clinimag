@@ -272,7 +272,9 @@ function GroupRow({ item, catMap, bankMap, expanded, onToggle, onPaidGroup, onPa
       {expanded && (
         <div style={{ background: '#FAFAFA', borderTop: `1px solid ${C.border}`, paddingLeft: 24 }}>
           {item.txs.map((tx, i) => (
-            <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={onPaid} onEdit={onEdit} onDelete={onDelete} showDays={showDays} last={i === item.txs.length - 1} />
+            <TxRow key={tx.id} tx={tx} catMap={catMap} bankMap={bankMap} onPaid={onPaid} onEdit={onEdit} onDelete={onDelete} showDays={showDays} last={i === item.txs.length - 1}
+              selected={selectedSet?.has(tx.id)}
+              onToggleSelect={onToggleSelect ? () => onToggleSelect([tx.id], !selectedSet?.has(tx.id)) : undefined} />
           ))}
         </div>
       )}
