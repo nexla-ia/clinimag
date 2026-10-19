@@ -667,8 +667,16 @@ export default function CompanyFinanceiro() {
     if (liquido <= 0) { setModalErr('Desconto + tarifa não podem ser maiores ou iguais ao valor.'); return }
     setSaving(true); setModalErr('')
 
-    if (modal.mode === 'edit') {
+    if (modal.mode === 'edit' || modal.mode === 'receber') {
       const payload = { tipo: d.tipo, descricao: d.descricao.trim(), valor: liquido, desconto, tarifa, vencimento: d.vencimento, categoria_id: d.categoria_id||null, contact_nome: d.contact_nome?.trim()||null, centro_custo: d.centro_custo?.trim()||null, forma_pagamento: d.forma_pagamento||null, observacoes: d.observacoes?.trim()||null, status: d.status }
+      if (modal.mode === 'receber') {
+        const juros = parseFloat(d.juros) || 0
+        if (juros < 0) { setModalErr('Juros/multa não pode ser negativo.'); setSaving(false); return }
+        payload.status = 'pago'
+        payload.pagamento_at = d.pagamento_at || todayStr()
+        payload.juros = juros
+        payload.bank_account_id = d.bank_account_id || null
+      }
       let { data: upd, error } = await supabase.from('financial_transactions').update(payload).eq('id', d.id).select().single()
       if (error && isMissingDescTarifaErr(error)) ({ data: upd, error } = await supabase.from('financial_transactions').update(stripDescTarifa(payload)).eq('id', d.id).select().single())
       setSaving(false)
@@ -717,16 +725,28 @@ export default function CompanyFinanceiro() {
     }
   }
 
-  // Abre o modal de pagamento (data, juros, conta) em vez de marcar direto
+  // Baixa de UMA linha abre o modal COMPLETO (mesmos campos do lançamento) em modo
+  // "receber" — já com status pago + os campos de recebimento (data, juros, conta)
+  // no topo. (O recebimento em LOTE/grupo continua no modal simples do payModal.)
   function handleMarkPaid(tx) {
-    setPayModal({
-      tx,
-      pagamento_at: todayStr(),
-      juros: '',
-      bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
-      forma_pagamento: tx.forma_pagamento || '',
+    const desc = parseFloat(tx.desconto) || 0, tar = parseFloat(tx.tarifa) || 0
+    const bruto = (parseFloat(tx.valor) || 0) + desc + tar
+    setModal({
+      mode: 'receber',
+      data: {
+        ...tx,
+        valor: bruto ? bruto.toString() : '',
+        desconto: desc ? desc.toString() : '',
+        tarifa: tar ? tar.toString() : '',
+        status: 'pago',
+        pagamento_at: todayStr(),
+        juros: '',
+        bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
+        forma_pagamento: tx.forma_pagamento || '',
+        parcelado: false, num_parcelas: 2, recorrente: false, recorrencia_meses: 3,
+      },
     })
-    setPayErr('')
+    setNewCat(null); setModalErr('')
   }
 
   // ── Seleção em lote (dar baixa em várias de uma vez) ────────────────────────
@@ -1692,10 +1712,33 @@ export default function CompanyFinanceiro() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(6px)', padding: '1.5rem' }}>
           <div style={{ background: C.card, borderRadius: 18, width: '100%', maxWidth: 520, maxHeight: '92vh', overflow: 'auto', boxShadow: '0 25px 60px rgba(0,0,0,0.2)', ...sora }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: C.navy }}>{modal.mode==='edit'?'Editar lançamento':'Novo lançamento'}</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.navy }}>{modal.mode==='receber'?(md.tipo==='despesa'?'Registrar pagamento':'Registrar recebimento'):modal.mode==='edit'?'Editar lançamento':'Novo lançamento'}</div>
               <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }} onClick={() => setModal(null)}><X size={16} /></button>
             </div>
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+              {/* Recebimento/Pagamento — só no modo "receber" (baixa). No topo, destacado. */}
+              {modal.mode === 'receber' && (
+                <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={lbl}>Data do {md.tipo==='despesa'?'pagamento':'recebimento'} *</label>
+                      <input className="nx-input" type="date" value={md.pagamento_at||''} onChange={e => setModal(p => ({...p,data:{...p.data,pagamento_at:e.target.value}}))} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Juros / multa (R$)</label>
+                      <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={md.juros||''} onChange={e => setModal(p => ({...p,data:{...p.data,juros:e.target.value}}))} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={lbl}>Conta bancária</label>
+                    <select className="nx-select" value={md.bank_account_id||''} onChange={e => setModal(p => ({...p,data:{...p.data,bank_account_id:e.target.value}}))}>
+                      <option value="">Não informar</option>
+                      {bankAccounts.filter(b => b.ativo !== false).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
 
               {/* Tipo */}
               <div>
@@ -1866,7 +1909,7 @@ export default function CompanyFinanceiro() {
               <div style={{ display: 'flex', gap: 10 }}>
                 <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setModal(null)}>Cancelar</button>
                 <button className="nx-btn-primary" style={{ flex: 1, justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={handleSave} disabled={saving}>
-                  {saving ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</> : 'Salvar'}
+                  {saving ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</> : (modal.mode==='receber' ? (md.tipo==='despesa'?'Confirmar pagamento':'Confirmar recebimento') : 'Salvar')}
                 </button>
               </div>
             </div>
