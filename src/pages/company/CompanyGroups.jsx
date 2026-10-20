@@ -67,11 +67,12 @@ function parseVCard(vcard) {
   const lines = String(vcard || '').split(/\r?\n/)
   let name = '', phone = '', digits = ''
   for (const l of lines) {
-    if (/^FN:/i.test(l)) name = l.slice(3).trim()
-    else if (/^TEL/i.test(l)) {
+    // Aceita FN/TEL com prefixo "itemN." (iPhone manda "item1.TEL;waid=...:+55...").
+    if (/(?:^|\.)FN:/i.test(l)) name = l.replace(/^.*?FN:/i, '').trim()
+    else if (/(?:^|\.)TEL/i.test(l)) {
       const w = l.match(/waid=(\d+)/i)
       if (w && !digits) digits = w[1]
-      const val = l.split(':').slice(1).join(':').trim()
+      const val = l.split(':').slice(1).join(':').trim().replace(/^tel:/i, '')
       if (val && !phone) phone = val
     }
   }

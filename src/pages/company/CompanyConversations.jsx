@@ -70,11 +70,13 @@ function parseVCard(vcard) {
   const lines = String(vcard || '').split(/\r?\n/)
   let name = '', phone = '', digits = ''
   for (const l of lines) {
-    if (/^FN:/i.test(l)) name = l.slice(3).trim()
-    else if (/^TEL/i.test(l)) {
+    // Aceita FN/TEL com prefixo "itemN." (ex.: iPhone manda "item1.TEL;waid=...:+55...").
+    // O regex antigo /^TEL/ não casava nesses → o número não vinha ("sem número").
+    if (/(?:^|\.)FN:/i.test(l)) name = l.replace(/^.*?FN:/i, '').trim()
+    else if (/(?:^|\.)TEL/i.test(l)) {
       const w = l.match(/waid=(\d+)/i)
       if (w && !digits) digits = w[1]
-      const val = l.split(':').slice(1).join(':').trim()  // valor depois do 1º ":"
+      const val = l.split(':').slice(1).join(':').trim().replace(/^tel:/i, '')  // valor depois do 1º ":"
       if (val && !phone) phone = val
     }
   }
