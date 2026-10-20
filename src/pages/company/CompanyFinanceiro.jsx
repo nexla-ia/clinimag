@@ -481,7 +481,11 @@ export default function CompanyFinanceiro() {
     const groups = new Map()
     const items = []
     for (const tx of filteredTx) {
-      const gk = tx.appointment_id ? recurMap[tx.appointment_id] : null
+      // Agrupa por recorrência da AGENDA (appointment → recurrence_group_id) OU
+      // pela recorrência do próprio LANÇAMENTO (grupo_recorrencia), senão lançamento
+      // recorrente criado "na mão" (sem agenda) não agrupava e cada mês virava uma
+      // linha solta.
+      const gk = (tx.appointment_id ? recurMap[tx.appointment_id] : null) || tx.grupo_recorrencia || null
       if (gk) {
         if (!groups.has(gk)) groups.set(gk, [])
         groups.get(gk).push(tx)
