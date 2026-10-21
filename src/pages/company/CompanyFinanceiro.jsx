@@ -300,6 +300,7 @@ export default function CompanyFinanceiro() {
   const [filterStatus, setFilterStatus] = useState('todos')
   const [filterSearch, setFilterSearch] = useState('')
   const [filterForma, setFilterForma] = useState('todos')
+  const [filterBank, setFilterBank] = useState('todos')  // filtro por conta bancária
   const [scope, setScope] = useState('mes')   // 'mes' = mês · 'periodo' = intervalo de datas · 'vencidas' = todas vencidas
   const [filterFrom, setFilterFrom] = useState('')  // intervalo De (scope 'periodo')
   const [filterTo, setFilterTo] = useState('')      // intervalo Até
@@ -466,6 +467,7 @@ export default function CompanyFinanceiro() {
         if (filterStatus !== 'todos' && t.status !== filterStatus) return false
       }
       if (filterForma !== 'todos' && t.forma_pagamento !== filterForma) return false
+      if (filterBank !== 'todos' && (t.bank_account_id || '') !== filterBank) return false
       if (q && !(t.descricao||'').toLowerCase().includes(q) && !(t.contact_nome||'').toLowerCase().includes(q)) return false
       return true
     }).sort((a, b) => {
@@ -473,7 +475,7 @@ export default function CompanyFinanceiro() {
       if (ao !== bo) return ao - bo
       return (a.vencimento||'').localeCompare(b.vencimento||'')
     })
-  }, [transactions, tab, tipoAtual, filterMonth, filterFrom, filterTo, filterStatus, filterSearch, filterForma, scope])
+  }, [transactions, tab, tipoAtual, filterMonth, filterFrom, filterTo, filterStatus, filterSearch, filterForma, filterBank, scope])
 
   // Agrupa as sessões de um mesmo agendamento recorrente (recurrence_group_id) numa
   // linha só, com o total do período. Grupo com 1 sessão visível vira linha normal.
@@ -1176,6 +1178,13 @@ export default function CompanyFinanceiro() {
               <option value="todos">Todas formas</option>
               {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
             </select>
+            {bankAccounts.length > 0 && (
+              <select className="nx-select" value={filterBank} onChange={e => setFilterBank(e.target.value)} title="Filtrar por conta bancária" style={{ fontSize: 13, width: 160, ...sora }}>
+                <option value="todos">Todas as contas</option>
+                {bankAccounts.filter(b => b.ativo !== false).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                <option value="">Sem conta</option>
+              </select>
+            )}
             <div style={{ position: 'relative', flex: 1, minWidth: 160 }}>
               <Search size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: C.muted, pointerEvents: 'none' }} />
               <input className="nx-input" placeholder="Buscar descrição ou paciente..." value={filterSearch} onChange={e => setFilterSearch(e.target.value)} style={{ paddingLeft: 28, fontSize: 13, ...sora }} />
