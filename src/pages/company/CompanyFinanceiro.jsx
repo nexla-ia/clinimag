@@ -325,8 +325,9 @@ export default function CompanyFinanceiro() {
   const [savingCat, setSavingCat] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [payModal, setPayModal] = useState(null)      // { tx, pagamento_at, juros, bank_account_id, forma_pagamento, groupTxIds? }
+  const [payModal, setPayModal] = useState(null)      // { tx, pagamento_at, juros, groupTxIds?, groupSessions?, groupTotal?, pagtos? }
   const [payErr, setPayErr] = useState('')
+  const [paySaving, setPaySaving] = useState(false)
   const [recurMap, setRecurMap] = useState({})        // appointment_id → recurrence_group_id (pra agrupar recorrentes)
   const [expandedGroups, setExpandedGroups] = useState({}) // grupos de recorrência abertos no 'a receber'
   const [bankModal, setBankModal] = useState(null)     // { mode, data }
@@ -546,9 +547,10 @@ export default function CompanyFinanceiro() {
     for (const [gk, txs] of groups) {
       if (txs.length <= 1) { items.push({ type: 'single', tx: txs[0] }); continue }
       const total = txs.reduce((s, t) => s + (parseFloat(t.valor) || 0), 0)
-      const pend = txs.filter(t => t.status === 'pendente')
+      // "Pendentes" = ainda não quitadas (pendente OU parcial); o total a receber é o RESTANTE.
+      const pend = txs.filter(t => t.status === 'pendente' || t.status === 'parcial')
       const pagas = txs.filter(t => t.status === 'pago')
-      const pendTotal = pend.reduce((s, t) => s + (parseFloat(t.valor) || 0), 0)
+      const pendTotal = pend.reduce((s, t) => s + Math.max(0, (parseFloat(t.valor) || 0) - (parseFloat(t.valor_pago) || 0)), 0)
       const vencs = txs.map(t => t.vencimento).filter(Boolean).sort()
       const anyOver = txs.some(t => isOverdue(t.vencimento, t.status))
       items.push({
@@ -848,53 +850,116 @@ export default function CompanyFinanceiro() {
   function toggleSelectMany(ids, on) {
     setSelected(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n })
   }
-  // Abre o modal de recebimento/pagamento pros lançamentos selecionados (só os pendentes).
+  // Abre o modal de recebimento/pagamento pros lançamentos selecionados (não quitados).
   function handleBulkPay() {
-    const txs = transactions.filter(t => selected.has(t.id) && t.status === 'pendente')
+    const txs = transactions.filter(t => selected.has(t.id) && (t.status === 'pendente' || t.status === 'parcial'))
     if (!txs.length) return
-    const total = txs.reduce((s, t) => s + (parseFloat(t.valor) || 0), 0)
+    openGroupPay(txs, { descricao: `${txs.length} lançamento${txs.length > 1 ? 's' : ''}`, tipo: tipoAtual })
+  }
+
+  // Monta o payModal de GRUPO (seleção ou recorrência): sessões mais antigas primeiro
+  // (o recebimento quita da mais antiga pra mais nova) + 1 linha de forma pelo total.
+  function openGroupPay(txs, meta) {
+    const defBank = bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || ''
+    const sessions = txs
+      .map(t => ({ id: t.id, valor: parseFloat(t.valor) || 0, jaPago: parseFloat(t.valor_pago) || 0, venc: t.vencimento || '', restante: Math.max(0, (parseFloat(t.valor) || 0) - (parseFloat(t.valor_pago) || 0)) }))
+      .filter(s => s.restante > 0.005)
+      .sort((a, b) => (a.venc || '').localeCompare(b.venc || ''))
+    if (!sessions.length) return
+    const total = +sessions.reduce((s, x) => s + x.restante, 0).toFixed(2)
     setPayModal({
-      tx: { descricao: `${txs.length} lançamento${txs.length > 1 ? 's' : ''}`, valor: total, vencimento: txs.map(t => t.vencimento).filter(Boolean).sort()[0], tipo: tipoAtual },
-      groupTxIds: txs.map(t => t.id),
+      tx: { descricao: meta.descricao, valor: total, vencimento: sessions[0].venc, tipo: meta.tipo },
+      groupTxIds: sessions.map(s => s.id),
+      groupSessions: sessions,
+      groupTotal: total,
       pagamento_at: todayStr(),
       juros: '',
-      bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
-      forma_pagamento: '',
+      pagtos: [{ valor: total ? total.toFixed(2) : '', forma: '', conta: defBank }],
     })
     setPayErr('')
   }
   // Limpa a seleção ao trocar de aba/escopo (evita seleção "fantasma").
   useEffect(() => { setSelected(new Set()) }, [tab, scope])
 
-  // "Receber tudo" de um grupo recorrente: recebe todas as sessões pendentes de uma vez.
+  // "Receber tudo" de um grupo recorrente: recebe todas as sessões não quitadas de uma vez
+  // (mesmos campos da baixa individual — várias formas + parcial).
   function handleMarkPaidGroup(item) {
     if (!item?.pend?.length) return
-    setPayModal({
-      tx: { descricao: `${item.descricao} · ${item.pend.length} sessões`, valor: item.pendTotal, vencimento: item.vencMin, tipo: 'receita' },
-      groupTxIds: item.pend.map(t => t.id),
-      pagamento_at: todayStr(),
-      juros: '',
-      bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
-      forma_pagamento: '',
-    })
-    setPayErr('')
+    openGroupPay(item.pend, { descricao: `${item.descricao} · ${item.pend.length} sessões`, tipo: item.pend[0]?.tipo || 'receita' })
   }
 
   async function confirmPay() {
     if (!payModal) return
     const p = payModal
-    // Recebimento em lote (grupo recorrente): marca todas as sessões pendentes.
-    if (p.groupTxIds && p.groupTxIds.length) {
-      const { data: upd, error } = await supabase.from('financial_transactions').update({
-        status: 'pago',
-        pagamento_at: p.pagamento_at || todayStr(),
-        bank_account_id: p.bank_account_id || null,
-        forma_pagamento: p.forma_pagamento || null,
-      }).in('id', p.groupTxIds).select()
-      if (error) { setPayErr('Erro: ' + error.message); return }
-      if (upd) setTransactions(prev => prev.map(t => { const u = upd.find(x => x.id === t.id); return u || t }))
-      setSelected(new Set())
-      setPayModal(null)
+    // ── Recebimento/pagamento em LOTE (grupo recorrente ou seleção) ───────────
+    // Várias formas + parcial: a soma das linhas é alocada nas sessões, da mais
+    // antiga pra mais nova (quita as mais antigas; a última pode ficar parcial).
+    if (p.groupSessions && p.groupSessions.length) {
+      setPaySaving(true); setPayErr('')
+      const juros = p.juros ? parseFloat(p.juros) : 0
+      if (p.juros && (isNaN(juros) || juros < 0)) { setPaySaving(false); setPayErr('Juros inválido.'); return }
+      const pagtos = (p.pagtos || []).map(x => ({ valor: +(parseFloat(x.valor) || 0).toFixed(2), forma: x.forma || null, conta: x.conta || null })).filter(x => x.valor > 0)
+      if (!pagtos.length) { setPaySaving(false); setPayErr('Informe pelo menos uma forma com valor.'); return }
+      const somaPag = +pagtos.reduce((s, x) => s + x.valor, 0).toFixed(2)
+      const totalGrupo = +(p.groupTotal || p.groupSessions.reduce((s, x) => s + x.restante, 0)).toFixed(2)
+      if (somaPag > totalGrupo + 0.01) { setPaySaving(false); setPayErr(`A soma das formas (${fmtBRL(somaPag)}) é maior que o total a receber (${fmtBRL(totalGrupo)}).`); return }
+
+      // Aloca cada forma nas sessões (mais antiga primeiro). Cada fatia (sessão × forma) vira 1 linha em financial_payments.
+      const sessions = p.groupSessions.map(s => ({ ...s, alloc: 0 }))
+      const payRows = []
+      let si = 0
+      for (const line of pagtos) {
+        let rem = line.valor
+        while (rem > 0.005 && si < sessions.length) {
+          const s = sessions[si]
+          const need = +(s.restante - s.alloc).toFixed(2)
+          if (need <= 0.005) { si++; continue }
+          const take = Math.min(need, rem)
+          payRows.push({
+            instancia: instance, transaction_id: s.id, valor: +take.toFixed(2),
+            juros: 0, forma_pagamento: line.forma, bank_account_id: line.conta || null,
+            pagamento_at: p.pagamento_at || todayStr(), created_by: session?.user?.id || null,
+          })
+          s.alloc = +(s.alloc + take).toFixed(2)
+          rem = +(rem - take).toFixed(2)
+          if (s.alloc >= s.restante - 0.005) si++
+        }
+      }
+      if (juros > 0 && payRows.length) payRows[0].juros = juros
+
+      const { data: pays, error: payErr2 } = await supabase.from('financial_payments').insert(payRows).select()
+      if (payErr2) {
+        const semTabela = /does not exist|not found|42P01|schema cache|relation/i.test(payErr2.message || '')
+        if (!semTabela) { setPaySaving(false); setPayErr('Erro ao salvar: ' + payErr2.message); return }
+        // Sem a migration: modo antigo — marca PAGO só as sessões cobertas 100%.
+        const forma = pagtos.length === 1 ? pagtos[0].forma : 'Múltiplas'
+        const conta = pagtos.length === 1 ? (pagtos[0].conta || null) : null
+        const fullIds = sessions.filter(s => s.alloc >= s.restante - 0.005).map(s => s.id)
+        if (!fullIds.length) { setPaySaving(false); setPayErr('A migração de recebimentos parciais ainda não foi aplicada — não dá pra registrar parcial no grupo ainda.'); return }
+        const { data: upd, error } = await supabase.from('financial_transactions').update({
+          status: 'pago', pagamento_at: p.pagamento_at || todayStr(), bank_account_id: conta, forma_pagamento: forma,
+        }).in('id', fullIds).select()
+        setPaySaving(false)
+        if (error) { setPayErr('Erro: ' + error.message); return }
+        if (upd) setTransactions(prev => prev.map(t => { const u = upd.find(x => x.id === t.id); return u || t }))
+        setSelected(new Set()); setPayModal(null)
+        return
+      }
+      // Atualiza cada sessão tocada (valor_pago + status).
+      const updatedRows = []
+      for (const s of sessions) {
+        if (s.alloc <= 0.005) continue
+        const novoPago = +(s.jaPago + s.alloc).toFixed(2)
+        const novoStatus = novoPago >= s.valor - 0.005 ? 'pago' : 'parcial'
+        const { data: row, error } = await supabase.from('financial_transactions')
+          .update({ status: novoStatus, valor_pago: novoPago, pagamento_at: p.pagamento_at || todayStr() })
+          .eq('id', s.id).select().single()
+        if (error) { setPaySaving(false); setPayErr('Erro: ' + error.message); return }
+        if (row) updatedRows.push(row)
+      }
+      setTransactions(prev => prev.map(t => { const r = updatedRows.find(x => x.id === t.id); return r || t }))
+      setPayments(prev => [...prev, ...pays])
+      setPaySaving(false); setSelected(new Set()); setPayModal(null)
       return
     }
     const juros = p.juros ? parseFloat(p.juros) : 0
@@ -2093,42 +2158,71 @@ export default function CompanyFinanceiro() {
                 <div style={{ fontWeight: 700, color: C.navy }}>{payModal.tx.descricao}</div>
                 <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>Vence {fmtDateBR(payModal.tx.vencimento)} · <strong style={{ color: payModal.tx.tipo === 'receita' ? C.emerald : C.rose, ...mono }}>{fmtBRL(payModal.tx.valor)}</strong></div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: payModal.groupTxIds ? '1fr' : '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={lbl}>Data do {payModal.tx.tipo === 'receita' ? 'recebimento' : 'pagamento'} *</label>
-                  <input className="nx-input" type="date" value={payModal.pagamento_at} onChange={e => setPayModal(p => ({ ...p, pagamento_at: e.target.value }))} />
-                </div>
-                {!payModal.groupTxIds && (
-                  <div>
-                    <label style={lbl}>Juros / multa (R$)</label>
-                    <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.juros} onChange={e => setPayModal(p => ({ ...p, juros: e.target.value }))} />
-                  </div>
-                )}
-              </div>
-              <div>
-                <label style={lbl}>Conta bancária</label>
-                <select className="nx-select" value={payModal.bank_account_id} onChange={e => setPayModal(p => ({ ...p, bank_account_id: e.target.value }))}>
-                  <option value="">Não informar</option>
-                  {bankAccounts.filter(b => b.ativo !== false).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
-                </select>
-                {bankAccounts.length === 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Nenhuma conta cadastrada — crie na aba "Contas" pra registrar de onde saiu/entrou.</div>}
-              </div>
-              <div>
-                <label style={lbl}>Forma de pagamento</label>
-                <select className="nx-select" value={payModal.forma_pagamento} onChange={e => setPayModal(p => ({ ...p, forma_pagamento: e.target.value }))}>
-                  <option value="">Não informado</option>
-                  {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
-              </div>
-              {(parseFloat(payModal.juros) || 0) > 0 && (
-                <div style={{ fontSize: 12.5, color: C.slate, ...sora }}>Total {payModal.tx.tipo === 'receita' ? 'recebido' : 'pago'}: <strong style={{ ...mono }}>{fmtBRL((parseFloat(payModal.tx.valor) || 0) + (parseFloat(payModal.juros) || 0))}</strong></div>
-              )}
+              {/* Grupo/lote: data + juros + VÁRIAS formas (parcial quita da sessão mais antiga pra mais nova). */}
+              {(() => {
+                const isRec = payModal.tx.tipo === 'receita'
+                const pagtos = payModal.pagtos || []
+                const soma = pagtos.reduce((s, x) => s + (parseFloat(x.valor) || 0), 0)
+                const totalGrupo = +(payModal.groupTotal || parseFloat(payModal.tx.valor) || 0).toFixed(2)
+                const restante = +(totalGrupo - soma).toFixed(2)
+                const novoStatus = soma >= totalGrupo - 0.005 ? 'pago' : soma > 0 ? 'parcial' : 'pendente'
+                const defBank = bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || ''
+                const setPagtos = (fn) => setPayModal(p => ({ ...p, pagtos: fn(p.pagtos || []) }))
+                const upd = (i, k, v) => setPagtos(a => a.map((x, idx) => idx === i ? { ...x, [k]: v } : x))
+                return (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div>
+                        <label style={lbl}>Data do {isRec ? 'recebimento' : 'pagamento'} *</label>
+                        <input className="nx-input" type="date" value={payModal.pagamento_at} onChange={e => setPayModal(p => ({ ...p, pagamento_at: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Juros / multa (R$)</label>
+                        <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.juros} onChange={e => setPayModal(p => ({ ...p, juros: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>Formas de {isRec ? 'recebimento' : 'pagamento'}</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {pagtos.map((p, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={p.valor || ''} onChange={e => upd(i, 'valor', e.target.value)} style={{ width: 96, flexShrink: 0 }} />
+                            <select className="nx-select" value={p.forma || ''} onChange={e => upd(i, 'forma', e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+                              <option value="">Forma…</option>
+                              {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                            <select className="nx-select" value={p.conta || ''} onChange={e => upd(i, 'conta', e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+                              <option value="">Conta…</option>
+                              {bankAccounts.filter(b => b.ativo !== false).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                            </select>
+                            {pagtos.length > 1 && (
+                              <button type="button" onClick={() => setPagtos(a => a.filter((_, idx) => idx !== i))} title="Remover" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 8, border: '1px solid #FECDD3', background: '#FFF1F2', color: C.rose, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={12} /></button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => setPagtos(a => [...a, { valor: restante > 0 ? restante.toFixed(2) : '', forma: '', conta: defBank }])}
+                        style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: `1px dashed ${C.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, color: C.blue, cursor: 'pointer' }}>
+                        <Plus size={12} /> adicionar forma
+                      </button>
+                      {bankAccounts.length === 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Nenhuma conta cadastrada — crie na aba "Contas" pra registrar de onde saiu/entrou.</div>}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, borderTop: `1px dashed ${C.border}`, paddingTop: 10, ...sora }}>
+                      <span style={{ color: C.slate }}>{isRec ? 'Recebido' : 'Pago'} <strong style={{ ...mono }}>{fmtBRL(soma)}</strong> de <strong style={{ ...mono }}>{fmtBRL(totalGrupo)}</strong></span>
+                      <StatusPill status={novoStatus} />
+                    </div>
+                    {novoStatus === 'parcial' && restante > 0 && (
+                      <div style={{ fontSize: 11.5, color: '#1D4ED8' }}>Falta {isRec ? 'receber' : 'pagar'} {fmtBRL(restante)} — quita as sessões mais antigas; o resto fica <strong>parcial</strong>.</div>
+                    )}
+                  </>
+                )
+              })()}
               {payErr && <div style={{ color: C.rose, fontSize: 12.5 }}>{payErr}</div>}
             </div>
             <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 10 }}>
-              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setPayModal(null)}>Cancelar</button>
-              <button onClick={confirmPay} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', cursor: 'pointer', background: C.emerald, color: '#fff', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <Check size={14} /> Confirmar
+              <button className="nx-btn-ghost" style={{ flex: 1 }} onClick={() => setPayModal(null)} disabled={paySaving}>Cancelar</button>
+              <button onClick={confirmPay} disabled={paySaving} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', cursor: paySaving ? 'default' : 'pointer', background: C.emerald, color: '#fff', fontSize: 13, fontWeight: 700, opacity: paySaving ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Check size={14} /> {paySaving ? 'Salvando...' : 'Confirmar'}
               </button>
             </div>
           </div>
