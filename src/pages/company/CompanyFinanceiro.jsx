@@ -77,7 +77,7 @@ function addMonthsToDate(ds, n) {
   const last = new Date(dt.getFullYear(), dt.getMonth()+1, 0).getDate()
   return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(Math.min(d,last)).padStart(2,'0')}`
 }
-function isOverdue(v, s) { return s === 'pendente' && v < todayStr() }
+function isOverdue(v, s) { return (s === 'pendente' || s === 'parcial') && v < todayStr() }
 function daysDiff(ds) {
   return Math.floor((new Date(todayStr()+'T00:00:00') - new Date(ds+'T00:00:00')) / 86400000)
 }
@@ -117,6 +117,7 @@ function ChartTooltip({ active, payload, label }) {
 const lbl = { display: 'block', fontSize: 10, fontWeight: 600, color: C.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em', ...sora }
 const STATUS_MAP = {
   pendente:  { bg: '#FFF7ED', color: '#C2410C', border: '#FED7AA', label: 'Pendente' },
+  parcial:   { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE', label: 'Parcial' },
   pago:      { bg: '#ECFDF5', color: '#065F46', border: '#A7F3D0', label: 'Pago' },
   cancelado: { bg: '#F8FAFC', color: '#64748B', border: '#CBD5E1', label: 'Cancelado' },
 }
@@ -204,6 +205,13 @@ function TxRow({ tx, catMap, bankMap, onPaid, onEdit, onDelete, showDays, last, 
             {juros > 0 && <span style={{ color: C.rose }}>+ juros {fmtBRL(juros)}</span>}
           </div>
         )}
+        {tx.status === 'parcial' && (
+          <div style={{ fontSize: 10.5, color: '#1D4ED8', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', ...sora }}>
+            <span>recebido {fmtBRL(parseFloat(tx.valor_pago)||0)} de {fmtBRL(parseFloat(tx.valor)||0)}</span>
+            <span style={{ color: C.rose }}>falta {fmtBRL(Math.max(0,(parseFloat(tx.valor)||0)-(parseFloat(tx.valor_pago)||0)))}</span>
+            {bank && <span style={{ color: C.slate }}>🏦 {bank.nome}</span>}
+          </div>
+        )}
       </div>
       <div style={{ textAlign: 'center', minWidth: 86, flexShrink: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: over ? '#D97706' : C.slate, ...mono }}>{fmtDateBR(tx.vencimento)}</div>
@@ -215,8 +223,8 @@ function TxRow({ tx, catMap, bankMap, onPaid, onEdit, onDelete, showDays, last, 
       </div>
       {!showDays && <div style={{ minWidth: 80, flexShrink: 0 }}><StatusPill status={tx.status} /></div>}
       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-        {tx.status === 'pendente' && onPaid && (
-          <button onClick={() => onPaid(tx)} title="Marcar como recebido" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, background: '#ECFDF5', border: '1px solid #A7F3D0', color: C.emerald, cursor: 'pointer' }}><Check size={13} /></button>
+        {(tx.status === 'pendente' || tx.status === 'parcial') && onPaid && (
+          <button onClick={() => onPaid(tx)} title={tx.status === 'parcial' ? 'Receber o restante' : 'Marcar como recebido'} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, background: '#ECFDF5', border: '1px solid #A7F3D0', color: C.emerald, cursor: 'pointer' }}><Check size={13} /></button>
         )}
         {onEdit && <button onClick={() => onEdit(tx)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, background: C.blueDim, border: `1px solid #BFDBFE`, color: C.blue, cursor: 'pointer' }}><Edit2 size={12} /></button>}
         {onDelete && <button onClick={() => onDelete(tx)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, background: '#FFF1F2', border: '1px solid #FECDD3', color: C.rose, cursor: 'pointer' }}><Trash2 size={12} /></button>}
@@ -290,6 +298,7 @@ export default function CompanyFinanceiro() {
 
   const [tab, setTab] = useState('visaogeral')
   const [transactions, setTransactions] = useState([])
+  const [payments, setPayments] = useState([])   // recebimentos (financial_payments) — parcial/várias formas
   const [categories, setCategories] = useState([])
   const [bankAccounts, setBankAccounts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -369,6 +378,21 @@ export default function CompanyFinanceiro() {
       }
       const map = {}; all.forEach(a => { if (a.recurrence_group_id) map[a.id] = a.recurrence_group_id }); return map
     }
+    // Recebimentos (parcial/várias formas). Resiliente: se a tabela ainda não
+    // existe (migration não rodou), devolve vazio e o financeiro segue no modo antigo.
+    async function fetchAllPayments() {
+      const PAGE = 1000
+      let from = 0, all = []
+      for (let guard = 0; guard < 50; guard++) {
+        const { data, error } = await supabase.from('financial_payments').select('*')
+          .eq('instancia', instance).range(from, from + PAGE - 1)
+        if (error) return []
+        all = all.concat(data || [])
+        if (!data || data.length < PAGE) break
+        from += PAGE
+      }
+      return all
+    }
     Promise.all([
       fetchAllTransactions(),
       supabase.from('financial_categories').select('*')
@@ -376,7 +400,8 @@ export default function CompanyFinanceiro() {
       supabase.from('bank_accounts').select('*').eq('instancia', instance).order('nome'),
       supabase.from('bank_transfers').select('*').eq('instancia', instance).order('data', { ascending: false }),
       fetchRecurringAppts(),
-    ]).then(([txRes, catRes, bankRes, trRes, recRes]) => {
+      fetchAllPayments(),
+    ]).then(([txRes, catRes, bankRes, trRes, recRes, payRes]) => {
       if (cancelled) return
       // A lista de lançamentos é o essencial: se ela falhar, NÃO deixa a tela
       // vazia sem explicação (parecia "não tem conta nenhuma"). Mostra o erro.
@@ -387,6 +412,7 @@ export default function CompanyFinanceiro() {
         return
       }
       setTransactions(txRes.data || [])
+      setPayments(Array.isArray(payRes) ? payRes : [])
       if (!catRes.error && catRes.data) setCategories(catRes.data)
       if (!bankRes.error && bankRes.data) setBankAccounts(bankRes.data)
       if (!trRes.error && trRes.data) setTransfers(trRes.data)
@@ -410,16 +436,29 @@ export default function CompanyFinanceiro() {
     const m = {}; bankAccounts.forEach(b => { m[b.id] = b }); return m
   }, [bankAccounts])
 
-  // Saldo/movimento por conta: saldo_inicial + receitas pagas − (despesas pagas + juros)
+  // Saldo/movimento por conta: saldo_inicial + o que ENTROU/SAIU de cada conta.
+  // Usa os recebimentos (financial_payments) — que sabem valor/forma/conta de cada
+  // parte — e, pra lançamentos pagos no fluxo ANTIGO (sem linha de recebimento),
+  // cai de volta no próprio lançamento (valor_pago + conta).
   const bankBalances = useMemo(() => {
     const m = {}
     bankAccounts.forEach(b => { m[b.id] = { entradas: 0, saidas: 0, saldo: parseFloat(b.saldo_inicial) || 0 } })
+    const txById = {}; transactions.forEach(t => { txById[t.id] = t })
+    const txComPagamento = new Set(payments.map(p => p.transaction_id))
+    payments.forEach(p => {
+      if (!p.bank_account_id || !m[p.bank_account_id]) return
+      const tx = txById[p.transaction_id]
+      const val = parseFloat(p.valor) || 0, jur = parseFloat(p.juros) || 0
+      if (!tx || tx.tipo === 'receita') { m[p.bank_account_id].entradas += val; m[p.bank_account_id].saldo += val + jur }
+      else { m[p.bank_account_id].saidas += val + jur; m[p.bank_account_id].saldo -= val + jur }
+    })
     transactions.forEach(t => {
-      if (t.status !== 'pago' || !t.bank_account_id || !m[t.bank_account_id]) return
-      const v = parseFloat(t.valor) || 0
+      if (txComPagamento.has(t.id)) return
+      const paid = t.status === 'pago' ? (parseFloat(t.valor_pago) || parseFloat(t.valor) || 0) : (parseFloat(t.valor_pago) || 0)
+      if (paid <= 0 || !t.bank_account_id || !m[t.bank_account_id]) return
       const j = parseFloat(t.juros) || 0
-      if (t.tipo === 'receita') { m[t.bank_account_id].entradas += v; m[t.bank_account_id].saldo += v }
-      else { const out = v + j; m[t.bank_account_id].saidas += out; m[t.bank_account_id].saldo -= out }
+      if (t.tipo === 'receita') { m[t.bank_account_id].entradas += paid; m[t.bank_account_id].saldo += paid + j }
+      else { m[t.bank_account_id].saidas += paid + j; m[t.bank_account_id].saldo -= paid + j }
     })
     // Transferências: saem da origem, entram no destino (neutro no resultado)
     transfers.forEach(tr => {
@@ -428,7 +467,7 @@ export default function CompanyFinanceiro() {
       if (tr.to_account_id && m[tr.to_account_id]) { m[tr.to_account_id].entradas += v; m[tr.to_account_id].saldo += v }
     })
     return m
-  }, [bankAccounts, transactions, transfers])
+  }, [bankAccounts, transactions, payments, transfers])
 
   const cm = currentMonthStr()
 
@@ -436,8 +475,17 @@ export default function CompanyFinanceiro() {
     let aReceber = 0, aPagar = 0, recebido = 0, pago = 0
     transactions.filter(t => t.vencimento?.startsWith(cm)).forEach(t => {
       const v = parseFloat(t.valor) || 0
-      if (t.tipo === 'receita') { if (t.status === 'pendente') aReceber += v; if (t.status === 'pago') recebido += v }
-      else { if (t.status === 'pendente') aPagar += v; if (t.status === 'pago') pago += v }
+      const vp = parseFloat(t.valor_pago) || 0
+      const restante = Math.max(0, v - vp)
+      if (t.tipo === 'receita') {
+        if (t.status === 'pago') recebido += (vp || v)
+        else if (t.status === 'parcial') { recebido += vp; aReceber += restante }
+        else if (t.status === 'pendente') aReceber += v
+      } else {
+        if (t.status === 'pago') pago += (vp || v)
+        else if (t.status === 'parcial') { pago += vp; aPagar += restante }
+        else if (t.status === 'pendente') aPagar += v
+      }
     })
     return { aReceber, aPagar, recebido, pago, saldo: recebido - pago }
   }, [transactions, cm])
@@ -675,19 +723,52 @@ export default function CompanyFinanceiro() {
 
     if (modal.mode === 'edit' || modal.mode === 'receber') {
       const payload = { tipo: d.tipo, descricao: d.descricao.trim(), valor: liquido, desconto, tarifa, vencimento: d.vencimento, categoria_id: d.categoria_id||null, contact_nome: d.contact_nome?.trim()||null, centro_custo: d.centro_custo?.trim()||null, forma_pagamento: d.forma_pagamento||null, observacoes: d.observacoes?.trim()||null, status: d.status }
+      let insPays = null
       if (modal.mode === 'receber') {
         const juros = parseFloat(d.juros) || 0
         if (juros < 0) { setModalErr('Juros/multa não pode ser negativo.'); setSaving(false); return }
-        payload.status = 'pago'
-        payload.pagamento_at = d.pagamento_at || todayStr()
-        payload.juros = juros
-        payload.bank_account_id = d.bank_account_id || null
+        // Linhas de recebimento (valor + forma + conta). Soma pode ser < líquido → parcial.
+        const pagtos = (d.pagtos || []).map(p => ({ valor: +(parseFloat(p.valor)||0).toFixed(2), forma: p.forma||null, conta: p.conta||null })).filter(p => p.valor > 0)
+        if (!pagtos.length) { setModalErr('Informe pelo menos uma forma de recebimento com valor.'); setSaving(false); return }
+        const soma = +pagtos.reduce((s,p)=>s+p.valor,0).toFixed(2)
+        const jaPago = +(parseFloat(d.parcial_ja_pago)||0).toFixed(2)
+        const novoPago = +(jaPago + soma).toFixed(2)
+        if (novoPago > liquido + 0.01) { setModalErr(`A soma das formas (${fmtBRL(soma)}) é maior que o que falta receber (${fmtBRL(liquido - jaPago)}).`); setSaving(false); return }
+        const novoStatus = novoPago >= liquido - 0.005 ? 'pago' : 'parcial'
+        const payRows = pagtos.map((p, idx) => ({
+          instancia: instance, transaction_id: d.id, valor: p.valor,
+          juros: idx === 0 ? juros : 0, forma_pagamento: p.forma,
+          bank_account_id: p.conta || null, pagamento_at: d.pagamento_at || todayStr(),
+          created_by: session?.user?.id || null,
+        }))
+        const { data: pays, error: payErr } = await supabase.from('financial_payments').insert(payRows).select()
+        if (payErr) {
+          // Migration ainda não rodou (tabela ausente) → degrada pro modo antigo:
+          // marca PAGO com a 1ª forma (sem parcial), pra não travar o recebimento.
+          const semTabela = /does not exist|not found|42P01|schema cache|relation/i.test(payErr.message || '')
+          if (!semTabela) { setSaving(false); setModalErr('Erro ao salvar recebimento: ' + payErr.message); return }
+          payload.status = 'pago'
+          payload.pagamento_at = d.pagamento_at || todayStr()
+          payload.juros = juros
+          payload.forma_pagamento = pagtos.length === 1 ? (pagtos[0].forma || null) : 'Múltiplas'
+          payload.bank_account_id = pagtos.length === 1 ? (pagtos[0].conta || null) : null
+        } else {
+          insPays = pays
+          payload.status = novoStatus
+          payload.valor_pago = novoPago
+          payload.pagamento_at = d.pagamento_at || todayStr()
+          payload.juros = juros
+          payload.forma_pagamento = pagtos.length === 1 ? pagtos[0].forma : 'Múltiplas'
+          payload.bank_account_id = pagtos.length === 1 ? (pagtos[0].conta || null) : null
+        }
       }
       let { data: upd, error } = await supabase.from('financial_transactions').update(payload).eq('id', d.id).select().single()
       if (error && isMissingDescTarifaErr(error)) ({ data: upd, error } = await supabase.from('financial_transactions').update(stripDescTarifa(payload)).eq('id', d.id).select().single())
       setSaving(false)
       if (error) { setModalErr('Erro: '+error.message); return }
-      setTransactions(prev => prev.map(t => t.id === upd.id ? upd : t)); setModal(null)
+      setTransactions(prev => prev.map(t => t.id === upd.id ? upd : t))
+      if (insPays) setPayments(prev => [...prev, ...insPays])
+      setModal(null)
       return
     }
 
@@ -737,6 +818,9 @@ export default function CompanyFinanceiro() {
   function handleMarkPaid(tx) {
     const desc = parseFloat(tx.desconto) || 0, tar = parseFloat(tx.tarifa) || 0
     const bruto = (parseFloat(tx.valor) || 0) + desc + tar
+    const jaPago = parseFloat(tx.valor_pago) || 0
+    const restante = Math.max(0, (parseFloat(tx.valor) || 0) - jaPago)
+    const defBank = bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || ''
     setModal({
       mode: 'receber',
       data: {
@@ -747,7 +831,9 @@ export default function CompanyFinanceiro() {
         status: 'pago',
         pagamento_at: todayStr(),
         juros: '',
-        bank_account_id: bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || '',
+        parcial_ja_pago: jaPago,  // o que já tinha sido recebido antes (recebimentos anteriores)
+        // Formas de recebimento: começa com 1 linha pelo valor que falta.
+        pagtos: [{ valor: restante ? restante.toFixed(2) : '', forma: tx.forma_pagamento || '', conta: defBank }],
         forma_pagamento: tx.forma_pagamento || '',
         parcelado: false, num_parcelas: 2, recorrente: false, recorrencia_meses: 3,
       },
@@ -1170,6 +1256,7 @@ export default function CompanyFinanceiro() {
               <select className="nx-select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 13, width: 130, ...sora }}>
                 <option value="todos">Todos status</option>
                 <option value="pendente">Pendente</option>
+                <option value="parcial">Parcial</option>
                 <option value="pago">Pago</option>
                 <option value="cancelado">Cancelado</option>
               </select>
@@ -1730,28 +1817,66 @@ export default function CompanyFinanceiro() {
             </div>
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-              {/* Recebimento/Pagamento — só no modo "receber" (baixa). No topo, destacado. */}
-              {modal.mode === 'receber' && (
-                <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div>
-                      <label style={lbl}>Data do {md.tipo==='despesa'?'pagamento':'recebimento'} *</label>
-                      <input className="nx-input" type="date" value={md.pagamento_at||''} onChange={e => setModal(p => ({...p,data:{...p.data,pagamento_at:e.target.value}}))} />
+              {/* Recebimento — modo "baixa": data, juros e VÁRIAS formas (parcial/split). */}
+              {modal.mode === 'receber' && (() => {
+                const brutoN = parseFloat(md.valor)||0, descN = parseFloat(md.desconto)||0, tarN = parseFloat(md.tarifa)||0
+                const liquidoN = +(brutoN - descN - tarN).toFixed(2)
+                const jaPago = parseFloat(md.parcial_ja_pago)||0
+                const pagtos = md.pagtos || []
+                const soma = pagtos.reduce((s,p)=> s + (parseFloat(p.valor)||0), 0)
+                const totalReceb = +(jaPago + soma).toFixed(2)
+                const restante = +(liquidoN - totalReceb).toFixed(2)
+                const novoStatus = totalReceb >= liquidoN - 0.005 ? 'pago' : totalReceb > 0 ? 'parcial' : 'pendente'
+                const defBank = bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || ''
+                const setPagtos = (fn) => setModal(p => ({...p, data: {...p.data, pagtos: fn(p.data.pagtos || [])}}))
+                const upd = (i, k, v) => setPagtos(a => a.map((x, idx) => idx === i ? { ...x, [k]: v } : x))
+                return (
+                  <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div>
+                        <label style={lbl}>Data do {md.tipo==='despesa'?'pagamento':'recebimento'} *</label>
+                        <input className="nx-input" type="date" value={md.pagamento_at||''} onChange={e => setModal(p => ({...p,data:{...p.data,pagamento_at:e.target.value}}))} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Juros / multa (R$)</label>
+                        <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={md.juros||''} onChange={e => setModal(p => ({...p,data:{...p.data,juros:e.target.value}}))} />
+                      </div>
                     </div>
                     <div>
-                      <label style={lbl}>Juros / multa (R$)</label>
-                      <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={md.juros||''} onChange={e => setModal(p => ({...p,data:{...p.data,juros:e.target.value}}))} />
+                      <label style={lbl}>Formas de recebimento {jaPago > 0 && <span style={{ color: C.muted, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· já recebido {fmtBRL(jaPago)}</span>}</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {pagtos.map((p, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={p.valor||''} onChange={e => upd(i, 'valor', e.target.value)} style={{ width: 96, flexShrink: 0 }} />
+                            <select className="nx-select" value={p.forma||''} onChange={e => upd(i, 'forma', e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+                              <option value="">Forma…</option>
+                              {FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                            <select className="nx-select" value={p.conta||''} onChange={e => upd(i, 'conta', e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+                              <option value="">Conta…</option>
+                              {bankAccounts.filter(b => b.ativo !== false).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                            </select>
+                            {pagtos.length > 1 && (
+                              <button type="button" onClick={() => setPagtos(a => a.filter((_, idx) => idx !== i))} title="Remover" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 8, border: '1px solid #FECDD3', background: '#FFF1F2', color: C.rose, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={12} /></button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => setPagtos(a => [...a, { valor: restante > 0 ? restante.toFixed(2) : '', forma: '', conta: defBank }])}
+                        style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: `1px dashed ${C.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, color: C.blue, cursor: 'pointer' }}>
+                        <Plus size={12} /> adicionar forma
+                      </button>
                     </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, borderTop: `1px dashed ${C.border}`, paddingTop: 10, ...sora }}>
+                      <span style={{ color: C.slate }}>Recebido <strong style={{ ...mono }}>{fmtBRL(totalReceb)}</strong> de <strong style={{ ...mono }}>{fmtBRL(liquidoN)}</strong></span>
+                      <StatusPill status={novoStatus} />
+                    </div>
+                    {novoStatus === 'parcial' && restante > 0 && (
+                      <div style={{ fontSize: 11.5, color: '#1D4ED8' }}>Falta receber {fmtBRL(restante)} — fica em "a receber" como <strong>parcial</strong> até quitar.</div>
+                    )}
                   </div>
-                  <div>
-                    <label style={lbl}>Conta bancária</label>
-                    <select className="nx-select" value={md.bank_account_id||''} onChange={e => setModal(p => ({...p,data:{...p.data,bank_account_id:e.target.value}}))}>
-                      <option value="">Não informar</option>
-                      {bankAccounts.filter(b => b.ativo !== false).map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}
-                    </select>
-                  </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* Tipo */}
               <div>
@@ -1870,6 +1995,7 @@ export default function CompanyFinanceiro() {
                   <label style={lbl}>Status</label>
                   <select className="nx-select" value={md.status||'pendente'} onChange={e => setModal(p => ({...p,data:{...p.data,status:e.target.value}}))}>
                     <option value="pendente">Pendente</option>
+                    <option value="parcial">Parcial</option>
                     <option value="pago">Pago</option>
                     <option value="cancelado">Cancelado</option>
                   </select>
