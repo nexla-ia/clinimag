@@ -685,11 +685,13 @@ export default function AdmCompanyDetail() {
                 ]
                 const mods = companyForm.modules || {}
                 const allDefault = Object.keys(mods).length === 0
+                // Habilitado = ausência da chave (padrão). Desabilitar grava `false`;
+                // reabilitar remove a chave (mantém o objeto limpo → salva null se vazio).
                 const toggle = key => setCompanyForm(p => {
                   const cur = p.modules || {}
-                  const next = { ...cur, [key]: !cur[key] }
-                  // Remove chaves que são true (padrão) para manter objeto limpo
-                  if (next[key] === true) delete next[key]
+                  const next = { ...cur }
+                  if (cur[key] === false) delete next[key]   // reabilita
+                  else next[key] = false                     // desabilita
                   return { ...p, modules: next }
                 })
                 return (
@@ -721,22 +723,24 @@ export default function AdmCompanyDetail() {
                       {MODULES.map(m => {
                         const enabled = mods[m.key] !== false
                         return (
-                          <label key={m.key} style={{
+                          // Um único onClick no card (não é mais <label>, que reencaminhava
+                          // o clique pro checkbox e disparava o toggle 2x = não mudava nada).
+                          <div key={m.key} role="button" onClick={() => toggle(m.key)} style={{
                             display: 'flex', alignItems: 'center', gap: 10,
                             padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
                             border: `1.5px solid ${enabled ? '#86EFAC' : '#FCA5A5'}`,
                             background: enabled ? '#F0FDF4' : '#FFF1F2',
-                            transition: 'all .15s',
+                            transition: 'all .15s', userSelect: 'none',
                           }}>
                             <div style={{
                               width: 18, height: 18, borderRadius: 5, flexShrink: 0,
                               border: `2px solid ${enabled ? '#16A34A' : '#DC2626'}`,
                               background: enabled ? '#16A34A' : 'transparent',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }} onClick={() => toggle(m.key)}>
+                            }}>
                               {enabled && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
                             </div>
-                            <div style={{ minWidth: 0 }} onClick={() => toggle(m.key)}>
+                            <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 700, color: enabled ? '#15803D' : '#DC2626' }}>
                                 {m.label}
                               </div>
@@ -744,8 +748,7 @@ export default function AdmCompanyDetail() {
                                 {m.desc}
                               </div>
                             </div>
-                            <input type="checkbox" checked={enabled} onChange={() => toggle(m.key)} style={{ display: 'none' }} />
-                          </label>
+                          </div>
                         )
                       })}
                     </div>
