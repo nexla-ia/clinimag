@@ -862,7 +862,7 @@ export default function CompanyFinanceiro() {
   function openGroupPay(txs, meta) {
     const defBank = bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || ''
     const sessions = txs
-      .map(t => ({ id: t.id, valor: parseFloat(t.valor) || 0, jaPago: parseFloat(t.valor_pago) || 0, venc: t.vencimento || '', restante: Math.max(0, (parseFloat(t.valor) || 0) - (parseFloat(t.valor_pago) || 0)) }))
+      .map(t => ({ id: t.id, valor: parseFloat(t.valor) || 0, jaPago: parseFloat(t.valor_pago) || 0, desc0: parseFloat(t.desconto) || 0, tar0: parseFloat(t.tarifa) || 0, venc: t.vencimento || '', restante: Math.max(0, (parseFloat(t.valor) || 0) - (parseFloat(t.valor_pago) || 0)) }))
       .filter(s => s.restante > 0.005)
       .sort((a, b) => (a.venc || '').localeCompare(b.venc || ''))
     if (!sessions.length) return
@@ -874,6 +874,8 @@ export default function CompanyFinanceiro() {
       groupTotal: total,
       pagamento_at: todayStr(),
       juros: '',
+      desconto: '',
+      tarifa: '',
       pagtos: [{ valor: total ? total.toFixed(2) : '', forma: '', conta: defBank }],
     })
     setPayErr('')
@@ -902,10 +904,27 @@ export default function CompanyFinanceiro() {
       if (!pagtos.length) { setPaySaving(false); setPayErr('Informe pelo menos uma forma com valor.'); return }
       const somaPag = +pagtos.reduce((s, x) => s + x.valor, 0).toFixed(2)
       const totalGrupo = +(p.groupTotal || p.groupSessions.reduce((s, x) => s + x.restante, 0)).toFixed(2)
-      if (somaPag > totalGrupo + 0.01) { setPaySaving(false); setPayErr(`A soma das formas (${fmtBRL(somaPag)}) é maior que o total a receber (${fmtBRL(totalGrupo)}).`); return }
+      // Desconto/tarifa do grupo (igual à baixa individual): reduzem o que falta receber.
+      const descG = parseFloat(p.desconto) || 0, tarG = parseFloat(p.tarifa) || 0
+      if (descG < 0 || tarG < 0) { setPaySaving(false); setPayErr('Desconto/tarifa não podem ser negativos.'); return }
+      if (descG + tarG >= totalGrupo - 0.005) { setPaySaving(false); setPayErr('Desconto + tarifa não podem ser maiores ou iguais ao total.'); return }
+      const liquidoGrupo = +(totalGrupo - descG - tarG).toFixed(2)
+      if (somaPag > liquidoGrupo + 0.01) { setPaySaving(false); setPayErr(`A soma das formas (${fmtBRL(somaPag)}) é maior que o total a receber (${fmtBRL(liquidoGrupo)}).`); return }
+
+      // Divide desconto/tarifa entre as sessões proporcional ao que falta de cada uma
+      // (a última fica com o arredondamento). Cada sessão tem o `valor` (líquido) reduzido.
+      const sessions = p.groupSessions.map(s => ({ ...s, alloc: 0, dDesc: 0, dTar: 0, linhas: [] }))
+      let restDesc = descG, restTar = tarG
+      sessions.forEach((s, i) => {
+        const last = i === sessions.length - 1
+        s.dDesc = last ? +restDesc.toFixed(2) : +(descG * s.restante / totalGrupo).toFixed(2)
+        s.dTar = last ? +restTar.toFixed(2) : +(tarG * s.restante / totalGrupo).toFixed(2)
+        restDesc -= s.dDesc; restTar -= s.dTar
+        s.valorNovo = +(s.valor - s.dDesc - s.dTar).toFixed(2)
+        s.restante = +(s.restante - s.dDesc - s.dTar).toFixed(2)
+      })
 
       // Aloca cada forma nas sessões (mais antiga primeiro). Cada fatia (sessão × forma) vira 1 linha em financial_payments.
-      const sessions = p.groupSessions.map(s => ({ ...s, alloc: 0 }))
       const payRows = []
       let si = 0
       for (const line of pagtos) {
@@ -921,44 +940,51 @@ export default function CompanyFinanceiro() {
             pagamento_at: p.pagamento_at || todayStr(), created_by: session?.user?.id || null,
           })
           s.alloc = +(s.alloc + take).toFixed(2)
+          s.linhas.push(line)
           rem = +(rem - take).toFixed(2)
           if (s.alloc >= s.restante - 0.005) si++
         }
       }
       if (juros > 0 && payRows.length) payRows[0].juros = juros
 
-      const { data: pays, error: payErr2 } = await supabase.from('financial_payments').insert(payRows).select()
-      if (payErr2) {
-        const semTabela = /does not exist|not found|42P01|schema cache|relation/i.test(payErr2.message || '')
-        if (!semTabela) { setPaySaving(false); setPayErr('Erro ao salvar: ' + payErr2.message); return }
-        // Sem a migration: modo antigo — marca PAGO só as sessões cobertas 100%.
-        const forma = pagtos.length === 1 ? pagtos[0].forma : 'Múltiplas'
-        const conta = pagtos.length === 1 ? (pagtos[0].conta || null) : null
-        const fullIds = sessions.filter(s => s.alloc >= s.restante - 0.005).map(s => s.id)
-        if (!fullIds.length) { setPaySaving(false); setPayErr('A migração de recebimentos parciais ainda não foi aplicada — não dá pra registrar parcial no grupo ainda.'); return }
-        const { data: upd, error } = await supabase.from('financial_transactions').update({
-          status: 'pago', pagamento_at: p.pagamento_at || todayStr(), bank_account_id: conta, forma_pagamento: forma,
-        }).in('id', fullIds).select()
-        setPaySaving(false)
-        if (error) { setPayErr('Erro: ' + error.message); return }
-        if (upd) setTransactions(prev => prev.map(t => { const u = upd.find(x => x.id === t.id); return u || t }))
-        setSelected(new Set()); setPayModal(null)
-        return
+      let pays = []
+      const { data: insPays, error: payErr2 } = await supabase.from('financial_payments').insert(payRows).select()
+      const semTabela = !!payErr2 && /does not exist|not found|42P01|schema cache|relation/i.test(payErr2.message || '')
+      if (payErr2 && !semTabela) { setPaySaving(false); setPayErr('Erro ao salvar: ' + payErr2.message); return }
+      // Sem a migration (modo antigo) não existe parcial: só dá pra quitar sessões inteiras.
+      if (semTabela && sessions.some(s => s.alloc > 0.005 && s.jaPago + s.alloc < s.valorNovo - 0.005)) {
+        setPaySaving(false); setPayErr('A migração de recebimentos parciais ainda não foi aplicada — não dá pra registrar parcial no grupo ainda.'); return
       }
-      // Atualiza cada sessão tocada (valor_pago + status).
+      if (!semTabela) pays = insPays || []
+
+      // Atualiza cada sessão tocada (valor líquido/desconto/tarifa + valor_pago/status/forma/conta).
       const updatedRows = []
       for (const s of sessions) {
-        if (s.alloc <= 0.005) continue
+        const ajuste = s.dDesc + s.dTar
+        if (s.alloc <= 0.005 && ajuste <= 0.005) continue
         const novoPago = +(s.jaPago + s.alloc).toFixed(2)
-        const novoStatus = novoPago >= s.valor - 0.005 ? 'pago' : 'parcial'
-        const { data: row, error } = await supabase.from('financial_transactions')
-          .update({ status: novoStatus, valor_pago: novoPago, pagamento_at: p.pagamento_at || todayStr() })
-          .eq('id', s.id).select().single()
+        const quitou = novoPago >= s.valorNovo - 0.005
+        const payload = { valor: s.valorNovo }
+        if (ajuste > 0.005) { payload.desconto = +(s.desc0 + s.dDesc).toFixed(2); payload.tarifa = +(s.tar0 + s.dTar).toFixed(2) }
+        if (s.alloc > 0.005) {
+          const formas = [...new Set(s.linhas.map(l => l.forma || ''))]
+          const contas = [...new Set(s.linhas.map(l => l.conta || ''))]
+          payload.pagamento_at = p.pagamento_at || todayStr()
+          payload.forma_pagamento = formas.length === 1 ? (formas[0] || null) : 'Múltiplas'
+          payload.bank_account_id = contas.length === 1 ? (contas[0] || null) : null
+        }
+        if (semTabela) { if (quitou && s.alloc > 0.005) payload.status = 'pago' }
+        else {
+          payload.valor_pago = novoPago
+          payload.status = quitou ? 'pago' : novoPago > 0.005 ? 'parcial' : 'pendente'
+        }
+        let { data: row, error } = await supabase.from('financial_transactions').update(payload).eq('id', s.id).select().single()
+        if (error && isMissingDescTarifaErr(error)) ({ data: row, error } = await supabase.from('financial_transactions').update(stripDescTarifa(payload)).eq('id', s.id).select().single())
         if (error) { setPaySaving(false); setPayErr('Erro: ' + error.message); return }
         if (row) updatedRows.push(row)
       }
       setTransactions(prev => prev.map(t => { const r = updatedRows.find(x => x.id === t.id); return r || t }))
-      setPayments(prev => [...prev, ...pays])
+      if (pays.length) setPayments(prev => [...prev, ...pays])
       setPaySaving(false); setSelected(new Set()); setPayModal(null)
       return
     }
@@ -2163,12 +2189,22 @@ export default function CompanyFinanceiro() {
                 const isRec = payModal.tx.tipo === 'receita'
                 const pagtos = payModal.pagtos || []
                 const soma = pagtos.reduce((s, x) => s + (parseFloat(x.valor) || 0), 0)
-                const totalGrupo = +(payModal.groupTotal || parseFloat(payModal.tx.valor) || 0).toFixed(2)
+                const totalBruto = +(payModal.groupTotal || parseFloat(payModal.tx.valor) || 0).toFixed(2)
+                const descN = parseFloat(payModal.desconto) || 0, tarN = parseFloat(payModal.tarifa) || 0
+                const totalGrupo = +(totalBruto - descN - tarN).toFixed(2)   // líquido a receber
                 const restante = +(totalGrupo - soma).toFixed(2)
                 const novoStatus = soma >= totalGrupo - 0.005 ? 'pago' : soma > 0 ? 'parcial' : 'pendente'
                 const defBank = bankAccounts.find(b => b.ativo !== false)?.id || bankAccounts[0]?.id || ''
                 const setPagtos = (fn) => setPayModal(p => ({ ...p, pagtos: fn(p.pagtos || []) }))
                 const upd = (i, k, v) => setPagtos(a => a.map((x, idx) => idx === i ? { ...x, [k]: v } : x))
+                // Mudou desconto/tarifa: se só tem 1 forma e ela estava no total, acompanha o novo líquido.
+                const setAjuste = (k, v) => setPayModal(p => {
+                  const liq = q => +(totalBruto - (parseFloat(q.desconto) || 0) - (parseFloat(q.tarifa) || 0)).toFixed(2)
+                  const np = { ...p, [k]: v }
+                  const pg = p.pagtos || []
+                  if (pg.length === 1 && Math.abs((parseFloat(pg[0].valor) || 0) - liq(p)) < 0.01 && liq(np) > 0) np.pagtos = [{ ...pg[0], valor: liq(np).toFixed(2) }]
+                  return np
+                })
                 return (
                   <>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -2181,6 +2217,22 @@ export default function CompanyFinanceiro() {
                         <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.juros} onChange={e => setPayModal(p => ({ ...p, juros: e.target.value }))} />
                       </div>
                     </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div>
+                        <label style={lbl}>Desconto (R$)</label>
+                        <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.desconto || ''} onChange={e => setAjuste('desconto', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Tarifa (R$)</label>
+                        <input className="nx-input" type="number" min="0" step="0.01" placeholder="0,00" value={payModal.tarifa || ''} onChange={e => setAjuste('tarifa', e.target.value)} />
+                      </div>
+                    </div>
+                    {(descN > 0 || tarN > 0) && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: totalGrupo > 0 ? '#F0FDF4' : '#FFF1F2', border: `1px solid ${totalGrupo > 0 ? '#BBF7D0' : '#FECDD3'}`, borderRadius: 10, padding: '8px 12px', fontSize: 12.5, ...sora }}>
+                        <span style={{ color: C.slate }}>Líquido = {fmtBRL(totalBruto)} − desconto − tarifa <span style={{ color: C.muted, fontSize: 11 }}>(dividido entre as sessões)</span></span>
+                        <strong style={{ color: totalGrupo > 0 ? C.emerald : C.rose, ...mono }}>{fmtBRL(totalGrupo)}</strong>
+                      </div>
+                    )}
                     <div>
                       <label style={lbl}>Formas de {isRec ? 'recebimento' : 'pagamento'}</label>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
