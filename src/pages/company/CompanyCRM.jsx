@@ -460,6 +460,40 @@ export default function CompanyCRM() {
   }
 
   useEffect(() => { load() }, [instance])
+
+  // O board só carregava ao abrir: lead criado pelo gatilho (mensagem nova) com a
+  // tela aberta não aparecia até recarregar. Recarrega os leads em silêncio ao
+  // voltar pra aba e a cada 30s. Se der erro em qualquer página, mantém o que tem.
+  useEffect(() => {
+    if (!instance) return
+    let busy = false
+    const refresh = async () => {
+      if (busy || document.hidden) return
+      busy = true
+      try {
+        let from = 0, out = []
+        for (;;) {
+          let q = supabase.from('crm_contacts').select('*').eq('instancia', instance)
+          if (supportsRemovido) q = q.not('removido', 'is', true)
+          const { data, error } = await q.order('created_at', { ascending: false }).range(from, from + 999)
+          if (error) return
+          out.push(...(data || []))
+          if (!data || data.length < 1000) break
+          from += 1000
+        }
+        setContacts(out)
+      } finally { busy = false }
+    }
+    const onVis = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', refresh)
+    const id = setInterval(refresh, 30000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('focus', refresh)
+      clearInterval(id)
+    }
+  }, [instance, supportsRemovido])
   useEffect(() => { if (panel) { setPanelTimeline([]); loadPanelData(panel); setEditingName(false) } }, [panel?.id])
 
   // ── Computed ────────────────────────────────────────────────────────────────
