@@ -53,6 +53,7 @@ export default function CompanyCatalog() {
   const [procs, setProcs]     = useState([])
   const [plans, setPlans]     = useState([])
   const [prices, setPrices]   = useState([])
+  const [finCats, setFinCats] = useState([])   // categorias de receita do financeiro (pro procedimento)
   const [loading, setLoading] = useState(true)
 
   // Modal states
@@ -76,7 +77,11 @@ export default function CompanyCatalog() {
       supabase.from('procedures').select('*').eq('instancia', instance).order('name'),
       supabase.from('insurance_plans').select('*').eq('instancia', instance).order('name'),
       supabase.from('procedure_prices').select('*'),
-    ]).then(([p, q, r, s]) => {
+      supabase.from('financial_categories').select('id,nome,tipo,instancia')
+        .or(`instancia.eq.${instance},instancia.eq._default_`).in('tipo', ['receita', 'ambos']).order('nome'),
+    ]).then(([p, q, r, s, fc]) => {
+      // Da clínica primeiro, depois as padrão.
+      setFinCats((fc.data || []).sort((a, b) => (a.instancia === instance ? 0 : 1) - (b.instancia === instance ? 0 : 1) || a.nome.localeCompare(b.nome)))
       setPros(p.data || [])
       setProcs(q.data || [])
       setPlans(r.data || [])
@@ -161,11 +166,18 @@ export default function CompanyCatalog() {
       professional_id: procModal.professional_id || null,
       active: procModal.active !== false,
       reminder_message: procModal.reminder_message?.trim() || null,
+      fin_categoria_id: procModal.fin_categoria_id || null,
       instancia: instance,
     }
-    const { data, error } = procModal.id
-      ? await supabase.from('procedures').update(payload).eq('id', procModal.id).select().single()
-      : await supabase.from('procedures').insert(payload).select().single()
+    const saveProc = pl => procModal.id
+      ? supabase.from('procedures').update(pl).eq('id', procModal.id).select().single()
+      : supabase.from('procedures').insert(pl).select().single()
+    let { data, error } = await saveProc(payload)
+    // Migration da categoria ainda não rodou → salva sem o campo (não trava).
+    if (error && /fin_categoria_id/i.test(error.message || '')) {
+      const { fin_categoria_id, ...semCat } = payload
+      ;({ data, error } = await saveProc(semCat))
+    }
     if (error) { setSaving(false); setErr('Erro: ' + error.message); return }
 
     // Sincroniza preços por convênio
@@ -558,6 +570,16 @@ export default function CompanyCatalog() {
                   Cobrança <strong>mensal</strong>: o financeiro lança este valor <strong>1x por mês</strong> por paciente (não por sessão), mesmo com várias sessões no mês.
                 </div>
               )}
+            </Field>
+            <Field label="Categoria no financeiro">
+              <select className="nx-select" value={procModal.fin_categoria_id || ''}
+                onChange={e => setProcModal(p => ({ ...p, fin_categoria_id: e.target.value || null }))}>
+                <option value="">Automática (pelo nome do serviço)</option>
+                {finCats.map(c => <option key={c.id} value={c.id}>{c.nome}{c.instancia === instance ? '' : ' (padrão)'}</option>)}
+              </select>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Categoria da cobrança que a <strong>agenda</strong> lança no financeiro. Em "Automática", usa a categoria cujo nome aparece no nome do serviço (ex.: <strong>Pilates</strong> → "Pilates 2x por semana"); senão, a do tipo (Consulta/Procedimento/Exame).
+              </div>
             </Field>
             {procModal.type !== 'mensalidade' && plans.filter(p => p.active !== false).length > 0 && (
               <div>
