@@ -1,7 +1,9 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+// Relatório financeiro (saiu da tela de Métricas e mora aqui agora).
+const CompanyMetrics = lazy(() => import('./CompanyMetrics'))
 import {
   AreaChart, Area, BarChart, Bar, ComposedChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -1076,6 +1078,7 @@ export default function CompanyFinanceiro() {
     { key: 'inadimplencia', label: 'Inadimplência' },
     { key: 'categorias', label: 'Por Categoria' },
     { key: 'contas', label: 'Contas' },
+    { key: 'relatorio', label: 'Relatório' },
   ]
 
   // ── Access control (depois de todos os hooks, pra não violar Rules of Hooks) ─
@@ -1751,6 +1754,12 @@ export default function CompanyFinanceiro() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'relatorio' && (
+        <Suspense fallback={<div style={{ padding: 20, color: C.muted, fontSize: 13 }}>Carregando relatório...</div>}>
+          <CompanyMetrics tabs={['financeiro']} title="Relatório financeiro" />
+        </Suspense>
       )}
 
       {tab === 'contas' && (

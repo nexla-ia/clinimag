@@ -1,12 +1,14 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import ConfirmModal from '../../components/ConfirmModal'
+// Relatório do Kanban (saiu da tela de Métricas e mora aqui agora).
+const CompanyMetrics = lazy(() => import('./CompanyMetrics'))
 import {
   Plus, X, Trash2, Pencil, Calendar, User as UserIcon, Flag,
-  GripVertical, MoreVertical, Tag, ChevronRight, MessageCircle, ExternalLink, Link2,
+  GripVertical, MoreVertical, Tag, ChevronRight, MessageCircle, ExternalLink, Link2, BarChart2,
 } from 'lucide-react'
 import './Company.css'
 
@@ -58,6 +60,7 @@ export default function CompanyKanban() {
   const [users, setUsers]         = useState([])
   const [contacts, setContacts]   = useState([])
   const [loading, setLoading]     = useState(true)
+  const [showReport, setShowReport] = useState(false)   // relatório (antes ficava em Métricas)
 
   const [comments, setComments]           = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
@@ -373,6 +376,12 @@ export default function CompanyKanban() {
             <option value="sem-prazo">Sem prazo</option>
           </select>
           {isAdmin && (
+            <button className="nx-btn-ghost" onClick={() => setShowReport(v => !v)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px', ...(showReport ? { background: '#EFF6FF', color: '#2563EB', borderColor: '#BFDBFE' } : {}) }}>
+              <BarChart2 size={13} /> {showReport ? 'Voltar ao quadro' : 'Relatório'}
+            </button>
+          )}
+          {isAdmin && !showReport && (
             <button className="nx-btn-primary" onClick={openNewColumn} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px' }}>
               <Plus size={13} /> Nova coluna
             </button>
@@ -380,6 +389,15 @@ export default function CompanyKanban() {
         </div>
       </div>
 
+      {showReport && (
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <Suspense fallback={<div style={{ padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>Carregando relatório...</div>}>
+            <CompanyMetrics tabs={['atividades']} title="Relatório do Kanban" hideHeader />
+          </Suspense>
+        </div>
+      )}
+
+      {!showReport && (<>
       {!loading && columns.length === 0 ? (
         <div className="nx-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <Tag size={28} style={{ opacity: 0.2 }} />
@@ -535,6 +553,7 @@ export default function CompanyKanban() {
           })}
         </div>
       )}
+      </>)}
 
       {/* Modal coluna */}
       {columnModal && createPortal(

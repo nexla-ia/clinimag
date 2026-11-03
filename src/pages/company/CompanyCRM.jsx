@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
@@ -7,9 +7,11 @@ import {
   UserPlus, Flag, Edit2, Trash2, Check, Loader2, ChevronDown,
   MessageSquare, ArrowRight, Tag, Users, MoreHorizontal,
   Thermometer, GitMerge, StickyNote, Kanban, Filter, List,
-  ChevronRight, BookMarked, Zap, GripVertical,
+  ChevronRight, BookMarked, Zap, GripVertical, BarChart2,
 } from 'lucide-react'
 import { useContactTags, TagPicker, TagList } from '../../components/Tags'
+// Relatório do CRM (saiu da tela de Métricas e mora aqui agora).
+const CompanyMetrics = lazy(() => import('./CompanyMetrics'))
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -1194,6 +1196,7 @@ export default function CompanyCRM() {
             { id:'board',   label:'Board',   Icon:Kanban },
             { id:'alertas', label:`Alertas${staleLeads.length ? ` (${staleLeads.length})` : ''}`, Icon:AlertTriangle, warn: staleLeads.length > 0 },
             { id:'listas',  label:'Listas',  Icon:BookMarked },
+            { id:'relatorio', label:'Relatório', Icon:BarChart2 },
           ].map(v => (
             <button key={v.id} onClick={() => setActiveView(v.id)} style={{
               display:'flex', alignItems:'center', gap:5, padding:'5px 11px',
@@ -1293,6 +1296,14 @@ export default function CompanyCRM() {
       )}
 
       {/* ── Listas View ── */}
+      {activeView === 'relatorio' && (
+        <div style={{ flex:1, overflowY:'auto', padding:'16px 20px' }}>
+          <Suspense fallback={<div style={{ padding:20, color:C.muted, fontSize:13 }}>Carregando relatório...</div>}>
+            <CompanyMetrics tabs={['crm']} title="Relatório do CRM" />
+          </Suspense>
+        </div>
+      )}
+
       {activeView === 'listas' && (
         <div style={{ flex:1, overflow:'hidden', display:'flex' }}>
           {/* Sidebar: saved lists */}
