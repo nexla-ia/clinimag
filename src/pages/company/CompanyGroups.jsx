@@ -1852,7 +1852,11 @@ export default function CompanyGroups() {
                 // (verde) com o nome dela, igual à mensagem enviada pela plataforma.
                 const fromMeLike = isAtendente || !msg.numero || fromClinic
                 const selfIntro = fromMeLike ? parseSelfIntro(caption) : null
-                const showAsAtendente = isAtendente || !!selfIntro
+                // TODA mensagem da clínica vai pro lado direito — inclusive a enviada pelo
+                // celular SEM o *Nome* (antes só ia com o asterisco). Em grupo, número vazio
+                // é sempre a própria clínica (conferido em prod 03/11: 100% perfil da clínica).
+                const showAsAtendente = fromMeLike
+                const viaCelular = !isAtendente && fromMeLike && !selfIntro
                 const displayName = selfIntro ? selfIntro.nome : (msg.nome || null)
                 const bodyText = selfIntro ? selfIntro.text : caption
                 const cards = contactCardsOf(msg.contact_card)
@@ -1891,6 +1895,7 @@ export default function CompanyGroups() {
                       {showAsAtendente && displayName && (
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#16A34A', marginBottom: 3, marginRight: 2 }}>
                           {displayName}
+                          {viaCelular && <span style={{ fontWeight: 500, color: '#94A3B8' }}> · pelo WhatsApp</span>}
                         </span>
                       )}
                       <div className="msg-bubble" style={{ maxWidth: '100%', wordBreak: 'break-word', padding: media?.type === 'image' ? 4 : ((contactOnly || locationOnly) ? 0 : undefined), ...((contactOnly || locationOnly) ? { background: 'transparent', boxShadow: 'none', border: 'none' } : {}) }}>
