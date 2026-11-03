@@ -35,15 +35,35 @@ const ORIGEM_COLORS = {
   Site: '#0891B2', Convênio: '#059669', Anúncio: '#D97706', Outro: '#6B7280',
 }
 
+// Padrão de CRM = o funil que a avivar montou e validou (03/11/2026): régua de
+// follow-up (1→15 dias), sem resposta / perdido / desqualificado, e o pós-consulta.
+// Todo CRM/funil novo nasce com estas etapas.
 const DEFAULT_STAGES = [
-  { nome: 'Novo Lead',        cor: '#64748B', posicao: 0, alerta_dias: 3  },
-  { nome: 'Primeiro Contato', cor: '#2563EB', posicao: 1, alerta_dias: 5  },
-  { nome: 'Agendou',          cor: '#7C3AED', posicao: 2, alerta_dias: 7  },
-  { nome: 'Compareceu',       cor: '#0891B2', posicao: 3, alerta_dias: 14 },
-  { nome: 'Retorno',          cor: '#D97706', posicao: 4, alerta_dias: 30 },
-  { nome: 'Fidelizado',       cor: '#059669', posicao: 5, alerta_dias: 90 },
-  { nome: 'Perdido',          cor: '#DC2626', posicao: 6, alerta_dias: null },
-]
+  { nome: 'Novo Lead',               cor: '#64748B', alerta_dias: 3 },
+  { nome: 'Conversa inicial',        cor: '#2563EB', alerta_dias: 1 },
+  { nome: '1 follow up - 1 dia',     cor: '#7C3AED', alerta_dias: 2 },
+  { nome: '2 follow up - 2 dias',    cor: '#7C3AED', alerta_dias: 2 },
+  { nome: '3 follow up - 3 dias',    cor: '#7C3AED', alerta_dias: 3 },
+  { nome: '4 follow up - 5 dias',    cor: '#7C3AED', alerta_dias: 5 },
+  { nome: '5 follow up - 7 dias',    cor: '#7C3AED', alerta_dias: 7 },
+  { nome: '6 follow up - 15 dias',   cor: '#7C3AED', alerta_dias: 15 },
+  { nome: 'Sem resposta',            cor: '#D97706', alerta_dias: null },
+  { nome: 'Perdido',                 cor: '#DC2626', alerta_dias: null, is_lost: true },
+  { nome: 'Lead desqualificado',     cor: '#DC2626', alerta_dias: null, is_lost: true },
+  { nome: 'Agendou',                 cor: '#7C3AED', alerta_dias: null, is_conversion: true },
+  { nome: 'Não veio',                cor: '#64748B', alerta_dias: null },
+  { nome: 'Follow up após consulta', cor: '#DC2626', alerta_dias: 2 },
+  { nome: 'Fidelizado',              cor: '#059669', alerta_dias: null },
+].map((s, i) => ({ ...s, posicao: i }))
+
+// Linhas pra inserir as etapas padrão num funil. Sem a migration das flags
+// (is_conversion/is_lost), tira esses campos pra não falhar o insert.
+function defaultStageRows(funilId, instancia, withFlags) {
+  return DEFAULT_STAGES.map(({ is_lost, is_conversion, ...s }) => ({
+    ...s, funil_id: funilId, instancia,
+    ...(withFlags ? { is_lost: !!is_lost, is_conversion: !!is_conversion } : {}),
+  }))
+}
 
 // Paleta pras etapas personalizadas
 const STAGE_COLORS = ['#64748B','#2563EB','#7C3AED','#0891B2','#D97706','#059669','#DC2626','#DB2777','#4F46E5','#0F766E']
@@ -214,7 +234,7 @@ export default function CompanyCRM() {
       if (nf) {
         myFunnels = [nf]
         const { data: ns } = await supabase.from('crm_stages')
-          .insert(DEFAULT_STAGES.map(s => ({ ...s, funil_id: nf.id, instancia: instance }))).select()
+          .insert(defaultStageRows(nf.id, instance, !flagProbe)).select()
         if (ns) myStages = ns.sort((a,b) => a.posicao - b.posicao)
       }
     }
@@ -670,9 +690,24 @@ export default function CompanyCRM() {
     if (error) { setLossReasons(snap); alert('Erro ao remover: ' + error.message) }
   }
 
+  // Lead não volta de etapa: a equipe voltava o card pra "zerar" os dias e parecer
+  // atualizado. Só pode ir pra frente — exceções: entrar/sair de etapa de NÃO
+  // convertido (perdido pode estar em qualquer posição e pode ser reativado) e
+  // voltar pra etapa de CONVERSÃO (ex.: "Não veio" → reagendou → "Agendou").
+  function isBackwardMove(contact, funnelId, toStageId) {
+    const from = stages.find(s => s.id === stageInFunnel(contact, funnelId))
+    const to   = stages.find(s => s.id === toStageId)
+    if (!from || !to || from.is_lost || to.is_lost || to.is_conversion) return false
+    return (to.posicao ?? 0) < (from.posicao ?? 0)
+  }
+
   // Grava a etapa do lead NAQUELE funil: principal → crm_contacts; adicional → a
   // linha em crm_contact_funnels. Otimista, reverte se o banco recusar.
   async function setStageInFunnel(contact, funnelId, toStageId, now = new Date().toISOString()) {
+    if (isBackwardMove(contact, funnelId, toStageId)) {
+      alert('Não é possível voltar o lead para uma etapa anterior — ele só avança no funil.')
+      return false
+    }
     if (isPrimaryFunnel(contact, funnelId)) {
       const snap = contacts
       setContacts(prev => prev.map(c => c.id === contact.id ? { ...c, stage_id: toStageId, funil_id: funnelId, data_entrada_etapa: now } : c))
@@ -891,7 +926,7 @@ export default function CompanyCRM() {
         .insert({ instancia: instance, nome, posicao: maxPos + 1 }).select().single()
       if (error || !nf) { alert('Erro ao criar funil: ' + (error?.message || '')); setSavingFunnel(false); return }
       const { data: ns } = await supabase.from('crm_stages')
-        .insert(DEFAULT_STAGES.map(s => ({ ...s, funil_id: nf.id, instancia: instance }))).select()
+        .insert(defaultStageRows(nf.id, instance, supportsStageFlags)).select()
       setFunnels(prev => [...prev, nf])
       if (ns) setStages(prev => [...prev, ...ns])
       setActiveFunnel(nf.id)
@@ -1568,6 +1603,8 @@ export default function CompanyCRM() {
                         <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color: stale ? '#D97706' : C.muted }}>
                           {stale ? <AlertTriangle size={10} color="#D97706"/> : <Clock size={10}/>}
                           {days === 0 ? 'hoje' : `${days}d nesta etapa`}
+                          {/* Desde que CHEGOU no CRM — não zera ao mudar de etapa. */}
+                          {contact.created_at && <span style={{ color:C.muted }}>· chegou há {daysIn(contact.created_at)}d</span>}
                         </div>
                         {contact.data_ult_contato && (
                           <div style={{ fontSize:9.5, color:C.muted }}>
@@ -1758,7 +1795,10 @@ export default function CompanyCRM() {
                               setStageInFunnel(c, f.id, e.target.value)
                             }}
                             style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontWeight:600, color:C.slate, cursor:'pointer', outline:'none', padding:'2px 0' }}>
-                            {fStages.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                            {fStages.map(s => {
+                              const back = isBackwardMove(c, f.id, s.id)
+                              return <option key={s.id} value={s.id} disabled={back}>{s.nome}{back ? ' (etapa anterior)' : ''}</option>
+                            })}
                             {isPrim && <option value="__new__">➕ Nova etapa…</option>}
                           </select>
                         </div>

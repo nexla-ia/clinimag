@@ -2705,11 +2705,8 @@ export default function CompanyConversations() {
                     )}
                     {tab === 'meu-setor' && att && (
                       <>
-                        {att.sector_name && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, color: '#fff', background: att.sector_color || '#6B7280', lineHeight: '16px' }}>
-                            {att.sector_name}
-                          </span>
-                        )}
+                        {/* Nome do setor não aparece mais no card (pedido: informação demais —
+                            quem está na aba Setores já sabe o setor). Fica só o atendente. */}
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 20, color: '#16A34A', background: '#F0FDF4', border: '1px solid #BBF7D0', lineHeight: '16px' }}>
                           <Headset size={9} /> {att.attendant_name?.split(' ')[0]}
                         </span>
