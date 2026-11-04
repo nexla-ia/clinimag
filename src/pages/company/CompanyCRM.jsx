@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } fro
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { phoneSearchVariants, phoneMatches } from '../../lib/phoneSearch'
 import {
   Plus, X, Search, Clock, AlertTriangle, Phone, Mail,
   UserPlus, Flag, Edit2, Trash2, Check, Loader2, ChevronDown,
@@ -583,10 +584,12 @@ export default function CompanyCRM() {
 
   const filteredContacts = useMemo(() => {
     const q = search.toLowerCase().trim()
+    // Telefone: ignora espaço/hífen/parênteses e tolera o 9º dígito (antes "65 9911-8837" nunca achava).
+    const phoneVars = phoneSearchVariants(q)
     return contacts.filter(c => {
       if (!funnelsSetOf(c).has(activeFunnel)) return false
       if (filterTemp !== 'todos' && c.temperatura !== filterTemp) return false
-      if (q && !bestName(c).toLowerCase().includes(q) && !(c.phone||'').includes(q) && !(c.email||'').toLowerCase().includes(q)) return false
+      if (q && !bestName(c).toLowerCase().includes(q) && !phoneMatches(c.phone, phoneVars) && !(c.email||'').toLowerCase().includes(q)) return false
       return true
     })
   }, [contacts, memberships, search, filterTemp, activeFunnel, funnels])
