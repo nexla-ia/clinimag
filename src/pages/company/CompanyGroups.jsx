@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchGruposLista } from '../../lib/queries'
 import { detectSendError, isN8nInfraNoise } from '../../lib/sendStatus'
-import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2, LocateFixed } from 'lucide-react'
+import { Users, User, ChevronLeft, Send, Mic, Square, Paperclip, Trash2, Film, FileText, BellOff, Bell, ChevronRight, Loader2, Phone, X, MessageCircle, UserPlus, Check, Download, Pencil, Reply, Mail, MailOpen, Search, MapPin, ExternalLink, CheckCircle2, LocateFixed, AlertTriangle, RotateCw } from 'lucide-react'
 import { useContactTags, TagList, TagPicker, TagFilter, buildTagFilter } from '../../components/Tags'
 import QuickMessages from '../../components/QuickMessages'
 import ImageLightbox from '../../components/ImageLightbox'
@@ -289,6 +289,10 @@ export default function CompanyGroups() {
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
   const [sendErr, setSendErr] = useState('')
+  // Envios que o WhatsApp não confirmou: id da linha → { url, body, timeoutMs, label,
+  // reason, retrying }. Mostra "Não enviada · Reenviar" na própria mensagem (o aviso
+  // de cima some em 9s e a atendente acabava redigitando). Só na sessão atual.
+  const [failedSends, setFailedSends] = useState({})
   const [customNames, setCustomNames] = useState({}) // idgrupo → nome definido pela clínica
   const [renameModal, setRenameModal] = useState(null) // { idgrupo, nome }
   const [savingName, setSavingName] = useState(false)
@@ -1069,13 +1073,10 @@ export default function CompanyGroups() {
         // parsear o texto lá.
         const mentionedNumbers = [...new Set((sentText.match(/@(\d{6,})/g) || []).map(x => x.slice(1)))]
         const mentionedJids = mentionedNumbers.map(n => `${n}@s.whatsapp.net`)
-        const menCtrl = new AbortController()
-        const menTimer = setTimeout(() => menCtrl.abort(), 45000)
-        fetch('https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: menCtrl.signal,
-          body: JSON.stringify({
+        deliverGroup({
+          url: 'https://n8n.nexladesenvolvimento.com.br/webhook/infogrupo',
+          timeoutMs: 45000, insertedId, label: 'Menção',
+          body: {
             evento:       'mencao',
             instancia:    instance,
             apikey:       apiInstancia,
@@ -1086,38 +1087,8 @@ export default function CompanyGroups() {
             mentioned_numbers: mentionedNumbers,  // só os números, se preferir
             sender_name:  session?.user?.name,
             sender_email: session?.user?.email,
-          }),
+          },
         })
-          .then(async (r) => {
-            const t = await r.text().catch(() => '')
-            // Ruído de infra do n8n (lock do SQLite) não é falha de entrega → ignora.
-            if (!r.ok && !isN8nInfraNoise(t)) throw new Error('HTTP ' + r.status)
-            return t
-          })
-          .then(t => {
-            // Falha do envio (ex: número mencionado que não existe no WhatsApp).
-            const menErr = detectSendError(t)
-            if (menErr) {
-              setSendErr(`⚠️ Menção NÃO entregue no grupo: ${menErr}. Tente de novo.`)
-              setTimeout(() => setSendErr(''), 9000)
-              return
-            }
-            // Se o infogrupo devolver o id_mensagem (mesmo formato do envioNexla:
-            // instancia / mensagem / id_mensagem), grava — assim a mensagem com
-            // menção fica respondível/editável depois.
-            const lines = (t || '').trim().split('\n')
-            const msgId = lines.length >= 3 ? lines[lines.length - 1].trim() : ''
-            if (insertedId && msgId && !/\s/.test(msgId)) {
-              supabase.from(CONV_TABLE).update({ id_mensagem: msgId }).eq('id', insertedId).then(() => {})
-              setMessages(prev => prev.map(m => m.id === insertedId ? { ...m, id_mensagem: msgId } : m))
-            }
-          })
-          .catch(e => {
-            console.warn('webhook mencao:', e)
-            setSendErr('⚠️ Não deu pra confirmar a entrega no WhatsApp. A mensagem ficou salva aqui, mas pode NÃO ter sido enviada no grupo — confira e, se precisar, envie de novo.')
-            setTimeout(() => setSendErr(''), 9000)
-          })
-          .finally(() => clearTimeout(menTimer))
       } else {
         // Resposta nativa → webhook próprio de grupo; senão envioNexla
         const webhookUrl = nativeQuote
@@ -1133,13 +1104,9 @@ export default function CompanyGroups() {
         // 60s (era 20s): envio pra GRUPO é mais lento no Evolution (cifra pra cada
         // participante) e link ainda gera prévia — com 20s a tela desistia antes da
         // resposta, perdia o id_mensagem e mostrava "não confirmado" → a pessoa reenviava.
-        const grpCtrl = new AbortController()
-        const grpTimer = setTimeout(() => grpCtrl.abort(), 60000)
-        fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: grpCtrl.signal,
-          body: JSON.stringify({
+        deliverGroup({
+          url: webhookUrl, timeoutMs: 60000, insertedId, label: 'Mensagem',
+          body: {
             message: sentText,
             mensagem: mensagemPayload,
             audio_mime: audio?.mime || null,
@@ -1165,45 +1132,69 @@ export default function CompanyGroups() {
             company: session?.company?.name,
             ...quotedPayload,
             ai_enabled: false,
-          }),
+          },
         })
-          .then(async (r) => {
-            const t = await r.text().catch(() => '')
-            // Ruído de infra do n8n (lock do SQLite) não é falha de entrega → ignora.
-            if (!r.ok && !isN8nInfraNoise(t)) throw new Error('HTTP ' + r.status)
-            return t
-          })
-          .then(t => {
-            // Falha do envio (texto "ERRO" do n8n OU JSON de erro do Evolution,
-            // ex: número que não existe no WhatsApp).
-            const grpErr = detectSendError(t)
-            if (grpErr) {
-              setSendErr(`⚠️ Mensagem NÃO entregue no grupo: ${grpErr}. Tente de novo.`)
-              setTimeout(() => setSendErr(''), 9000)
-              return
-            }
-            // Se o n8n devolver o id_mensagem do WhatsApp (mesmo formato das
-            // conversas: instancia / mensagem / id_mensagem, uma por linha),
-            // grava na linha — é o que permite editar/apagar depois no WhatsApp.
-            const lines = (t || '').trim().split('\n')
-            const msgId = lines.length >= 3 ? lines[lines.length - 1].trim() : ''
-            if (insertedId && msgId && !/\s/.test(msgId)) {
-              supabase.from(CONV_TABLE).update({ id_mensagem: msgId }).eq('id', insertedId).then(() => {})
-              setMessages(prev => prev.map(m => m.id === insertedId ? { ...m, id_mensagem: msgId } : m))
-            }
-          })
-          .catch(e => {
-            console.warn('webhook grupo:', e)
-            setSendErr('⚠️ Não deu pra confirmar a entrega no WhatsApp. A mensagem ficou salva aqui, mas pode NÃO ter sido enviada no grupo — confira e, se precisar, envie de novo.')
-            setTimeout(() => setSendErr(''), 9000)
-          })
-          .finally(() => clearTimeout(grpTimer))
       }
     } finally {
       setSending(false)
       // Mantém o foco na caixa pra digitar a próxima sem clicar de novo (igual WhatsApp)
       setTimeout(() => composerRef.current?.focus(), 0)
     }
+  }
+
+  // Entrega no WhatsApp via n8n. Sucesso → grava o id_mensagem na linha; falha →
+  // marca a mensagem como não enviada (botão "Reenviar" chama isto de novo, na MESMA
+  // linha — não duplica no chat).
+  async function deliverGroup({ url, body, timeoutMs, insertedId, label }) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    const markFailed = (reason, semResposta) => {
+      if (insertedId) setFailedSends(prev => ({ ...prev, [insertedId]: { url, body, timeoutMs, label, reason, semResposta } }))
+    }
+    try {
+      const r = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: ctrl.signal, body: JSON.stringify(body),
+      })
+      const t = await r.text().catch(() => '')
+      // Ruído de infra do n8n (lock do SQLite) não é falha de entrega → ignora.
+      if (!r.ok && !isN8nInfraNoise(t)) throw new Error('HTTP ' + r.status)
+      // Falha do envio (texto "ERRO" do n8n OU JSON de erro do Evolution,
+      // ex: número mencionado que não existe no WhatsApp).
+      const err = detectSendError(t)
+      if (err) {
+        markFailed(err, false)
+        setSendErr(`⚠️ ${label} NÃO entregue no grupo: ${err}. Use "Reenviar" na mensagem.`)
+        setTimeout(() => setSendErr(''), 9000)
+        return false
+      }
+      // O n8n devolve instancia / mensagem / id_mensagem (uma por linha) — o id é o
+      // que permite responder/editar/apagar depois no WhatsApp.
+      const lines = (t || '').trim().split('\n')
+      const msgId = lines.length >= 3 ? lines[lines.length - 1].trim() : ''
+      if (insertedId && msgId && !/\s/.test(msgId)) {
+        supabase.from(CONV_TABLE).update({ id_mensagem: msgId }).eq('id', insertedId).then(() => {})
+        setMessages(prev => prev.map(m => m.id === insertedId ? { ...m, id_mensagem: msgId } : m))
+      }
+      if (insertedId) setFailedSends(prev => { if (!prev[insertedId]) return prev; const n = { ...prev }; delete n[insertedId]; return n })
+      return true
+    } catch (e) {
+      console.warn('webhook grupo:', e)
+      markFailed(e?.name === 'AbortError' ? 'o WhatsApp não respondeu a tempo' : 'falha de conexão', true)
+      setSendErr('⚠️ Não deu pra confirmar a entrega no WhatsApp. Confira no grupo e, se não chegou, use "Reenviar" na mensagem.')
+      setTimeout(() => setSendErr(''), 9000)
+      return false
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  async function retrySend(msg) {
+    const f = failedSends[msg.id]
+    if (!f || f.retrying) return
+    setFailedSends(prev => ({ ...prev, [msg.id]: { ...f, retrying: true } }))
+    const ok = await deliverGroup({ ...f, insertedId: msg.id })
+    if (!ok) setFailedSends(prev => prev[msg.id] ? { ...prev, [msg.id]: { ...prev[msg.id], retrying: false } } : prev)
   }
 
   async function handleSaveEdit(msg) {
@@ -2156,6 +2147,29 @@ export default function CompanyGroups() {
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                           {formatTime(ts, companyTz)}
                         </span>
+                        {/* Envio não confirmado pelo WhatsApp → aviso fixo + Reenviar (mesma linha). */}
+                        {failedSends[msg.id] && (() => {
+                          const f = failedSends[msg.id]
+                          return (
+                            <button
+                              onClick={() => retrySend(msg)}
+                              disabled={f.retrying}
+                              title={f.semResposta
+                                ? `Sem confirmação (${f.reason}). Pode ter chegado — confira no grupo antes de reenviar.`
+                                : `Não enviada: ${f.reason}`}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                                border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C',
+                                cursor: f.retrying ? 'default' : 'pointer', opacity: f.retrying ? 0.7 : 1,
+                              }}
+                            >
+                              {f.retrying
+                                ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Reenviando…</>
+                                : <><AlertTriangle size={10} /> {f.semResposta ? 'Sem confirmação' : 'Não enviada'} · <RotateCw size={10} /> Reenviar</>}
+                            </button>
+                          )
+                        })()}
                         {/* Responder: qualquer mensagem (inclusive as nossas). Com
                             id_mensagem vira citação nativa; sem ele, citação embutida. */}
                         {!msg.apagada && editingMsgId !== msg.id && (
