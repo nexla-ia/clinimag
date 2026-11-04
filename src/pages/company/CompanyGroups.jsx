@@ -1130,8 +1130,11 @@ export default function CompanyGroups() {
           quoted_remoteJid:   selected.idgrupo,       // em grupo, a "conversa" é o grupo
           quoted_participant: replySnap.numero || null, // quem mandou a original no grupo
         } : {}
+        // 60s (era 20s): envio pra GRUPO é mais lento no Evolution (cifra pra cada
+        // participante) e link ainda gera prévia — com 20s a tela desistia antes da
+        // resposta, perdia o id_mensagem e mostrava "não confirmado" → a pessoa reenviava.
         const grpCtrl = new AbortController()
-        const grpTimer = setTimeout(() => grpCtrl.abort(), 20000)
+        const grpTimer = setTimeout(() => grpCtrl.abort(), 60000)
         fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
