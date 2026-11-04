@@ -2524,13 +2524,23 @@ export default function CompanyConversations() {
 
   const currentList = tab === 'recepcao' ? recepcao : tab === 'meu-setor' ? meuSetor : finalizados
   const tagMatch = buildTagFilter(tagFilter, tagAssignments)
+  // Busca por telefone tolera o 9º dígito: "65 9911-8837" acha quem está salvo como
+  // 65 99911-8837 e vice-versa (antes só achava se digitasse igual ao banco).
+  const searchDigits = search.replace(/\D/g, '')
+  const searchVariants = (() => {
+    const d = searchDigits, v = new Set(d ? [d] : [])
+    const local = d.startsWith('55') && d.length >= 12 ? d.slice(2) : d
+    const pre = local === d ? '' : '55'
+    if (local.length === 10) v.add(pre + local.slice(0, 2) + '9' + local.slice(2))           // sem 9 → com 9
+    if (local.length === 11 && local[2] === '9') v.add(pre + local.slice(0, 2) + local.slice(3)) // com 9 → sem 9
+    return [...v]
+  })()
   const filtered = currentList
     .filter(c => {
       if (!search) return true
       const cleanNum = c.phone.replace(/\D/g, '')
       const nome = resolveName(c.phone)
-      const searchDigits = search.replace(/\D/g, '')
-      const phoneMatch = searchDigits.length > 0 && cleanNum.includes(searchDigits)
+      const phoneMatch = searchVariants.some(v => cleanNum.includes(v))
       const nameMatch = nome.toLowerCase().includes(search.toLowerCase())
       return phoneMatch || nameMatch
     })
