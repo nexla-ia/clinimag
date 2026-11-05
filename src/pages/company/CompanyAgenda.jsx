@@ -777,13 +777,21 @@ export default function CompanyAgenda() {
       else setConfirmDeleteApptDirect(appt)
       return
     }
-    const { count } = await supabase.from('appointments')
-      .select('id', { count: 'exact', head: true })
-      .eq('recurrence_group_id', appt.recurrence_group_id)
-    setSeriesDelete({ appt, count: count || 0, fromModal })
+    const [{ count }, { count: futureCount }] = await Promise.all([
+      supabase.from('appointments')
+        .select('id', { count: 'exact', head: true })
+        .eq('recurrence_group_id', appt.recurrence_group_id),
+      // Este + os seguintes (a partir deste horário) — pra opção "este e os próximos"
+      supabase.from('appointments')
+        .select('id', { count: 'exact', head: true })
+        .eq('recurrence_group_id', appt.recurrence_group_id)
+        .gte('starts_at', appt.starts_at),
+    ])
+    setSeriesDelete({ appt, count: count || 0, futureCount: futureCount || 0, fromModal })
   }
 
-  // scope: 'este' | 'serie'
+  // scope: 'este' | 'futuros' (este + os seguintes) | 'serie'
+  // (o gatilho fin_cleanup_appt_del apaga junto as cobranças PENDENTES; pagas ficam)
   async function doDeleteAppt(appt, scope, fromModal) {
     if (!appt?.id) return
     setDeletingNow(true)
@@ -791,6 +799,12 @@ export default function CompanyAgenda() {
     if (scope === 'serie' && groupId) {
       await supabase.from('appointments').delete().eq('recurrence_group_id', groupId)
       setAppointments(prev => prev.filter(a => a.recurrence_group_id !== groupId))
+    } else if (scope === 'futuros' && groupId) {
+      const from = appt.starts_at
+      const { error } = await supabase.from('appointments').delete()
+        .eq('recurrence_group_id', groupId).gte('starts_at', from)
+      if (error) alert('Erro ao excluir: ' + error.message)
+      else setAppointments(prev => prev.filter(a => !(a.recurrence_group_id === groupId && new Date(a.starts_at) >= new Date(from))))
     } else {
       await supabase.from('appointments').delete().eq('id', appt.id)
       setAppointments(prev => prev.filter(a => a.id !== appt.id))
@@ -1584,6 +1598,27 @@ export default function CompanyAgenda() {
                   {seriesDelete.count > 1 && ` — os outros ${seriesDelete.count - 1} continuam na agenda.`}
                 </div>
               </button>
+
+              {/* Este e os próximos: mantém os anteriores (já realizados). Só aparece quando
+                  é diferente das outras opções (tem anteriores E tem seguintes). */}
+              {seriesDelete.futureCount > 1 && seriesDelete.futureCount < seriesDelete.count && (
+                <button
+                  onClick={() => doDeleteAppt(seriesDelete.appt, 'futuros', seriesDelete.fromModal)}
+                  disabled={deletingNow}
+                  style={{
+                    textAlign: 'left', padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
+                    border: '1.5px solid #FED7AA', background: '#FFF7ED', fontFamily: 'inherit',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#EA580C'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#FED7AA'}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#C2410C' }}>
+                    Este e os próximos ({seriesDelete.futureCount} agendamentos)
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#9A3412', marginTop: 2 }}>
+                    A partir deste horário. Os {seriesDelete.count - seriesDelete.futureCount} anteriores continuam (histórico e o que já foi pago).
+                  </div>
+                </button>
+              )}
 
               <button
                 onClick={() => doDeleteAppt(seriesDelete.appt, 'serie', seriesDelete.fromModal)}
