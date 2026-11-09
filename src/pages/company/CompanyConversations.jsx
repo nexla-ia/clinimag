@@ -143,10 +143,17 @@ function tzOffsetMinutes(tz) {
 // duas: as respostas do cliente numa thread e o que o atendente enviava na
 // outra — cada usuário via só metade. Canonicalizamos tudo pro MESMO formato
 // (sem o 9) pra juntar as duas e casar com o que o WhatsApp entrega.
+// Número ESTRANGEIRO (EUA 1+10, Bolívia 591+8, Bélgica 32+9...) também tem 11
+// dígitos — antes ganhava "55" na frente e a conversa abria vazia (as mensagens
+// estão no número real). Celular BR de 11 díg é DDD + 9 + 8, então só tratamos
+// como BR se o 3º dígito for 9 (DDD americano nunca tem 9 no meio).
+function isForeign11(d) { return d.length === 11 && d[2] !== '9' }
 function normalizeBRDigits(raw) {
   let d = (raw || '').replace(/@.*/, '').replace(/\D/g, '')
   if (!d) return ''
-  if (d.length === 11 || d.length === 10) d = '55' + d
+  // "55" + estrangeiro (gravado assim por engano) → volta pro número real
+  if (d.length === 13 && d.startsWith('55') && d[4] !== '9' && isForeign11(d.slice(2))) d = d.slice(2)
+  if ((d.length === 11 && !isForeign11(d)) || d.length === 10) d = '55' + d
   if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
   return d
 }
@@ -168,6 +175,8 @@ function numeroVariants(numero) {
       const with9 = '55' + d.slice(2, 4) + '9' + d.slice(4)  // reinsere o 9 extra
       out.add(with9); out.add(`${with9}@s.whatsapp.net`)
     }
+    // estrangeiro: inclui a forma antiga com "55" na frente (mensagens já gravadas assim)
+    if (isForeign11(d)) { out.add('55' + d); out.add(`55${d}@s.whatsapp.net`) }
   }
   return [...out]
 }
