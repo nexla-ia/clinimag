@@ -105,6 +105,12 @@
   font-weight: 500;
 }
 
+/* Módulo não contratado: aparece, mas apagado e com cadeado */
+.sidebar-link.locked { color: var(--text-muted); }
+.sidebar-link.locked svg:first-child { opacity: 0.55; }
+.sidebar-link.locked.active { background: #F5F3FF; color: #6D28D9; }
+.sidebar-lock { margin-left: auto; color: #A78BFA; flex-shrink: 0; }
+
 .sidebar-badge {
   margin-left: auto;
   font-size: 10px !important;

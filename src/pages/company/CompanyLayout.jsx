@@ -6,6 +6,7 @@ import BillingBanner from '../../components/BillingBanner'
 import BlockedScreen from '../../components/BlockedScreen'
 import SupportWidget from '../../components/SupportWidget'
 import UpdatePopup from '../../components/UpdatePopup'
+import ModuleLockedScreen from '../../components/ModuleLockedScreen'
 import { shouldBlockAccess } from '../../lib/billing'
 import { MessageSquare, History, BellRing, BarChart2, Settings2, Contact2, Calendar, Sparkles, Kanban, Stethoscope, GraduationCap, Instagram, ShieldCheck, Headset, MessageSquareHeart, Menu, X, Users, DollarSign, GitMerge } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -179,29 +180,32 @@ export default function CompanyLayout() {
   // modules: null = tudo habilitado; objeto = apenas as chaves false estão desativadas
   const mods = session?.company?.modules || {}
   const mod = key => mods[key] !== false  // true por padrão
+  // Módulo não contratado CONTINUA no menu, com cadeado: ao abrir, mostra uma prévia
+  // bloqueada com convite pra liberar (vende o módulo em vez de escondê-lo).
+  const item = (key, link) => mod(key) ? link : { ...link, locked: true, badge: null }
 
-  // Menus agrupados por contexto. Grupos vazios (por módulo desativado) somem.
+  // Menus agrupados por contexto.
   const groups = [
     { title: 'Atendimento', items: [
-      ...(mod('conversas') ? [{ to: '/painel/conversas', icon: MessageSquare, label: 'Conversas',
-        badge: activeCount > 0 ? activeCount : null, badgeColor: 'cyan' }] : []),
-      ...(aiEnabled && mod('conversas') ? [{ to: '/painel/historico', icon: History, label: 'Conversas IA' }] : []),
-      ...(mod('instagram') ? [{ to: '/painel/instagram', icon: Instagram, label: 'Instagram' }] : []),
-      ...(mod('grupos') ? [{ to: '/painel/grupos', icon: Users, label: 'Grupos',
-        badge: groupUnread > 0 ? groupUnread : null, badgeColor: 'cyan' }] : []),
-      ...(mod('alertas') ? [{ to: '/painel/alertas', icon: BellRing, label: 'Alertas',
-        badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' }] : []),
+      item('conversas', { to: '/painel/conversas', icon: MessageSquare, label: 'Conversas',
+        badge: activeCount > 0 ? activeCount : null, badgeColor: 'cyan' }),
+      ...(aiEnabled ? [item('conversas', { to: '/painel/historico', icon: History, label: 'Conversas IA' })] : []),
+      item('instagram', { to: '/painel/instagram', icon: Instagram, label: 'Instagram' }),
+      item('grupos', { to: '/painel/grupos', icon: Users, label: 'Grupos',
+        badge: groupUnread > 0 ? groupUnread : null, badgeColor: 'cyan' }),
+      item('alertas', { to: '/painel/alertas', icon: BellRing, label: 'Alertas',
+        badge: pendingAlerts > 0 ? pendingAlerts : null, badgeColor: 'amber' }),
     ] },
     { title: 'Gestão', items: [
-      ...(mod('contatos') ? [{ to: '/painel/contatos', icon: Contact2, label: 'Pacientes' }] : []),
-      ...(mod('agenda') ? [{ to: '/painel/agenda', icon: Calendar, label: 'Agenda' }] : []),
-      ...(mod('kanban') ? [{ to: '/painel/atividades', icon: Kanban, label: 'Kanban' }] : []),
-      ...(isAdmin && mod('crm') ? [{ to: '/painel/crm', icon: GitMerge, label: 'CRM' }] : []),
-      ...(isAdmin && mod('financeiro') ? [{ to: '/painel/financeiro', icon: DollarSign, label: 'Financeiro' }] : []),
-      ...(isAdmin && mod('catalogo') ? [{ to: '/painel/catalogo', icon: Stethoscope, label: 'Catálogo Clínico' }] : []),
+      item('contatos', { to: '/painel/contatos', icon: Contact2, label: 'Pacientes' }),
+      item('agenda', { to: '/painel/agenda', icon: Calendar, label: 'Agenda' }),
+      item('kanban', { to: '/painel/atividades', icon: Kanban, label: 'Kanban' }),
+      ...(isAdmin ? [item('crm', { to: '/painel/crm', icon: GitMerge, label: 'CRM' })] : []),
+      ...(isAdmin ? [item('financeiro', { to: '/painel/financeiro', icon: DollarSign, label: 'Financeiro' })] : []),
+      ...(isAdmin ? [item('catalogo', { to: '/painel/catalogo', icon: Stethoscope, label: 'Catálogo Clínico' })] : []),
     ] },
     { title: 'Análise', items: [
-      ...(isAdmin && mod('metricas') ? [{ to: '/painel/metricas', icon: BarChart2, label: 'Métricas' }] : []),
+      ...(isAdmin ? [item('metricas', { to: '/painel/metricas', icon: BarChart2, label: 'Métricas' })] : []),
     ] },
     { title: 'Conta & Ajuda', items: [
       ...(isAdmin ? [{ to: '/painel/admin', icon: Settings2, label: 'Administração' }] : []),
@@ -219,6 +223,16 @@ export default function CompanyLayout() {
   const links = groups
     .filter(g => g.items.length)
     .flatMap(g => [{ section: g.title }, ...g.items])
+
+  // Rota de módulo não contratado → tela bloqueada (vale também pra quem digita a URL).
+  const ROUTE_MODULE = [
+    ['/painel/conversas', 'conversas'], ['/painel/historico', 'conversas'], ['/painel/instagram', 'instagram'],
+    ['/painel/grupos', 'grupos'], ['/painel/alertas', 'alertas'], ['/painel/contatos', 'contatos'],
+    ['/painel/agenda', 'agenda'], ['/painel/atividades', 'kanban'], ['/painel/crm', 'crm'],
+    ['/painel/financeiro', 'financeiro'], ['/painel/catalogo', 'catalogo'], ['/painel/metricas', 'metricas'],
+  ]
+  const lockedModule = (ROUTE_MODULE.find(([p]) => location.pathname === p || location.pathname.startsWith(p + '/')) || [])[1]
+  const routeLocked = lockedModule && !mod(lockedModule)
 
   if (blocked) {
     return <BlockedScreen company={session?.company} onLogout={logout} />
@@ -249,7 +263,7 @@ export default function CompanyLayout() {
         </div>
         <BillingBanner company={session?.company} />
         <main className="company-main">
-          <Outlet />
+          {routeLocked ? <ModuleLockedScreen moduleKey={lockedModule} /> : <Outlet />}
         </main>
       </div>
       <SupportWidget

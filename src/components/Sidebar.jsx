@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { LogOut, KeyRound } from 'lucide-react'
+import { LogOut, KeyRound, Lock } from 'lucide-react'
 import ChangePasswordModal from './ChangePasswordModal'
 import './Sidebar.css'
 
@@ -42,10 +42,14 @@ export default function Sidebar({ links, role }) {
             </button>
           )
           : (
-            <NavLink key={link.to} to={link.to} end={link.end} className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <NavLink key={link.to} to={link.to} end={link.end}
+              title={link.locked ? 'Não incluso no seu plano — clique pra ver como liberar' : undefined}
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''} ${link.locked ? 'locked' : ''}`}>
               <link.icon size={16} />
               {link.label}
-              {link.badge ? <span className={`sidebar-badge nx-badge nx-badge-${link.badgeColor || 'cyan'}`}>{link.badge}</span> : null}
+              {link.locked
+                ? <Lock size={12} className="sidebar-lock" />
+                : link.badge ? <span className={`sidebar-badge nx-badge nx-badge-${link.badgeColor || 'cyan'}`}>{link.badge}</span> : null}
             </NavLink>
           )
         )}
