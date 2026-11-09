@@ -678,6 +678,7 @@ export default function AdmCompanyDetail() {
                   { key: 'contatos',   label: 'Pacientes',       desc: 'Cadastro de contatos/pacientes' },
                   { key: 'agenda',     label: 'Agenda',          desc: 'Agendamentos e lembretes' },
                   { key: 'kanban',     label: 'Kanban',          desc: 'Atividades e quadro kanban' },
+                  { key: 'crm',        label: 'CRM',             desc: 'Funil de leads e conversão' },
                   { key: 'financeiro', label: 'Financeiro',      desc: 'Orçamentos e pagamentos' },
                   { key: 'catalogo',   label: 'Catálogo Clínico', desc: 'Procedimentos e profissionais' },
                   { key: 'alertas',    label: 'Alertas',         desc: 'Notificações automáticas' },
