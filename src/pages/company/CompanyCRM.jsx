@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { phoneSearchVariants, phoneMatches } from '../../lib/phoneSearch'
+import { normalizePhoneDigits, isForeign11 } from '../../lib/phoneBR'
 import {
   Plus, X, Search, Clock, AlertTriangle, Phone, Mail,
   UserPlus, Flag, Edit2, Trash2, Check, Loader2, ChevronDown,
@@ -81,6 +82,7 @@ function initials(nome, phone) {
 function fmtPhone(p) {
   if (!p) return ''
   const d = p.replace(/\D/g, '')
+  if (isForeign11(d)) return `+${d}` // estrangeiro (+1, +32, +591...) não é (DDD) 9xxxx
   if (d.length >= 12) return `+${d.slice(0,2)} (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9,13)}`
   if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
   return p
@@ -104,12 +106,11 @@ function normPhone(p) {
 // deduplicar lead ao adicionar — o normPhone acima NÃO prefixa 55, então não
 // bate com a regra do gatilho e deixava passar duplicados (o INSERT era
 // bloqueado pelo gatilho e o .single() estourava "Cannot coerce...").
+// Estrangeiro (11 díg sem 9 na 3ª posição) NÃO ganha 55 — ver lib/phoneBR. O
+// gatilho do banco ainda põe 55 nele, mas os dois lados juntam as mesmas formas
+// (com e sem o 55), então a deduplicação continua batendo com o gatilho.
 function crmNormPhone(p) {
-  let d = (p || '').replace(/@.*/, '').replace(/\D/g, '')
-  if (!d) return ''
-  if (d.length === 10 || d.length === 11) d = '55' + d
-  if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
-  return d
+  return normalizePhoneDigits(p)
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

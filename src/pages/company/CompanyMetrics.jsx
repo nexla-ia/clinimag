@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import LimitReachedModal from '../../components/LimitReachedModal'
+import { normalizePhoneDigits, isForeign11 } from '../../lib/phoneBR'
 import { getEffectiveLimits, upgradeMessage } from '../../lib/planLimits'
 import {
   Users, MessageSquare, TrendingUp, Clock, Inbox, BarChart2, RefreshCw,
@@ -887,13 +888,12 @@ function OverviewTab({ msgs, convs, atts, appts, alerts, kanbanCards, leads, pro
   // mensagem dele (no histórico todo) cai dentro do período; recorrente = mandou
   // no período mas já tinha mandado antes.
   const isClientMsg = (t) => { const x = (t || '').toLowerCase(); return x === 'cliente' || x === 'human' }
-  const normPhone = (v) => {
-    let d = (v || '').replace(/@.*$/, '').replace(/\D/g, '')
-    if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
-    return d
-  }
+  // Mesma regra das Conversas: junta "55"+estrangeiro (gravado por engano) com o
+  // número real, pra não contar o mesmo paciente duas vezes.
+  const normPhone = normalizePhoneDigits
   const fmtPh = (v) => {
-    const d = (v || '').replace(/\D/g, '')
+    const d = normalizePhoneDigits(v)
+    if (d.length === 11 && isForeign11(d)) return `+${d}`
     if (d.startsWith('55') && d.length >= 12) { const ddd = d.slice(2, 4), n = d.slice(4); return `(${ddd}) ${n.slice(0, -4)}-${n.slice(-4)}` }
     return v || '—'
   }
@@ -3165,12 +3165,7 @@ function CRMTab({ crmContacts, crmStages, crmFunnels, crmInteractions, crmTags, 
   // Conversão pra AGENDA: leads (do escopo) cujo telefone casa com algum
   // agendamento (appointments.contact_numero), normalizando (55 + sem o 9).
   const agendaram = useMemo(() => {
-    const norm = p => {
-      let d = (p || '').replace(/@.*/, '').replace(/\D/g, '')
-      if (d.length === 10 || d.length === 11) d = '55' + d
-      if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = '55' + d.slice(2, 4) + d.slice(5)
-      return d
-    }
+    const norm = normalizePhoneDigits // estrangeiro não ganha 55 (lib/phoneBR)
     const apptPhones = new Set((appts || []).filter(a => a.status !== 'cancelado').map(a => norm(a.contact_numero)).filter(Boolean))
     return scopeLeads.filter(c => { const k = norm(c.phone); return k && apptPhones.has(k) }).length
   }, [appts, scopeLeads])

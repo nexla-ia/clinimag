@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fetchDistinctGrupos } from '../../lib/queries'
 import ConfirmModal from '../../components/ConfirmModal'
+import { normalizePhoneDigits, isForeign11 } from '../../lib/phoneBR'
 import LimitReachedModal from '../../components/LimitReachedModal'
 import { getEffectiveLimits, reachedLimit, upgradeMessage, formatLimit } from '../../lib/planLimits'
 import {
@@ -128,17 +129,12 @@ function minutesToTime(min) {
  *   "5569992695898"        → "556992695898"  (remove 9 extra)
  *   "556992695898"         → "556992695898"  (já tá certo)
  *   "69992695898"          → "556992695898"  (sem 55, adiciona)
+ *   "32465494943"          → "32465494943"   (estrangeiro: NÃO ganha 55)
+ * Antes o estrangeiro (EUA, Bolívia, Bélgica...) virava 55+número e o
+ * lembrete ia pro número errado — regra em lib/phoneBR.
  */
 function normalizeWhatsAppNumber(raw) {
-  let d = (raw || '').replace(/\D/g, '')
-  if (!d) return ''
-  // Adiciona 55 se veio só com DDD + número (11 ou 10 dígitos)
-  if (d.length === 11 || d.length === 10) d = '55' + d
-  // Remove o 9 extra: 13 dígitos, começa com 55, e o 5º dígito é 9
-  if (d.length === 13 && d.startsWith('55') && d[4] === '9') {
-    d = '55' + d.slice(2, 4) + d.slice(5)
-  }
-  return d
+  return normalizePhoneDigits(raw)
 }
 
 function formatPhoneDisplay(num) {
@@ -487,7 +483,8 @@ export default function CompanyAgenda() {
         .order('id', { ascending: false }).limit(5),
       supabase.from('appointments').select('id, starts_at, status, procedure_id, notes, prontuario, prontuario_at, prontuario_by')
         .eq('instancia', instance)
-        .eq('contact_numero', normNum)
+        // estrangeiro: inclui a forma antiga gravada com "55" na frente
+        .in('contact_numero', isForeign11(normNum) ? [normNum, '55' + normNum] : [normNum])
         .order('starts_at', { ascending: false }).limit(20),
     ]).then(([{ data: mgs }, { data: aps }]) => {
       if (mgs) setPatientHistory(mgs.reverse())
