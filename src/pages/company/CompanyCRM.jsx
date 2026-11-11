@@ -11,7 +11,7 @@ import {
   Thermometer, GitMerge, StickyNote, Kanban, Filter, List,
   ChevronRight, BookMarked, Zap, GripVertical, BarChart2,
 } from 'lucide-react'
-import { useContactTags, TagPicker, TagList } from '../../components/Tags'
+import { useContactTags, TagPicker, TagList, TagFilter, buildTagFilter } from '../../components/Tags'
 // Relatório do CRM (saiu da tela de Métricas e mora aqui agora).
 const CompanyMetrics = lazy(() => import('./CompanyMetrics'))
 
@@ -175,7 +175,8 @@ export default function CompanyCRM() {
   const [confirmDel, setConfirmDel]   = useState(null)
   // Etiquetas coloridas — as MESMAS das Conversas (contact_tags), casadas por
   // telefone canônico (sem o 9 extra), pra ser o mesmo sistema em todo lugar.
-  const { tagsOf } = useContactTags(instance)
+  const { tagsOf, assignments: tagAssignments } = useContactTags(instance)
+  const [filterTags, setFilterTags]   = useState([]) // ids de etiquetas no filtro do board (mostra quem tem QUALQUER uma)
 
   // Busca TODAS as linhas de uma tabela paginando (o PostgREST corta em 1000,
   // mesmo com .limit maior). applyFilters recebe o query builder e devolve ele.
@@ -587,13 +588,21 @@ export default function CompanyCRM() {
     const q = search.toLowerCase().trim()
     // Telefone: ignora espaço/hífen/parênteses e tolera o 9º dígito (antes "65 9911-8837" nunca achava).
     const phoneVars = phoneSearchVariants(q)
+    const matchTagFilter = buildTagFilter(filterTags, tagAssignments)
+    // A busca também acha pelo nome da etiqueta (colorida ou tag antiga do lead).
+    const tagHit = c => {
+      if (!q) return false
+      if (tagsOf(normPhone(c.phone)).some(t => (t.name||'').toLowerCase().includes(q))) return true
+      return (c.tags||[]).some(t => String(t).toLowerCase().includes(q))
+    }
     return contacts.filter(c => {
       if (!funnelsSetOf(c).has(activeFunnel)) return false
       if (filterTemp !== 'todos' && c.temperatura !== filterTemp) return false
-      if (q && !bestName(c).toLowerCase().includes(q) && !phoneMatches(c.phone, phoneVars) && !(c.email||'').toLowerCase().includes(q)) return false
+      if (filterTags.length && !matchTagFilter(normPhone(c.phone))) return false
+      if (q && !bestName(c).toLowerCase().includes(q) && !phoneMatches(c.phone, phoneVars) && !(c.email||'').toLowerCase().includes(q) && !tagHit(c)) return false
       return true
     })
-  }, [contacts, memberships, search, filterTemp, activeFunnel, funnels])
+  }, [contacts, memberships, search, filterTemp, filterTags, tagAssignments, activeFunnel, funnels])
 
   const byStage = useMemo(() => {
     const map = {}
@@ -1251,11 +1260,14 @@ export default function CompanyCRM() {
         </div>
 
         {activeView === 'board' && <>
+          {/* Filtro por etiqueta (as mesmas das Conversas) */}
+          <TagFilter instancia={instance} value={filterTags} onChange={setFilterTags} />
+
           {/* Search */}
           <div style={{ position:'relative' }}>
             <Search size={12} style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:C.muted, pointerEvents:'none' }}/>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar lead..."
-              style={{ paddingLeft:28, paddingRight:10, height:32, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, outline:'none', width:160, background:C.card, color:C.navy }}/>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar lead ou etiqueta..."
+              style={{ paddingLeft:28, paddingRight:10, height:32, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, outline:'none', width:190, background:C.card, color:C.navy }}/>
           </div>
 
           {/* Temp filter */}
