@@ -1035,7 +1035,8 @@ export default function CompanyCRM() {
     const { data: cands } = await supabase.from('saved_contacts').select('id,numero').eq('instancia', instance).ilike('numero', `%${tail}`)
     const existing = (cands || []).find(c => crmNormPhone(c.numero) === crmNormPhone(phone))
     if (!existing) {
-      const nome = (bestName(contact) || contact.nome || '').trim() || null
+      // saved_contacts.nome é NOT NULL: lead sem nome salva com o telefone formatado.
+      const nome = (bestName(contact) || contact.nome || '').trim() || fmtPhone(phone) || phone
       const { error } = await supabase.from('saved_contacts').insert({ instancia: instance, numero: phone, nome })
       if (error) { setSavingPatient(false); alert('Não consegui salvar o paciente: ' + error.message); return }
     }
@@ -2518,7 +2519,7 @@ export default function CompanyCRM() {
               <div style={{ fontSize:13,marginBottom:20 }}>
                 <div style={{ display:'flex',gap:8,background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'11px 13px',color:'#92400E' }}>
                   <span style={{ fontSize:16,lineHeight:1 }}>⚠️</span>
-                  <span><strong>{resolveName(confirmDel)}</strong> ainda <strong>não foi salvo como paciente</strong>. Salve antes de excluir pra não perder o contato.</span>
+                  <span><strong>{resolveName(confirmDel)}</strong> ainda <strong>não foi salvo como paciente</strong>. Se for paciente, salve antes de excluir pra não perder o contato. Se não for, pode remover direto.</span>
                 </div>
               </div>
             )}
@@ -2530,9 +2531,12 @@ export default function CompanyCRM() {
                   {savingPatient ? <Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/> : <Check size={13}/>} Salvar como paciente
                 </button>
               )}
-              <button onClick={()=>deleteContact(confirmDel.id)} disabled={!jaPaciente}
-                title={jaPaciente ? '' : 'Salve como paciente primeiro'}
-                style={{ padding:'8px 16px',borderRadius:8,background: jaPaciente ? '#DC2626' : '#E5E7EB', color: jaPaciente ? '#fff' : '#9CA3AF', border:'none', cursor: jaPaciente ? 'pointer' : 'not-allowed', fontSize:13, fontWeight:700 }}>Remover</button>
+              {/* Não-paciente também pode sair (ex.: quem não é da doutora) — antes
+                  o botão ficava travado e a clínica era obrigada a salvar qualquer um. */}
+              <button onClick={()=>deleteContact(confirmDel.id)}
+                style={{ padding:'8px 16px',borderRadius:8,background:'#DC2626',color:'#fff',border:'none',cursor:'pointer',fontSize:13,fontWeight:700 }}>
+                {jaPaciente ? 'Remover' : 'Remover sem salvar'}
+              </button>
             </div>
           </div>
         </div>
