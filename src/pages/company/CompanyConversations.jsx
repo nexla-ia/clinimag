@@ -1332,51 +1332,116 @@ export default function CompanyConversations() {
     setMsgText(''); setAttachedFiles([]); setRecordedAudio(null); setRecordTime(0)
   }, [selected?.session_id])
 
+  // ── Cache + pré-carregamento das conversas ──────────────────────────────
+  // Abrir conversa ficava vários segundos em "Carregando mensagens..." em
+  // máquina/internet mais lenta (o banco responde em ~0,1s; a espera é de rede).
+  // 1) cache: conversa já aberta reabre NA HORA e se atualiza em segundo plano;
+  // 2) pré-carrega ao passar o mouse na conversa, antes mesmo do clique.
+  const threadCacheRef = useRef(new Map())    // canonSession → { msgs, hasMore }
+  const threadInflightRef = useRef(new Map()) // canonSession → Promise
+  const hoverPrefetchRef = useRef(null)
+  const threadOwnerRef = useRef(null)          // canonSession da conversa cujas msgs estão na tela
+  // Guarda no máx. 30 conversas (as de mídia carregam base64 — não deixa a memória crescer sem fim).
+  function cachePut(key, val) {
+    const m = threadCacheRef.current
+    m.delete(key); m.set(key, val)
+    while (m.size > 30) m.delete(m.keys().next().value)
+  }
+
+  function fetchThread(sessionId) {
+    const key = canonSession(sessionId)
+    const inflight = threadInflightRef.current.get(key)
+    if (inflight) return inflight
+    const p = supabase.from(CONV_TABLE).select(msgCols)
+      .eq('instancia', instance)
+      .in('numero', numeroVariants(sessionId))
+      .is('idgrupo', null)
+      .or('aplicativo.eq.whatsapp,aplicativo.is.null')
+      .order('id', { ascending: false })
+      .limit(MSG_PAGE)
+      .then(({ data, error }) => {
+        if (error || !data) return null
+        const res = {
+          msgs: [...data].reverse().filter(r => !isToolMessage(r)).map(rowToMsg),
+          hasMore: data.length === MSG_PAGE,
+        }
+        cachePut(key, res)
+        return res
+      })
+      .finally(() => threadInflightRef.current.delete(key))
+    threadInflightRef.current.set(key, p)
+    return p
+  }
+
+  function prefetchOnHover(c) {
+    clearTimeout(hoverPrefetchRef.current)
+    if (!c || !instance) return
+    // pequeno atraso: só pré-carrega se o mouse PARAR na conversa (rolar a lista não dispara)
+    hoverPrefetchRef.current = setTimeout(() => {
+      const key = canonSession(c.session_id)
+      if (threadCacheRef.current.has(key) || threadInflightRef.current.has(key)) return
+      fetchThread(c.session_id)
+    }, 120)
+  }
+
+  // Troca de instância (ADM mestre trocando de empresa): o cache é de outra empresa.
+  useEffect(() => { threadCacheRef.current.clear() }, [instance])
+
   // Carrega mensagens da conversa selecionada (apenas as 50 mais recentes)
   useEffect(() => {
     if (!selected || !instance) return
     // Corrida: clicar rápido em outra conversa pode fazer a resposta desta
     // chegar depois e sobrescrever a conversa já aberta. Descarta se obsoleta.
     let active = true
-    setLoadingMsgs(true)
-    setMessages([])
-    setHasMoreMsgs(false)
+    const key = canonSession(selected.session_id)
+    const cached = threadCacheRef.current.get(key)
+    threadOwnerRef.current = key       // de quem são as mensagens que vão pra tela
     initialScrollRef.current = false   // nova conversa: o próximo render pula pro fim
     atBottomRef.current = true
     prevCountRef.current = 0
-    supabase.from(CONV_TABLE).select(msgCols)
-      .eq('instancia', instance)
-      .in('numero', numeroVariants(selected.session_id))
-      .is('idgrupo', null)
-      .or('aplicativo.eq.whatsapp,aplicativo.is.null')
-      .order('id', { ascending: false })
-      .limit(MSG_PAGE)
-      .then(({ data, error }) => {
-        if (!active) return
-        if (!error && data) {
-          const sorted = [...data].reverse()
-          setHasMoreMsgs(data.length === MSG_PAGE)
-          setMessages(sorted.filter(r => !isToolMessage(r)).map(r => ({
-            id: r.id,
-            id_mensagem: r.id_mensagem || null,
-            quoted_id_mensagem: r.quoted_id_mensagem || null,
-            quoted_text: r.quoted_text || null,
-            contact_card: r.contact_card || null,
-            location: r.location || null,
-            type: getMessageType(r),
-            content: getMessageContent(r),
-            base64: r.base64 || null,
-            temMidia: r.tem_midia,
-            apagada: r.apagada || false,
-            reaction: r.reaction || null,
-            nome: r.nome || null,
-            ts: getTimestamp(r),
-          })))
+    if (cached) {
+      // Mostra na hora o que já tinha e atualiza por trás (sempre busca de novo:
+      // pode ter chegado mensagem enquanto ela estava fechada).
+      setMessages(cached.msgs)
+      setHasMoreMsgs(cached.hasMore)
+      setLoadingMsgs(false)
+    } else {
+      setLoadingMsgs(true)
+      setMessages([])
+      setHasMoreMsgs(false)
+    }
+    fetchThread(selected.session_id).then(res => {
+      if (!active) return
+      if (res) {
+        if (cached) {
+          // Atualização em segundo plano: o banco manda, mas não perde o que
+          // chegou pelo realtime depois da busca nem o histórico antigo já carregado.
+          setMessages(prev => {
+            const freshIds = new Set(res.msgs.map(m => m.id))
+            const maxFresh = res.msgs.length ? res.msgs[res.msgs.length - 1].id : 0
+            const newer = prev.filter(m => !freshIds.has(m.id) && m.id > maxFresh)
+            return [...res.msgs, ...newer]
+          })
+        } else {
+          setMessages(res.msgs)
         }
-        setLoadingMsgs(false)
-      })
+        setHasMoreMsgs(res.hasMore)
+      }
+      setLoadingMsgs(false)
+    })
     return () => { active = false }
   }, [selected, instance])
+
+  // Mantém o cache da conversa aberta igual à tela (msgs novas, reações, apagadas).
+  // Usa o dono gravado no carregamento (não o `selected`), senão no render da troca
+  // as mensagens da conversa ANTERIOR iam pro cache da nova.
+  useEffect(() => {
+    const key = threadOwnerRef.current
+    if (!key || loadingMsgs || messages.length === 0) return
+    cachePut(key, {
+      msgs: messages.slice(-MSG_PAGE), hasMore: hasMoreMsgs || messages.length > MSG_PAGE,
+    })
+  }, [messages, loadingMsgs, hasMoreMsgs])
 
   async function loadMoreMessages() {
     if (loadingMoreMsgs || !hasMoreMsgs || !selected || !instance) return
@@ -2383,6 +2448,7 @@ export default function CompanyConversations() {
       base64: r.base64 || null,
       temMidia: r.tem_midia,
       apagada: r.apagada || false,
+      reaction: r.reaction || null,
       nome: r.nome || null,
       ts: getTimestamp(r),
     }
@@ -2659,6 +2725,8 @@ export default function CompanyConversations() {
                 key={c.session_id}
                 className={`contact-item ${selected?.session_id === c.session_id ? 'selected' : ''} ${unreadCounts[c.session_id] ? 'unread' : ''}`}
                 onClick={() => handleSelectContact(c)}
+                onMouseEnter={() => prefetchOnHover(c)}
+                onMouseLeave={() => clearTimeout(hoverPrefetchRef.current)}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setContextMenu({ x: e.clientX, y: e.clientY, contact: c })
